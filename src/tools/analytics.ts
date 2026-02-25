@@ -2,20 +2,21 @@
 
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { getDb, DATE_EXPR, MSG_FILTER, baseMessageConditions } from "../db.js";
+import { getDb, DATE_EXPR, MSG_FILTER, baseMessageConditions, repliedToCondition } from "../db.js";
 import { lookupContact } from "../contacts.js";
 
 export function registerAnalyticsTools(server: McpServer) {
   // -- message_stats --
   server.tool(
     "message_stats",
-    "Aggregate message statistics with flexible time-series grouping. Returns counts, sent/received splits, and averages grouped by day, week, month, year, hour, or day-of-week.",
+    "Aggregate message statistics with flexible time-series grouping. Returns counts, sent/received splits, and averages grouped by day, week, month, year, hour, or day-of-week. By default excludes contacts you've never replied to.",
     {
       contact: z.string().optional().describe("Filter by contact handle"),
       date_from: z.string().optional().describe("Start date (ISO)"),
       date_to: z.string().optional().describe("End date (ISO)"),
       group_by: z.enum(["day", "week", "month", "year", "hour", "dow"]).optional()
         .describe("Time grouping (default: month)"),
+      include_all: z.boolean().optional().describe("Include messages from all contacts, even those you've never replied to (default: false)"),
     },
     { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
     async (params) => {
@@ -45,6 +46,9 @@ export function registerAnalyticsTools(server: McpServer) {
       if (params.date_to) {
         conditions.push(`${DATE_EXPR} <= @date_to`);
         bindings.date_to = params.date_to;
+      }
+      if (!params.include_all && !params.contact) {
+        conditions.push(repliedToCondition());
       }
 
       const where = conditions.join(" AND ");
@@ -191,12 +195,13 @@ export function registerAnalyticsTools(server: McpServer) {
   // -- temporal_heatmap --
   server.tool(
     "temporal_heatmap",
-    "Generate a 7x24 activity heatmap (day-of-week x hour-of-day). Returns message counts for each of the 168 weekly time slots.",
+    "Generate a 7x24 activity heatmap (day-of-week x hour-of-day). Returns message counts for each of the 168 weekly time slots. By default excludes contacts you've never replied to.",
     {
       contact: z.string().optional().describe("Filter by contact handle"),
       date_from: z.string().optional().describe("Start date"),
       date_to: z.string().optional().describe("End date"),
       sent_only: z.boolean().optional().describe("Only your messages"),
+      include_all: z.boolean().optional().describe("Include messages from all contacts, even those you've never replied to (default: false)"),
     },
     { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
     async (params) => {
@@ -219,6 +224,9 @@ export function registerAnalyticsTools(server: McpServer) {
       }
       if (params.sent_only) {
         conditions.push("m.is_from_me = 1");
+      }
+      if (!params.include_all && !params.contact) {
+        conditions.push(repliedToCondition());
       }
 
       const where = conditions.join(" AND ");

@@ -8,7 +8,7 @@
 //   imessage-mcp dump --limit 5000             # custom limit
 //   imessage-mcp dump --contacts               # export contact list instead
 
-import { getDb, DATE_EXPR, MSG_FILTER, baseMessageConditions, getMessageText } from "../db.js";
+import { getDb, DATE_EXPR, MSG_FILTER, baseMessageConditions, getMessageText, repliedToCondition } from "../db.js";
 import { lookupContact } from "../contacts.js";
 
 interface DumpOptions {
@@ -17,11 +17,12 @@ interface DumpOptions {
   to?: string;
   limit: number;
   contacts: boolean;
+  all: boolean;
 }
 
 function parseArgs(): DumpOptions {
   const args = process.argv.slice(3); // skip node, script, "dump"
-  const opts: DumpOptions = { limit: 1000, contacts: false };
+  const opts: DumpOptions = { limit: 1000, contacts: false, all: false };
 
   for (let i = 0; i < args.length; i++) {
     switch (args[i]) {
@@ -40,6 +41,9 @@ function parseArgs(): DumpOptions {
       case "--contacts":
         opts.contacts = true;
         break;
+      case "--all":
+        opts.all = true;
+        break;
       case "--help":
       case "-h":
         console.log(`
@@ -54,6 +58,7 @@ Options:
   --to <date>          End date (ISO format)
   --limit <n>          Max messages (default: 1000)
   --contacts           Export contact list instead of messages
+  --all                Include all contacts, even those you've never replied to
   --help               Show this help
 
 Examples:
@@ -61,6 +66,7 @@ Examples:
   imessage-mcp dump --contact "+15551234567" --limit 5000
   imessage-mcp dump --from 2024-01-01 --to 2024-12-31
   imessage-mcp dump --contacts > contacts.json
+  imessage-mcp dump --contacts --all > all-contacts.json
 `);
         process.exit(0);
     }
@@ -69,8 +75,9 @@ Examples:
   return opts;
 }
 
-function dumpContacts() {
+function dumpContacts(opts: DumpOptions) {
   const db = getDb();
+  const repliedTo = opts.all ? '' : `AND ${repliedToCondition()}`;
 
   const rows = db.prepare(`
     SELECT
@@ -82,7 +89,7 @@ function dumpContacts() {
       MAX(${DATE_EXPR}) as last_message
     FROM message m
     JOIN handle h ON m.handle_id = h.ROWID
-    WHERE (m.text IS NOT NULL OR m.attributedBody IS NOT NULL) ${MSG_FILTER}
+    WHERE (m.text IS NOT NULL OR m.attributedBody IS NOT NULL) ${MSG_FILTER} ${repliedTo}
     GROUP BY h.id
     ORDER BY message_count DESC
   `).all() as any[];
@@ -110,6 +117,9 @@ function dumpMessages(opts: DumpOptions) {
   const conditions: string[] = baseMessageConditions();
   const bindings: Record<string, any> = {};
 
+  if (!opts.all && !opts.contact) {
+    conditions.push(repliedToCondition());
+  }
   if (opts.contact) {
     conditions.push("h.id LIKE @contact");
     bindings.contact = `%${opts.contact}%`;
@@ -181,7 +191,7 @@ function dumpMessages(opts: DumpOptions) {
 const opts = parseArgs();
 
 if (opts.contacts) {
-  dumpContacts();
+  dumpContacts(opts);
 } else {
   dumpMessages(opts);
 }

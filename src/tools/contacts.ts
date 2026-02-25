@@ -2,7 +2,7 @@
 
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { getDb, DATE_EXPR, MSG_FILTER } from "../db.js";
+import { getDb, DATE_EXPR, MSG_FILTER, repliedToCondition } from "../db.js";
 import { lookupContact } from "../contacts.js";
 import { clamp, DEFAULT_LIMIT, MAX_LIMIT } from "../helpers.js";
 
@@ -10,12 +10,13 @@ export function registerContactTools(server: McpServer) {
   // -- list_contacts --
   server.tool(
     "list_contacts",
-    "List all contacts with message counts and tier assignments. Supports filtering by tier and minimum message threshold.",
+    "List all contacts with message counts and tier assignments. Supports filtering by tier and minimum message threshold. By default, only shows contacts you've actually messaged (replied to). Use include_all to see all.",
     {
       tier: z.enum(["known", "unknown"]).optional()
         .describe("Filter by contact tier"),
       min_messages: z.number().optional().describe("Minimum message count to include"),
       sort_by: z.enum(["messages", "name", "recent"]).optional().describe("Sort order (default: messages)"),
+      include_all: z.boolean().optional().describe("Include messages from all contacts, even those you've never replied to (default: false)"),
       limit: z.number().optional().describe("Max results (default 50, max 500)"),
     },
     { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
@@ -28,6 +29,8 @@ export function registerContactTools(server: McpServer) {
         : params.sort_by === "recent" ? "MAX(m.date) DESC"
         : "COUNT(*) DESC";
 
+      const repliedTo = params.include_all ? '' : `AND ${repliedToCondition()}`;
+
       const sql = `
         SELECT
           h.id as handle,
@@ -39,7 +42,7 @@ export function registerContactTools(server: McpServer) {
         FROM message m
         JOIN handle h ON m.handle_id = h.ROWID
         WHERE (m.text IS NOT NULL OR m.attributedBody IS NOT NULL)
-          ${MSG_FILTER}
+          ${MSG_FILTER} ${repliedTo}
         GROUP BY h.id
         HAVING COUNT(*) >= @min_messages
         ORDER BY ${orderBy}

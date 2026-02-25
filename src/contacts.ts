@@ -123,6 +123,7 @@ function resolveFromAddressBook(handle: string): string | null {
  * Uses macOS AddressBook for resolution, falls back to raw handle.
  */
 export function lookupContact(handle: string): Contact {
+  if (!handle) return { id: "", name: "(unknown)", tier: "unknown" };
   const cleaned = handle.trim();
 
   // Resolve from macOS AddressBook

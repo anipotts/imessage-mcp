@@ -105,6 +105,7 @@ function getThreadByGuid(db: any, guid: string): any | null {
 
   // Extract text from attributedBody if needed
   parent.text = getMessageText(parent);
+  delete parent.attributedBody;
 
   // Get all replies
   const replies = db.prepare(`
@@ -125,6 +126,7 @@ function getThreadByGuid(db: any, guid: string): any | null {
   // Post-process replies
   for (const reply of replies) {
     reply.text = getMessageText(reply);
+    delete reply.attributedBody;
   }
 
   const parentContact = parent.handle ? lookupContact(parent.handle) : { name: "(me)" };

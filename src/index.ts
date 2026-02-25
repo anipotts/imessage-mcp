@@ -24,7 +24,7 @@ import { registerHelp } from "./help.js";
 
 const server = new McpServer({
   name: "imessage-mcp",
-  version: "1.0.0",
+  version: "1.1.0",
 });
 
 // Register all tool modules

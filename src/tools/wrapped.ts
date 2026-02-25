@@ -2,23 +2,26 @@
 
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { getDb, DATE_EXPR, MSG_FILTER, REACTION_TYPES, EFFECT_NAMES } from "../db.js";
+import { getDb, DATE_EXPR, MSG_FILTER, REACTION_TYPES, EFFECT_NAMES, repliedToCondition } from "../db.js";
 import { lookupContact } from "../contacts.js";
 
 export function registerWrappedTools(server: McpServer) {
   server.tool(
     "yearly_wrapped",
-    "Your iMessage Year in Review — like Spotify Wrapped but for texting. Returns a complete summary of a year: total messages, top contacts, busiest day, monthly trends, reactions, group chats, media shared, late-night texting, new contacts, and effects used.",
+    "Your iMessage Year in Review — like Spotify Wrapped but for texting. Returns a complete summary of a year: total messages, top contacts, busiest day, monthly trends, reactions, group chats, media shared, late-night texting, new contacts, and effects used. By default excludes contacts you've never replied to. Defaults to last year.",
     {
-      year: z.number().optional().describe("Year to summarize (default: current year)"),
+      year: z.number().optional().describe("Year to summarize (default: last year)"),
+      include_all: z.boolean().optional().describe("Include messages from all contacts, even those you've never replied to (default: false)"),
     },
     { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
     async (params) => {
       const db = getDb();
-      const year = params.year ?? new Date().getFullYear();
+      const year = params.year ?? new Date().getFullYear() - 1;
       const yearStart = `${year}-01-01`;
       const yearEnd = `${year}-12-31 23:59:59`;
       const b = { start: yearStart, end: yearEnd };
+
+      const repliedTo = params.include_all ? '' : `AND ${repliedToCondition()}`;
 
       // 1. Overview
       const overview = db.prepare(`
@@ -31,7 +34,7 @@ export function registerWrappedTools(server: McpServer) {
         FROM message m
         LEFT JOIN handle h ON m.handle_id = h.ROWID
         WHERE ${DATE_EXPR} BETWEEN @start AND @end
-          AND (m.text IS NOT NULL OR m.attributedBody IS NOT NULL) ${MSG_FILTER}
+          AND (m.text IS NOT NULL OR m.attributedBody IS NOT NULL) ${MSG_FILTER} ${repliedTo}
       `).get(b) as any;
 
       if (!overview || overview.total_messages === 0) {
@@ -46,7 +49,7 @@ export function registerWrappedTools(server: McpServer) {
         FROM message m
         JOIN handle h ON m.handle_id = h.ROWID
         WHERE ${DATE_EXPR} BETWEEN @start AND @end
-          AND (m.text IS NOT NULL OR m.attributedBody IS NOT NULL) ${MSG_FILTER}
+          AND (m.text IS NOT NULL OR m.attributedBody IS NOT NULL) ${MSG_FILTER} ${repliedTo}
         GROUP BY h.id ORDER BY messages DESC LIMIT 10
       `).all(b) as any[];
 
@@ -59,8 +62,9 @@ export function registerWrappedTools(server: McpServer) {
       const busiestDay = db.prepare(`
         SELECT strftime('%Y-%m-%d', ${DATE_EXPR}) as day, COUNT(*) as messages
         FROM message m
+        LEFT JOIN handle h ON m.handle_id = h.ROWID
         WHERE ${DATE_EXPR} BETWEEN @start AND @end
-          AND (m.text IS NOT NULL OR m.attributedBody IS NOT NULL) ${MSG_FILTER}
+          AND (m.text IS NOT NULL OR m.attributedBody IS NOT NULL) ${MSG_FILTER} ${repliedTo}
         GROUP BY day ORDER BY messages DESC LIMIT 1
       `).get(b) as any;
 
@@ -68,8 +72,9 @@ export function registerWrappedTools(server: McpServer) {
       const busiestMonth = db.prepare(`
         SELECT strftime('%Y-%m', ${DATE_EXPR}) as month, COUNT(*) as messages
         FROM message m
+        LEFT JOIN handle h ON m.handle_id = h.ROWID
         WHERE ${DATE_EXPR} BETWEEN @start AND @end
-          AND (m.text IS NOT NULL OR m.attributedBody IS NOT NULL) ${MSG_FILTER}
+          AND (m.text IS NOT NULL OR m.attributedBody IS NOT NULL) ${MSG_FILTER} ${repliedTo}
         GROUP BY month ORDER BY messages DESC LIMIT 1
       `).get(b) as any;
 
@@ -79,8 +84,9 @@ export function registerWrappedTools(server: McpServer) {
           SUM(CASE WHEN m.is_from_me = 1 THEN 1 ELSE 0 END) as sent,
           SUM(CASE WHEN m.is_from_me = 0 THEN 1 ELSE 0 END) as received
         FROM message m
+        LEFT JOIN handle h ON m.handle_id = h.ROWID
         WHERE ${DATE_EXPR} BETWEEN @start AND @end
-          AND (m.text IS NOT NULL OR m.attributedBody IS NOT NULL) ${MSG_FILTER}
+          AND (m.text IS NOT NULL OR m.attributedBody IS NOT NULL) ${MSG_FILTER} ${repliedTo}
         GROUP BY month ORDER BY month
       `).all(b);
 
@@ -136,9 +142,10 @@ export function registerWrappedTools(server: McpServer) {
           SUM(CASE WHEN m.is_from_me = 1 THEN 1 ELSE 0 END) as sent,
           SUM(CASE WHEN m.is_from_me = 0 THEN 1 ELSE 0 END) as received
         FROM message m
+        LEFT JOIN handle h ON m.handle_id = h.ROWID
         WHERE ${DATE_EXPR} BETWEEN @start AND @end
           AND CAST(strftime('%H', ${DATE_EXPR}) AS INTEGER) < 5
-          AND (m.text IS NOT NULL OR m.attributedBody IS NOT NULL) ${MSG_FILTER}
+          AND (m.text IS NOT NULL OR m.attributedBody IS NOT NULL) ${MSG_FILTER} ${repliedTo}
       `).get(b) as any;
 
       // 10. New contacts this year (first-ever message is in this year)
@@ -147,7 +154,7 @@ export function registerWrappedTools(server: McpServer) {
           SELECT h.id as handle, MIN(${DATE_EXPR}) as first_msg
           FROM message m
           JOIN handle h ON m.handle_id = h.ROWID
-          WHERE (m.text IS NOT NULL OR m.attributedBody IS NOT NULL) ${MSG_FILTER}
+          WHERE (m.text IS NOT NULL OR m.attributedBody IS NOT NULL) ${MSG_FILTER} ${repliedTo}
           GROUP BY h.id
         )
         SELECT handle, first_msg

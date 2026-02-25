@@ -2,7 +2,7 @@
 
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { getDb, DATE_EXPR, MSG_FILTER } from "../db.js";
+import { getDb, DATE_EXPR, MSG_FILTER, repliedToCondition, getMessageText } from "../db.js";
 import { lookupContact } from "../contacts.js";
 import { clamp, MAX_LIMIT } from "../helpers.js";
 
@@ -10,25 +10,27 @@ export function registerPatternTools(server: McpServer) {
   // -- who_initiates --
   server.tool(
     "who_initiates",
-    "Who starts conversations? After a gap of N hours, the next message is a 'conversation initiation.' Shows per-contact who reaches out first and how often. Answers 'do I always text first?'",
+    "Who starts conversations? After a gap of N hours, the next message is a 'conversation initiation.' Shows per-contact who reaches out first and how often. Answers 'do I always text first?' By default excludes contacts you've never replied to.",
     {
       contact: z.string().optional().describe("Filter by contact (omit for global ranking)"),
-      gap_hours: z.number().optional().describe("Hours of silence before a new conversation (default: 4)"),
+      gap_hours: z.number().optional().describe("Hours of silence before a new conversation (default: 8)"),
+      min_conversations: z.number().optional().describe("Minimum conversations to include contact (default: 5)"),
       date_from: z.string().optional().describe("Start date (ISO)"),
       date_to: z.string().optional().describe("End date (ISO)"),
+      include_all: z.boolean().optional().describe("Include messages from all contacts, even those you've never replied to (default: false)"),
       limit: z.number().optional().describe("Max contacts to show (default 20)"),
     },
     { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
     async (params) => {
       const db = getDb();
       const limit = clamp(params.limit ?? 20, 1, MAX_LIMIT);
-      const gapNano = (params.gap_hours ?? 4) * 3600 * 1_000_000_000;
+      const gapNano = (params.gap_hours ?? 8) * 3600 * 1_000_000_000;
 
       const conditions = [
         "(m.text IS NOT NULL OR m.attributedBody IS NOT NULL)",
         "m.associated_message_type = 0",
       ];
-      const bindings: Record<string, any> = { gap_nano: gapNano, limit };
+      const bindings: Record<string, any> = { gap_nano: gapNano, min_conversations: params.min_conversations ?? 5, limit };
 
       if (params.contact) {
         conditions.push("h.id LIKE @contact");
@@ -41,6 +43,9 @@ export function registerPatternTools(server: McpServer) {
       if (params.date_to) {
         conditions.push(`${DATE_EXPR} <= @date_to`);
         bindings.date_to = params.date_to;
+      }
+      if (!params.include_all && !params.contact) {
+        conditions.push(repliedToCondition());
       }
 
       const where = conditions.join(" AND ");
@@ -64,7 +69,7 @@ export function registerPatternTools(server: McpServer) {
           COUNT(*) as total_conversations
         FROM initiations
         GROUP BY handle
-        HAVING total_conversations >= 3
+        HAVING total_conversations >= @min_conversations
         ORDER BY total_conversations DESC
         LIMIT @limit
       `).all(bindings) as any[];
@@ -86,7 +91,7 @@ export function registerPatternTools(server: McpServer) {
         content: [{
           type: "text",
           text: JSON.stringify({
-            gap_hours: params.gap_hours ?? 4,
+            gap_hours: params.gap_hours ?? 8,
             contacts: enriched,
           }, null, 2),
         }],
@@ -97,9 +102,11 @@ export function registerPatternTools(server: McpServer) {
   // -- streaks --
   server.tool(
     "streaks",
-    "Consecutive-day messaging streaks with contacts. Like Snapchat streaks but for iMessage. Shows longest streak, when it happened, and current streak status.",
+    "Consecutive-day messaging streaks with contacts. Like Snapchat streaks but for iMessage. Shows longest streak, when it happened, and current streak status. By default excludes contacts you've never replied to.",
     {
       contact: z.string().optional().describe("Filter by contact (omit for top streaks across all contacts)"),
+      min_streak: z.number().optional().describe("Minimum streak length in days (default: 3)"),
+      include_all: z.boolean().optional().describe("Include messages from all contacts, even those you've never replied to (default: false)"),
       limit: z.number().optional().describe("Max contacts (default 20)"),
     },
     { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
@@ -108,8 +115,12 @@ export function registerPatternTools(server: McpServer) {
       const limit = clamp(params.limit ?? 20, 1, MAX_LIMIT);
 
       const contactFilter = params.contact ? "AND h.id LIKE @contact" : "";
+      const repliedTo = (!params.include_all && !params.contact) ? `AND ${repliedToCondition()}` : '';
       const bindings: Record<string, any> = { limit };
       if (params.contact) bindings.contact = `%${params.contact}%`;
+
+      const minStreak = params.min_streak ?? 3;
+      bindings.min_streak = minStreak;
 
       const rows = db.prepare(`
         WITH daily AS (
@@ -117,7 +128,7 @@ export function registerPatternTools(server: McpServer) {
           FROM message m
           JOIN handle h ON m.handle_id = h.ROWID
           WHERE (m.text IS NOT NULL OR m.attributedBody IS NOT NULL) ${MSG_FILTER}
-            ${contactFilter}
+            ${contactFilter} ${repliedTo}
         ),
         streaks AS (
           SELECT handle, day,
@@ -134,7 +145,7 @@ export function registerPatternTools(server: McpServer) {
           FROM streak_lengths
         )
         SELECT handle, days as longest_streak, start_date, end_date
-        FROM best WHERE rn = 1
+        FROM best WHERE rn = 1 AND days >= @min_streak
         ORDER BY longest_streak DESC
         LIMIT @limit
       `).all(bindings) as any[];
@@ -167,6 +178,13 @@ export function registerPatternTools(server: McpServer) {
           WHERE julianday(@today) - julianday(end_date) <= 1
         `).get({ handle: row.handle, today }) as any;
 
+        // Get total active days
+        const activeDays = db.prepare(`
+          SELECT COUNT(DISTINCT date(${DATE_EXPR})) as days
+          FROM message m JOIN handle h ON m.handle_id = h.ROWID
+          WHERE h.id = @handle AND (m.text IS NOT NULL OR m.attributedBody IS NOT NULL) ${MSG_FILTER}
+        `).get({ handle: row.handle }) as any;
+
         return {
           handle: row.handle,
           name: contact.name,
@@ -174,6 +192,7 @@ export function registerPatternTools(server: McpServer) {
           current_streak: currentStreak
             ? { days: currentStreak.days, from: currentStreak.start_date, active: true }
             : { days: 0, active: false },
+          total_active_days: activeDays?.days ?? 0,
         };
       });
 
@@ -189,9 +208,9 @@ export function registerPatternTools(server: McpServer) {
   // -- double_texts --
   server.tool(
     "double_texts",
-    "Detect double-texting and unanswered message patterns. Finds when you (or a contact) sent multiple consecutive messages without a reply. Shows frequency, longest bursts, and who does it more.",
+    "Detect double-texting and unanswered message patterns. Finds when you (or a contact) sent multiple consecutive messages without a reply. Shows frequency, longest bursts, and who does it more. Omit contact for a global ranking of who you double-text the most.",
     {
-      contact: z.string().describe("Contact handle or name"),
+      contact: z.string().optional().describe("Contact handle or name (omit for global double-text ranking)"),
       min_consecutive: z.number().optional().describe("Minimum consecutive messages to count (default: 2)"),
       date_from: z.string().optional().describe("Start date (ISO)"),
       date_to: z.string().optional().describe("End date (ISO)"),
@@ -203,6 +222,72 @@ export function registerPatternTools(server: McpServer) {
       const limit = clamp(params.limit ?? 20, 1, MAX_LIMIT);
       const minConsecutive = params.min_consecutive ?? 2;
 
+      if (!params.contact) {
+        // Global ranking: who does the user double-text most?
+        const conditions = [
+          "(m.text IS NOT NULL OR m.attributedBody IS NOT NULL)",
+          "m.associated_message_type = 0",
+        ];
+        const bindings: Record<string, any> = { min_consecutive: minConsecutive, limit };
+
+        // Apply spam filter for global queries
+        conditions.push(repliedToCondition());
+
+        if (params.date_from) {
+          conditions.push(`${DATE_EXPR} >= @date_from`);
+          bindings.date_from = params.date_from;
+        }
+        if (params.date_to) {
+          conditions.push(`${DATE_EXPR} <= @date_to`);
+          bindings.date_to = params.date_to;
+        }
+
+        const where = conditions.join(" AND ");
+
+        const ranking = db.prepare(`
+          WITH msgs AS (
+            SELECT m.is_from_me, ${DATE_EXPR} as date, h.id as handle,
+              ROW_NUMBER() OVER (PARTITION BY h.id ORDER BY m.date) as rn,
+              ROW_NUMBER() OVER (PARTITION BY h.id, m.is_from_me ORDER BY m.date) as part_rn
+            FROM message m
+            JOIN handle h ON m.handle_id = h.ROWID
+            WHERE ${where}
+          ),
+          runs AS (
+            SELECT handle, is_from_me, COUNT(*) as consecutive
+            FROM msgs GROUP BY handle, is_from_me, rn - part_rn
+            HAVING consecutive >= @min_consecutive
+          )
+          SELECT handle,
+            SUM(CASE WHEN is_from_me = 1 THEN 1 ELSE 0 END) as your_double_texts,
+            SUM(CASE WHEN is_from_me = 0 THEN 1 ELSE 0 END) as their_double_texts,
+            MAX(consecutive) as max_burst
+          FROM runs
+          GROUP BY handle
+          ORDER BY your_double_texts DESC
+          LIMIT @limit
+        `).all(bindings) as any[];
+
+        const enriched = ranking.map((row: any) => {
+          const c = lookupContact(row.handle);
+          return {
+            handle: row.handle,
+            name: c.name,
+            your_double_texts: row.your_double_texts,
+            their_double_texts: row.their_double_texts,
+            max_burst: row.max_burst,
+          };
+        });
+
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({ min_consecutive: minConsecutive, ranking: enriched }, null, 2),
+          }],
+        };
+      }
+
+      // Contact-specific mode
       const conditions = [
         "h.id LIKE @contact",
         "(m.text IS NOT NULL OR m.attributedBody IS NOT NULL)",
@@ -268,7 +353,7 @@ export function registerPatternTools(server: McpServer) {
           ROUND(AVG(consecutive), 1) as avg_burst,
           MAX(consecutive) as max_burst
         FROM runs
-        GROUP BY is_from_me
+        Group BY is_from_me
       `).all(bindings) as any[];
 
       const contact = lookupContact(params.contact);
@@ -322,7 +407,10 @@ export function registerPatternTools(server: McpServer) {
             ${DATE_EXPR} as date,
             LAG(${DATE_EXPR}) OVER (ORDER BY m.date) as prev_date,
             m.date as raw_date,
-            LAG(m.date) OVER (ORDER BY m.date) as prev_raw_date
+            LAG(m.date) OVER (ORDER BY m.date) as prev_raw_date,
+            m.is_from_me as broken_by_me,
+            m.text as break_text,
+            m.attributedBody as break_body
           FROM message m
           JOIN handle h ON m.handle_id = h.ROWID
           WHERE h.id LIKE @contact
@@ -331,7 +419,10 @@ export function registerPatternTools(server: McpServer) {
         SELECT
           prev_date as silence_start,
           date as silence_end,
-          ROUND((raw_date - prev_raw_date) / 1000000000.0 / 86400.0, 1) as gap_days
+          ROUND((raw_date - prev_raw_date) / 1000000000.0 / 86400.0, 1) as gap_days,
+          broken_by_me,
+          break_text,
+          break_body
         FROM msg_pairs
         WHERE prev_raw_date IS NOT NULL
           AND (raw_date - prev_raw_date) > @min_gap_nano
@@ -355,6 +446,8 @@ export function registerPatternTools(server: McpServer) {
               gap_days: r.gap_days,
               silence_start: r.silence_start,
               silence_end: r.silence_end,
+              broken_by: r.broken_by_me ? "you" : contact.name,
+              ice_breaker_text: getMessageText({ text: r.break_text, attributedBody: r.break_body }) || "(attachment)",
             })),
           }, null, 2),
         }],
@@ -365,10 +458,11 @@ export function registerPatternTools(server: McpServer) {
   // -- forgotten_contacts --
   server.tool(
     "forgotten_contacts",
-    "Find dormant relationships — contacts you used to message but haven't talked to in a long time. Great for reconnecting with people you've lost touch with.",
+    "Find dormant relationships — contacts you used to message but haven't talked to in a long time. Great for reconnecting with people you've lost touch with. By default excludes contacts you've never replied to.",
     {
       min_messages: z.number().optional().describe("Minimum past messages to qualify (default: 10)"),
       inactive_days: z.number().optional().describe("Days of inactivity to count as 'forgotten' (default: 365)"),
+      include_all: z.boolean().optional().describe("Include messages from all contacts, even those you've never replied to (default: false)"),
       limit: z.number().optional().describe("Max results (default 20)"),
     },
     { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
@@ -381,6 +475,8 @@ export function registerPatternTools(server: McpServer) {
       cutoff.setDate(cutoff.getDate() - (params.inactive_days ?? 365));
       const cutoffDate = cutoff.toISOString().slice(0, 10);
 
+      const repliedTo = params.include_all ? '' : `AND ${repliedToCondition()}`;
+
       const rows = db.prepare(`
         SELECT
           h.id as handle,
@@ -391,7 +487,7 @@ export function registerPatternTools(server: McpServer) {
           MAX(${DATE_EXPR}) as last_message
         FROM message m
         JOIN handle h ON m.handle_id = h.ROWID
-        WHERE (m.text IS NOT NULL OR m.attributedBody IS NOT NULL) ${MSG_FILTER}
+        WHERE (m.text IS NOT NULL OR m.attributedBody IS NOT NULL) ${MSG_FILTER} ${repliedTo}
         GROUP BY h.id
         HAVING total_messages >= @min_messages AND MAX(${DATE_EXPR}) < @cutoff
         ORDER BY total_messages DESC

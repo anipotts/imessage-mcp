@@ -2,7 +2,7 @@
 
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { getDb, DATE_EXPR, MSG_FILTER, getMessageText } from "../db.js";
+import { getDb, DATE_EXPR, MSG_FILTER, getMessageText, repliedToCondition } from "../db.js";
 import { lookupContact } from "../contacts.js";
 import { clamp } from "../helpers.js";
 
@@ -10,10 +10,12 @@ export function registerMemoryTools(server: McpServer) {
   // -- on_this_day --
   server.tool(
     "on_this_day",
-    "Messages from this date in previous years — like 'Memories' for iMessage. Shows what you and your contacts were talking about exactly 1, 2, 3+ years ago today.",
+    "Messages from this date in previous years — like 'Memories' for iMessage. Shows what you and your contacts were talking about exactly 1, 2, 3+ years ago today. By default excludes contacts you've never replied to.",
     {
       date: z.string().optional().describe("Date to look up (ISO format, default: today)"),
+      month_day: z.string().optional().describe("Month-day to look up (MM-DD format, e.g. '12-25' for Christmas). Defaults to today."),
       contact: z.string().optional().describe("Filter by contact handle or name"),
+      include_all: z.boolean().optional().describe("Include messages from all contacts, even those you've never replied to (default: false)"),
       limit: z.number().optional().describe("Max messages per year (default 5)"),
     },
     { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
@@ -21,9 +23,27 @@ export function registerMemoryTools(server: McpServer) {
       const db = getDb();
       const perYear = clamp(params.limit ?? 5, 1, 50);
 
-      const now = params.date ? new Date(params.date + "T12:00:00") : new Date();
-      const monthDay = `${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-      const currentYear = String(now.getFullYear());
+      const now = new Date();
+      const currentYear = now.getFullYear();
+
+      let monthDay: string;
+      if (params.month_day) {
+        const match = params.month_day.match(/^(\d{1,2})-(\d{1,2})$/);
+        if (!match) {
+          return { content: [{ type: "text", text: `Invalid month_day format "${params.month_day}". Use MM-DD (e.g., "12-25").` }] };
+        }
+        const month = parseInt(match[1]);
+        const day = parseInt(match[2]);
+        if (month < 1 || month > 12 || day < 1 || day > 31) {
+          return { content: [{ type: "text", text: `Invalid month_day "${params.month_day}". Month must be 01-12, day must be 01-31.` }] };
+        }
+        monthDay = `${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+      } else if (params.date) {
+        const d = new Date(params.date + "T12:00:00");
+        monthDay = `${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      } else {
+        monthDay = `${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+      }
 
       const conditions = [
         `strftime('%m-%d', ${DATE_EXPR}) = @month_day`,
@@ -31,11 +51,14 @@ export function registerMemoryTools(server: McpServer) {
         "(m.text IS NOT NULL OR m.attributedBody IS NOT NULL)",
         "m.associated_message_type = 0",
       ];
-      const bindings: Record<string, any> = { month_day: monthDay, current_year: currentYear };
+      const bindings: Record<string, any> = { month_day: monthDay, current_year: String(currentYear) };
 
       if (params.contact) {
         conditions.push("h.id LIKE @contact");
         bindings.contact = `%${params.contact}%`;
+      }
+      if (!params.include_all && !params.contact) {
+        conditions.push(repliedToCondition());
       }
 
       const where = conditions.join(" AND ");
@@ -52,6 +75,12 @@ export function registerMemoryTools(server: McpServer) {
       if (years.length === 0) {
         return { content: [{ type: "text", text: `No messages found for ${monthDay} in previous years.` }] };
       }
+
+      // Add years_ago to each year result
+      const yearsEnriched = years.map((y: any) => ({
+        ...y,
+        years_ago: currentYear - parseInt(y.year),
+      }));
 
       // Fetch messages
       const messages = db.prepare(`
@@ -86,7 +115,7 @@ export function registerMemoryTools(server: McpServer) {
           type: "text",
           text: JSON.stringify({
             lookup_date: `${currentYear}-${monthDay}`,
-            years_with_messages: years,
+            years_with_messages: yearsEnriched,
             messages_by_year: byYear,
           }, null, 2),
         }],

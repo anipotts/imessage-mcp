@@ -2,14 +2,14 @@
 
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { getDb, DATE_EXPR, baseMessageConditions, getMessageText } from "../db.js";
+import { getDb, DATE_EXPR, baseMessageConditions, getMessageText, repliedToCondition } from "../db.js";
 import { formatResults, clamp, DEFAULT_LIMIT, MAX_LIMIT } from "../helpers.js";
 
 export function registerMessageTools(server: McpServer) {
   // -- search_messages --
   server.tool(
     "search_messages",
-    "Full-text search across all iMessages with rich filtering. Supports query text, contact, date range, direction, group chat, and attachment filters.",
+    "Full-text search across all iMessages with rich filtering. Supports query text, contact, date range, direction, group chat, and attachment filters. By default, only searches contacts you've messaged. Use include_all to search everything.",
     {
       query: z.string().optional().describe("Text to search for (case-insensitive substring match)"),
       contact: z.string().optional().describe("Filter by contact handle (phone/email) or name"),
@@ -19,6 +19,7 @@ export function registerMessageTools(server: McpServer) {
       received_only: z.boolean().optional().describe("Only messages received"),
       group_chat: z.string().optional().describe("Filter by group chat name or chat_identifier"),
       has_attachment: z.boolean().optional().describe("Only messages with attachments"),
+      include_all: z.boolean().optional().describe("Include messages from all contacts, even those you've never replied to (default: false)"),
       limit: z.number().optional().describe("Max results (default 50, max 500)"),
       offset: z.number().optional().describe("Pagination offset"),
     },
@@ -32,8 +33,11 @@ export function registerMessageTools(server: McpServer) {
       const bindings: Record<string, any> = {};
 
       if (params.query) {
-        conditions.push("COALESCE(m.text, '') LIKE @query");
+        conditions.push(`(COALESCE(m.text, '') LIKE @query OR (m.text IS NULL AND m.attributedBody IS NOT NULL))`);
         bindings.query = `%${params.query}%`;
+      }
+      if (!params.include_all && !params.contact) {
+        conditions.push(repliedToCondition());
       }
       if (params.contact) {
         conditions.push("h.id LIKE @contact");
@@ -75,6 +79,9 @@ export function registerMessageTools(server: McpServer) {
       const countRow = db.prepare(countSql).get(bindings) as any;
       const total = countRow?.total ?? 0;
 
+      // Fetch extra rows to account for attributedBody false positives
+      const fetchLimit = params.query ? limit * 3 : limit;
+
       // Fetch results
       const sql = `
         SELECT
@@ -93,18 +100,26 @@ export function registerMessageTools(server: McpServer) {
         LEFT JOIN handle h ON m.handle_id = h.ROWID
         WHERE ${where}
         ORDER BY m.date DESC
-        LIMIT @limit OFFSET @offset
+        LIMIT @fetchLimit OFFSET @offset
       `;
-      const rows = db.prepare(sql).all({ ...bindings, limit, offset }) as any[];
+      const rows = db.prepare(sql).all({ ...bindings, fetchLimit, offset }) as any[];
 
-      // Post-process: extract text from attributedBody when text is null
+      // Post-process: extract text from attributedBody, filter false positives
+      const processed: any[] = [];
       for (const row of rows) {
         row.text = getMessageText(row);
         delete row.attributedBody;
+        if (!row.text) continue;
+        if (params.query && !row.text.toLowerCase().includes(params.query.toLowerCase())) continue;
+        processed.push(row);
+        if (processed.length >= limit) break;
       }
 
+      // When query includes attributedBody fallback, total may be inflated
+      const reportTotal = params.query ? undefined : total;
+
       return {
-        content: [{ type: "text", text: formatResults(rows, total, offset, limit) }],
+        content: [{ type: "text", text: formatResults(processed, reportTotal, offset, limit) }],
       };
     },
   );

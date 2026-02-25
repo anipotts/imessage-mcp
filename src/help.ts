@@ -4,7 +4,7 @@
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
-const VERSION = "1.0.0";
+const VERSION = "1.1.0";
 
 function buildHelpText(): string {
   return `# imessage-mcp v${VERSION}
@@ -122,11 +122,14 @@ analyzing, and exploring your entire message history.
 **"What was I texting about on this day last year?"**
   → on_this_day()
 
-**"Do I always text first?"**
-  → who_initiates({ contact: "friend name" })
+**"Who texts first more — me or Sarah?"**
+  → who_initiates({ contact: "Sarah" })
 
-**"What's my longest texting streak?"**
+**"What's my longest texting streak with anyone?"**
   → streaks()
+
+**"Who do I double-text the most?"**
+  → double_texts()
 
 **"Give me my 2024 iMessage Wrapped"**
   → yearly_wrapped({ year: 2024 })
@@ -143,6 +146,24 @@ analyzing, and exploring your entire message history.
 - Contact names are resolved from your macOS AddressBook automatically
 - All tools are read-only — nothing is modified
 - Call \`help()\` anytime to see this guide again
+
+---
+
+## Spam Filtering
+
+By default, listing and global search tools only include contacts you've actually
+replied to (sent at least one message to). This filters out spam, promo texts,
+and unknown senders.
+
+**Affected tools**: search_messages (global), list_contacts, message_stats (global),
+temporal_heatmap (global), who_initiates (global), streaks (global), on_this_day (global),
+forgotten_contacts, yearly_wrapped
+
+**Not affected**: get_conversation, get_contact, resolve_contact, contact_stats,
+first_last_message, conversation_gaps, reactions, read receipts,
+threads, edits, effects, group chats, attachments
+
+To include all contacts (including spam): pass \`include_all: true\` to any filtered tool.
 
 ---
 

@@ -29,6 +29,15 @@ export function baseMessageConditions(): string[] {
   ];
 }
 
+/** Subquery: only handles the user has sent at least one message to */
+export function repliedToCondition(): string {
+  return `h.id IN (
+    SELECT DISTINCT h2.id FROM handle h2
+    JOIN message m2 ON m2.handle_id = h2.ROWID
+    WHERE m2.is_from_me = 1
+  )`;
+}
+
 // Tapback reaction types (associated_message_type values)
 export const REACTION_TYPES: Record<number, string> = {
   2000: "love",

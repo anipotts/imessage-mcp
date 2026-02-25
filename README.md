@@ -10,17 +10,21 @@ Read-only access to your Mac's iMessage database — search messages, analyze co
 
 ## Setup
 
-**1. Grant Full Disk Access** to your terminal app:
+### 1. Grant Full Disk Access
 
 System Settings → Privacy & Security → Full Disk Access → enable your terminal app (Terminal, iTerm2, Warp, etc.)
 
-**2. Run diagnostics:**
+### 2. Run diagnostics
 
 ```bash
 npx imessage-mcp doctor
 ```
 
-**3. Add to Claude Desktop** (`~/Library/Application Support/Claude/claude_desktop_config.json`):
+### 3. Add to your MCP client
+
+#### Claude Desktop
+
+`~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 ```json
 {
@@ -33,7 +37,108 @@ npx imessage-mcp doctor
 }
 ```
 
-**4. Restart Claude Desktop.** Ask it "search my messages for coffee" — done.
+#### Claude Code (CLI)
+
+```bash
+claude mcp add imessage -- npx -y imessage-mcp
+```
+
+Or add to `.mcp.json` in your project root:
+
+```json
+{
+  "mcpServers": {
+    "imessage": {
+      "command": "npx",
+      "args": ["-y", "imessage-mcp"]
+    }
+  }
+}
+```
+
+#### Cursor
+
+`~/.cursor/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "imessage": {
+      "command": "npx",
+      "args": ["-y", "imessage-mcp"]
+    }
+  }
+}
+```
+
+#### Windsurf
+
+`~/.codeium/windsurf/mcp_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "imessage": {
+      "command": "npx",
+      "args": ["-y", "imessage-mcp"]
+    }
+  }
+}
+```
+
+#### VS Code (GitHub Copilot)
+
+`.vscode/mcp.json` in your project root:
+
+```json
+{
+  "servers": {
+    "imessage": {
+      "command": "npx",
+      "args": ["-y", "imessage-mcp"]
+    }
+  }
+}
+```
+
+#### Cline (VS Code)
+
+Add via Cline MCP settings UI, or `cline_mcp_settings.json`:
+
+```json
+{
+  "mcpServers": {
+    "imessage": {
+      "command": "npx",
+      "args": ["-y", "imessage-mcp"]
+    }
+  }
+}
+```
+
+#### JetBrains IDEs
+
+Settings → Tools → AI Assistant → MCP Servers → Add:
+- Name: `imessage`
+- Command: `npx`
+- Args: `-y imessage-mcp`
+
+#### Zed
+
+`~/.config/zed/settings.json`:
+
+```json
+{
+  "context_servers": {
+    "imessage": {
+      "command": {
+        "path": "npx",
+        "args": ["-y", "imessage-mcp"]
+      }
+    }
+  }
+}
+```
 
 ## Tools
 
@@ -128,8 +233,14 @@ npx imessage-mcp dump --contact "+15551234567"
 # Date range with custom limit
 npx imessage-mcp dump --from 2024-01-01 --to 2024-12-31 --limit 5000
 
-# Export contact list
+# Export contacts (excluding spam/promo contacts by default)
 npx imessage-mcp dump --contacts > contacts.json
+
+# Include ALL contacts (including ones you never replied to)
+npx imessage-mcp dump --contacts --all > all-contacts.json
+
+# Export all messages (including from unfiltered contacts)
+npx imessage-mcp dump --all > all-messages.json
 ```
 
 ## Privacy
@@ -150,6 +261,27 @@ Make sure Messages.app has been used on this Mac and has synced your messages. R
 
 Contact resolution uses your macOS AddressBook. If contacts aren't synced to your Mac (e.g. only on your phone), names won't resolve. Sync contacts via iCloud or add them in the Contacts app.
 
+### Node.js version mismatch (MODULE_NOT_FOUND / NODE_MODULE_VERSION)
+
+If you see `MODULE_NOT_FOUND` or `NODE_MODULE_VERSION` errors, your MCP client's bundled Node.js version differs from the one that compiled better-sqlite3's native module.
+
+Fix by pointing to your system Node directly:
+
+1. Find your Node path: `which node` (usually `/opt/homebrew/bin/node` or `/usr/local/bin/node`)
+2. Find imessage-mcp: `npm root -g` or `dirname $(which imessage-mcp)`
+3. Replace `"command": "npx"` with your system Node:
+
+```json
+{
+  "mcpServers": {
+    "imessage": {
+      "command": "/opt/homebrew/bin/node",
+      "args": ["/path/to/node_modules/imessage-mcp/bin/imessage-mcp.js"]
+    }
+  }
+}
+```
+
 ### Claude Desktop doesn't show the tools
 
 1. Make sure the config file is at `~/Library/Application Support/Claude/claude_desktop_config.json`
@@ -163,6 +295,14 @@ Reads `~/Library/Messages/chat.db` using better-sqlite3 in read-only mode with `
 On macOS 14 (Sonoma) and later, Apple changed how message text is stored. Some messages have `NULL` in the `text` column but contain the actual text in the `attributedBody` binary blob. imessage-mcp extracts text from this blob automatically — no messages left behind.
 
 All 25 tools are annotated with `readOnlyHint: true` so MCP clients can auto-approve them without prompting.
+
+## Smart Filtering
+
+By default, listing and global search tools only include contacts you've actually replied to — filtering out spam, promo texts, and unknown senders. This affects: `search_messages` (global), `list_contacts`, `message_stats` (global), `temporal_heatmap` (global), `who_initiates` (global), `streaks` (global), `on_this_day` (global), `forgotten_contacts`, and `yearly_wrapped`.
+
+Contact-specific tools like `get_conversation`, `get_contact`, `contact_stats`, and `first_last_message` are not filtered — they always return results for any contact you specify.
+
+To include all contacts (including unrecognized senders), pass `include_all: true` to any filtered tool.
 
 ## Configuration
 
