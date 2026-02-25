@@ -1,0 +1,11 @@
+{
+  "name": "imessage",
+  "version": "1.2.0",
+  "description": "25 tools for exploring your iMessage history with AI",
+  "author": {
+    "name": "Ani Potts"
+  },
+  "homepage": "https://github.com/anipotts/imessage-mcp",
+  "repository": "https://github.com/anipotts/imessage-mcp",
+  "license": "MIT"
+}
