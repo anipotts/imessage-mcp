@@ -1,7 +1,8 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { MAX_LIMIT } from "../src/helpers.js";
+import { isSafeMode, safeText } from "../src/db.js";
 
 // Collect all .ts source files recursively from src/
 function collectTsFiles(dir: string): string[] {
@@ -62,6 +63,45 @@ describe("MAX_LIMIT enforcement", () => {
   it("MAX_LIMIT is a positive integer", () => {
     expect(MAX_LIMIT).toBeGreaterThan(0);
     expect(Number.isInteger(MAX_LIMIT)).toBe(true);
+  });
+});
+
+describe("safe mode", () => {
+  const origEnv = process.env.IMESSAGE_SAFE_MODE;
+
+  afterEach(() => {
+    if (origEnv === undefined) {
+      delete process.env.IMESSAGE_SAFE_MODE;
+    } else {
+      process.env.IMESSAGE_SAFE_MODE = origEnv;
+    }
+  });
+
+  it("isSafeMode returns false by default", () => {
+    delete process.env.IMESSAGE_SAFE_MODE;
+    expect(isSafeMode()).toBe(false);
+  });
+
+  it("isSafeMode returns true when IMESSAGE_SAFE_MODE=1", () => {
+    process.env.IMESSAGE_SAFE_MODE = "1";
+    expect(isSafeMode()).toBe(true);
+  });
+
+  it("isSafeMode returns true when IMESSAGE_SAFE_MODE=true", () => {
+    process.env.IMESSAGE_SAFE_MODE = "true";
+    expect(isSafeMode()).toBe(true);
+  });
+
+  it("safeText passes through when safe mode is off", () => {
+    delete process.env.IMESSAGE_SAFE_MODE;
+    expect(safeText("hello world")).toBe("hello world");
+    expect(safeText(null)).toBe(null);
+  });
+
+  it("safeText redacts when safe mode is on", () => {
+    process.env.IMESSAGE_SAFE_MODE = "1";
+    expect(safeText("hello world")).toBe("[REDACTED - safe mode]");
+    expect(safeText(null)).toBe(null);
   });
 });
 
