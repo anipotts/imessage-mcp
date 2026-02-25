@@ -10,11 +10,7 @@
 **26 tools for locally exploring your iMessage history with AI.**
 
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/anipotts/imessage-mcp/main/assets/demo-dark.gif">
-    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/anipotts/imessage-mcp/main/assets/demo-light.gif">
-    <img src="https://raw.githubusercontent.com/anipotts/imessage-mcp/main/assets/demo-dark.gif" alt="imessage-mcp demo" width="720">
-  </picture>
+  <img src="https://raw.githubusercontent.com/anipotts/imessage-mcp/main/assets/demo-dark.gif" alt="imessage-mcp demo" width="720">
 </p>
 
 An [MCP server](https://modelcontextprotocol.io) that gives AI assistants **read-only** access to your local iMessage database. Nothing is written, modified, or uploaded. Your messages stay on your Mac; the AI only sees what you ask about.
