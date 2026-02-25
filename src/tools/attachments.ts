@@ -3,7 +3,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { getDb, DATE_EXPR, getMessageText } from "../db.js";
-import { clamp, DEFAULT_LIMIT, MAX_LIMIT } from "../helpers.js";
+import { clamp, DEFAULT_LIMIT, MAX_LIMIT, isoDateSchema } from "../helpers.js";
 
 export function registerAttachmentTools(server: McpServer) {
   // -- list_attachments --
@@ -13,8 +13,8 @@ export function registerAttachmentTools(server: McpServer) {
     {
       contact: z.string().optional().describe("Filter by contact handle"),
       mime_type: z.string().optional().describe("Filter by MIME type prefix (e.g. 'image/', 'video/', 'audio/')"),
-      date_from: z.string().optional().describe("Start date (ISO)"),
-      date_to: z.string().optional().describe("End date (ISO)"),
+      date_from: isoDateSchema.optional().describe("Start date (ISO)"),
+      date_to: isoDateSchema.optional().describe("End date (ISO)"),
       limit: z.number().optional().describe("Max results (default 50, max 500)"),
       offset: z.number().optional().describe("Pagination offset"),
     },

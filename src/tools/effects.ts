@@ -4,7 +4,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { getDb, APPLE_EPOCH_OFFSET, EFFECT_NAMES, DATE_EXPR, getMessageText } from "../db.js";
 import { lookupContact } from "../contacts.js";
-import { clamp, MAX_LIMIT } from "../helpers.js";
+import { clamp, MAX_LIMIT, isoDateSchema } from "../helpers.js";
 
 export function registerEffectTools(server: McpServer) {
   server.tool(
@@ -12,8 +12,8 @@ export function registerEffectTools(server: McpServer) {
     "iMessage expressive send effects and screen effects analytics: slam, loud, gentle, invisible ink, confetti, fireworks, balloons, lasers, etc. Queries expressive_send_style_id.",
     {
       contact: z.string().optional().describe("Filter by contact handle or name"),
-      date_from: z.string().optional().describe("Start date (ISO)"),
-      date_to: z.string().optional().describe("End date (ISO)"),
+      date_from: isoDateSchema.optional().describe("Start date (ISO)"),
+      date_to: isoDateSchema.optional().describe("End date (ISO)"),
       limit: z.number().optional().describe("Max results for detail lists (default 20)"),
     },
     { readOnlyHint: true, destructiveHint: false, openWorldHint: false },

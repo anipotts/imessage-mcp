@@ -1,5 +1,10 @@
 // Shared helpers -- pagination, response formatting
 
+import { z } from "zod";
+
+/** Zod schema for ISO date strings (YYYY-MM-DD) */
+export const isoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Must be ISO format: YYYY-MM-DD");
+
 // Format a result set as a text response for MCP
 export function formatResults(
   rows: any[],

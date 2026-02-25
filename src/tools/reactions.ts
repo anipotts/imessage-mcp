@@ -4,7 +4,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { getDb, DATE_EXPR, APPLE_EPOCH_OFFSET, REACTION_TYPES, getMessageText } from "../db.js";
 import { lookupContact } from "../contacts.js";
-import { clamp, DEFAULT_LIMIT, MAX_LIMIT } from "../helpers.js";
+import { clamp, DEFAULT_LIMIT, MAX_LIMIT, isoDateSchema } from "../helpers.js";
 
 export function registerReactionTools(server: McpServer) {
   server.tool(
@@ -14,8 +14,8 @@ export function registerReactionTools(server: McpServer) {
       contact: z.string().optional().describe("Filter by contact handle or name"),
       reaction_type: z.enum(["love", "like", "dislike", "laugh", "emphasize", "question"]).optional()
         .describe("Filter by specific reaction type"),
-      date_from: z.string().optional().describe("Start date (ISO)"),
-      date_to: z.string().optional().describe("End date (ISO)"),
+      date_from: isoDateSchema.optional().describe("Start date (ISO)"),
+      date_to: isoDateSchema.optional().describe("End date (ISO)"),
       sent_only: z.boolean().optional().describe("Only reactions sent by you"),
       limit: z.number().optional().describe("Max results for top lists (default 20)"),
     },

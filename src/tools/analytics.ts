@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { getDb, DATE_EXPR, MSG_FILTER, baseMessageConditions, repliedToCondition } from "../db.js";
 import { lookupContact } from "../contacts.js";
+import { isoDateSchema } from "../helpers.js";
 
 export function registerAnalyticsTools(server: McpServer) {
   // -- message_stats --
@@ -12,8 +13,8 @@ export function registerAnalyticsTools(server: McpServer) {
     "Aggregate message statistics with flexible time-series grouping. Returns counts, sent/received splits, and averages grouped by day, week, month, year, hour, or day-of-week. By default excludes contacts you've never replied to.",
     {
       contact: z.string().optional().describe("Filter by contact handle"),
-      date_from: z.string().optional().describe("Start date (ISO)"),
-      date_to: z.string().optional().describe("End date (ISO)"),
+      date_from: isoDateSchema.optional().describe("Start date (ISO)"),
+      date_to: isoDateSchema.optional().describe("End date (ISO)"),
       group_by: z.enum(["day", "week", "month", "year", "hour", "dow"]).optional()
         .describe("Time grouping (default: month)"),
       include_all: z.boolean().optional().describe("Include messages from all contacts, even those you've never replied to (default: false)"),
@@ -100,8 +101,8 @@ export function registerAnalyticsTools(server: McpServer) {
     "Deep per-contact analytics: message volumes, response time estimates, conversation patterns, and yearly trends.",
     {
       contact: z.string().describe("Contact handle or name fragment"),
-      date_from: z.string().optional().describe("Start date"),
-      date_to: z.string().optional().describe("End date"),
+      date_from: isoDateSchema.optional().describe("Start date"),
+      date_to: isoDateSchema.optional().describe("End date"),
     },
     { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
     async (params) => {
@@ -198,8 +199,8 @@ export function registerAnalyticsTools(server: McpServer) {
     "Generate a 7x24 activity heatmap (day-of-week x hour-of-day). Returns message counts for each of the 168 weekly time slots. By default excludes contacts you've never replied to.",
     {
       contact: z.string().optional().describe("Filter by contact handle"),
-      date_from: z.string().optional().describe("Start date"),
-      date_to: z.string().optional().describe("End date"),
+      date_from: isoDateSchema.optional().describe("Start date"),
+      date_to: isoDateSchema.optional().describe("End date"),
       sent_only: z.boolean().optional().describe("Only your messages"),
       include_all: z.boolean().optional().describe("Include messages from all contacts, even those you've never replied to (default: false)"),
     },

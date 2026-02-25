@@ -4,7 +4,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { getDb, DATE_EXPR, baseMessageConditions, getMessageText, repliedToCondition } from "../db.js";
 import { lookupContact } from "../contacts.js";
-import { formatResults, clamp, DEFAULT_LIMIT, MAX_LIMIT } from "../helpers.js";
+import { formatResults, clamp, DEFAULT_LIMIT, MAX_LIMIT, isoDateSchema } from "../helpers.js";
 
 /** Enrich rows with contact_name from AddressBook */
 function enrichWithContactNames(rows: any[]): void {
@@ -23,8 +23,8 @@ export function registerMessageTools(server: McpServer) {
     {
       query: z.string().optional().describe("Text to search for (case-insensitive substring match)"),
       contact: z.string().optional().describe("Filter by contact handle (phone/email) or name"),
-      date_from: z.string().optional().describe("Start date (ISO format, e.g. 2024-01-01)"),
-      date_to: z.string().optional().describe("End date (ISO format, e.g. 2024-12-31)"),
+      date_from: isoDateSchema.optional().describe("Start date (ISO format, e.g. 2024-01-01)"),
+      date_to: isoDateSchema.optional().describe("End date (ISO format, e.g. 2024-12-31)"),
       sent_only: z.boolean().optional().describe("Only messages sent by you"),
       received_only: z.boolean().optional().describe("Only messages received"),
       group_chat: z.string().optional().describe("Filter by group chat name or chat_identifier"),
@@ -170,8 +170,8 @@ export function registerMessageTools(server: McpServer) {
       chat_id: z.string().optional().describe("Chat identifier (e.g. chat123456789)"),
       limit: z.number().optional().describe("Max messages (default 50, max 500)"),
       before_rowid: z.number().optional().describe("Cursor: only messages before this ROWID (for pagination)"),
-      date_from: z.string().optional().describe("Start date filter"),
-      date_to: z.string().optional().describe("End date filter"),
+      date_from: isoDateSchema.optional().describe("Start date filter"),
+      date_to: isoDateSchema.optional().describe("End date filter"),
     },
     { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
     async (params) => {

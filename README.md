@@ -5,6 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](https://opensource.org/licenses/MIT)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![MCP](https://img.shields.io/badge/MCP-Compatible-8A2BE2?style=flat-square)](https://modelcontextprotocol.io)
+[![CI](https://github.com/anipotts/imessage-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/anipotts/imessage-mcp/actions/workflows/ci.yml)
 
 25 tools for exploring your iMessage history on macOS.
 
@@ -253,6 +254,25 @@ npx imessage-mcp dump --all > all-messages.json
 
 imessage-mcp reads your local iMessage database in **read-only mode**. No data leaves your machine — all queries run locally against `~/Library/Messages/chat.db`. Nothing is written, modified, uploaded, or shared. Contact names are resolved from your macOS AddressBook locally. No external APIs are called.
 
+### Why Full Disk Access?
+
+macOS protects `~/Library/Messages/chat.db` — your terminal needs Full Disk Access to read it. This is an Apple requirement, not something imessage-mcp chooses. The tool only reads two locations:
+
+- `~/Library/Messages/chat.db` — your iMessage database (read-only)
+- `~/Library/Application Support/AddressBook/` — contact names (read-only)
+
+No other files are accessed. You can verify by searching the source: `grep -rn "readFileSync\|openDatabase\|sqlite" src/`
+
+### How Your Data Flows
+
+```
+chat.db → [imessage-mcp] → stdio → [Your MCP Client] → AI Provider
+  ↑                                        ↑
+  Your Mac only                   Already authorized by you
+```
+
+imessage-mcp makes zero network requests. Your data only leaves your machine through your MCP client (Claude Desktop, Cursor, etc.), which you've already authorized separately.
+
 ## Troubleshooting
 
 ### "Cannot read chat.db" / SQLITE_CANTOPEN
@@ -293,6 +313,12 @@ Fix by pointing to your system Node directly:
 1. Make sure the config file is at `~/Library/Application Support/Claude/claude_desktop_config.json`
 2. Restart Claude Desktop completely (Cmd+Q, then reopen)
 3. Run `npx imessage-mcp doctor` to verify the server works
+
+## Uninstall
+
+1. Remove the `imessage` entry from your MCP client config
+2. Optionally revoke Full Disk Access: System Settings → Privacy & Security → Full Disk Access → disable your terminal app
+3. Optionally remove the cached package: `npm cache clean --force`
 
 ## How It Works
 

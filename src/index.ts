@@ -5,6 +5,9 @@
 // 25 tools for searching, analyzing, and exploring your iMessage history.
 // Reads ~/Library/Messages/chat.db via better-sqlite3 (readonly).
 
+import { readFileSync } from "fs";
+import { fileURLToPath } from "url";
+import { dirname, join } from "path";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { registerMessageTools } from "./tools/messages.js";
@@ -22,10 +25,14 @@ import { registerPatternTools } from "./tools/patterns.js";
 import { registerWrappedTools } from "./tools/wrapped.js";
 import { registerHelp } from "./help.js";
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const pkg = JSON.parse(readFileSync(join(__dirname, "../package.json"), "utf-8"));
+
 const server = new McpServer(
   {
     name: "imessage-mcp",
-    version: "1.1.0",
+    version: pkg.version,
   },
   {
     instructions: `iMessage MCP — read-only access to the user's full iMessage history on macOS.

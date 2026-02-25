@@ -4,7 +4,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { getDb, DATE_EXPR, MSG_FILTER, repliedToCondition, getMessageText } from "../db.js";
 import { lookupContact } from "../contacts.js";
-import { clamp, MAX_LIMIT } from "../helpers.js";
+import { clamp, MAX_LIMIT, isoDateSchema } from "../helpers.js";
 
 export function registerPatternTools(server: McpServer) {
   // -- who_initiates --
@@ -15,8 +15,8 @@ export function registerPatternTools(server: McpServer) {
       contact: z.string().optional().describe("Filter by contact (omit for global ranking)"),
       gap_hours: z.number().optional().describe("Hours of silence before a new conversation (default: 8)"),
       min_conversations: z.number().optional().describe("Minimum conversations to include contact (default: 5)"),
-      date_from: z.string().optional().describe("Start date (ISO)"),
-      date_to: z.string().optional().describe("End date (ISO)"),
+      date_from: isoDateSchema.optional().describe("Start date (ISO)"),
+      date_to: isoDateSchema.optional().describe("End date (ISO)"),
       include_all: z.boolean().optional().describe("Include messages from all contacts, even those you've never replied to (default: false)"),
       limit: z.number().optional().describe("Max contacts to show (default 20)"),
     },
@@ -212,8 +212,8 @@ export function registerPatternTools(server: McpServer) {
     {
       contact: z.string().optional().describe("Contact handle or name (omit for global double-text ranking)"),
       min_consecutive: z.number().optional().describe("Minimum consecutive messages to count (default: 2)"),
-      date_from: z.string().optional().describe("Start date (ISO)"),
-      date_to: z.string().optional().describe("End date (ISO)"),
+      date_from: isoDateSchema.optional().describe("Start date (ISO)"),
+      date_to: isoDateSchema.optional().describe("End date (ISO)"),
       limit: z.number().optional().describe("Max burst results (default 20)"),
     },
     { readOnlyHint: true, destructiveHint: false, openWorldHint: false },

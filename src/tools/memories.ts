@@ -4,7 +4,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { getDb, DATE_EXPR, MSG_FILTER, getMessageText, repliedToCondition } from "../db.js";
 import { lookupContact } from "../contacts.js";
-import { clamp } from "../helpers.js";
+import { clamp, isoDateSchema } from "../helpers.js";
 
 export function registerMemoryTools(server: McpServer) {
   // -- on_this_day --
@@ -12,7 +12,7 @@ export function registerMemoryTools(server: McpServer) {
     "on_this_day",
     "Messages from this date in previous years — like 'Memories' for iMessage. Shows what you and your contacts were talking about exactly 1, 2, 3+ years ago today. By default excludes contacts you've never replied to.",
     {
-      date: z.string().optional().describe("Date to look up (ISO format, default: today)"),
+      date: isoDateSchema.optional().describe("Date to look up (ISO format, default: today)"),
       month_day: z.string().optional().describe("Month-day to look up (MM-DD format, e.g. '12-25' for Christmas). Defaults to today."),
       contact: z.string().optional().describe("Filter by contact handle or name"),
       include_all: z.boolean().optional().describe("Include messages from all contacts, even those you've never replied to (default: false)"),

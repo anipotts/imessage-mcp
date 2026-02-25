@@ -2,9 +2,15 @@
 //
 // Provides a comprehensive guide to all 25 tools.
 
+import { readFileSync } from "fs";
+import { fileURLToPath } from "url";
+import { dirname, join } from "path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
-const VERSION = "1.1.0";
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const pkg = JSON.parse(readFileSync(join(__dirname, "../package.json"), "utf-8"));
+const VERSION = pkg.version;
 
 function buildHelpText(): string {
   return `# imessage-mcp v${VERSION}
