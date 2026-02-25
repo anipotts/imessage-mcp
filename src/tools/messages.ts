@@ -29,98 +29,122 @@ export function registerMessageTools(server: McpServer) {
       const limit = clamp(params.limit ?? DEFAULT_LIMIT, 1, MAX_LIMIT);
       const offset = params.offset ?? 0;
 
-      const conditions: string[] = baseMessageConditions();
+      // Build shared conditions (everything except text search)
+      const shared: string[] = baseMessageConditions();
       const bindings: Record<string, any> = {};
 
-      if (params.query) {
-        conditions.push(`(COALESCE(m.text, '') LIKE @query OR (m.text IS NULL AND m.attributedBody IS NOT NULL))`);
-        bindings.query = `%${params.query}%`;
-      }
       if (!params.include_all && !params.contact) {
-        conditions.push(repliedToCondition());
+        shared.push(repliedToCondition());
       }
       if (params.contact) {
-        conditions.push("h.id LIKE @contact");
+        shared.push("h.id LIKE @contact");
         bindings.contact = `%${params.contact}%`;
       }
       if (params.date_from) {
-        conditions.push(`${DATE_EXPR} >= @date_from`);
+        shared.push(`${DATE_EXPR} >= @date_from`);
         bindings.date_from = params.date_from;
       }
       if (params.date_to) {
-        conditions.push(`${DATE_EXPR} <= @date_to`);
+        shared.push(`${DATE_EXPR} <= @date_to`);
         bindings.date_to = params.date_to;
       }
       if (params.sent_only) {
-        conditions.push("m.is_from_me = 1");
+        shared.push("m.is_from_me = 1");
       }
       if (params.received_only) {
-        conditions.push("m.is_from_me = 0");
+        shared.push("m.is_from_me = 0");
       }
       if (params.group_chat) {
-        conditions.push("(c.display_name LIKE @group_chat OR c.chat_identifier LIKE @group_chat)");
+        shared.push("(c.display_name LIKE @group_chat OR c.chat_identifier LIKE @group_chat)");
         bindings.group_chat = `%${params.group_chat}%`;
       }
       if (params.has_attachment) {
-        conditions.push("m.cache_has_attachments = 1");
+        shared.push("m.cache_has_attachments = 1");
       }
 
-      const where = conditions.join(" AND ");
-
-      // Count total
-      const countSql = `
-        SELECT COUNT(*) as total
+      const selectCols = `
+        m.ROWID as rowid, m.text, m.attributedBody, m.is_from_me,
+        ${DATE_EXPR} as date, h.id as handle,
+        c.display_name as group_name, c.chat_identifier as chat_id,
+        m.cache_has_attachments as has_attachment`;
+      const fromJoins = `
         FROM message m
         JOIN chat_message_join cmj ON m.ROWID = cmj.message_id
         JOIN chat c ON cmj.chat_id = c.ROWID
-        LEFT JOIN handle h ON m.handle_id = h.ROWID
-        WHERE ${where}
-      `;
-      const countRow = db.prepare(countSql).get(bindings) as any;
-      const total = countRow?.total ?? 0;
+        LEFT JOIN handle h ON m.handle_id = h.ROWID`;
 
-      // Fetch extra rows to account for attributedBody false positives
-      const fetchLimit = params.query ? limit * 3 : limit;
+      if (params.query) {
+        // Two-pass search: text column (fast SQL LIKE) + attributedBody (JS extraction)
+        const queryLower = params.query.toLowerCase();
 
-      // Fetch results
-      const sql = `
-        SELECT
-          m.ROWID as rowid,
-          m.text,
-          m.attributedBody,
-          m.is_from_me,
-          ${DATE_EXPR} as date,
-          h.id as handle,
-          c.display_name as group_name,
-          c.chat_identifier as chat_id,
-          m.cache_has_attachments as has_attachment
-        FROM message m
-        JOIN chat_message_join cmj ON m.ROWID = cmj.message_id
-        JOIN chat c ON cmj.chat_id = c.ROWID
-        LEFT JOIN handle h ON m.handle_id = h.ROWID
-        WHERE ${where}
-        ORDER BY m.date DESC
-        LIMIT @fetchLimit OFFSET @offset
-      `;
-      const rows = db.prepare(sql).all({ ...bindings, fetchLimit, offset }) as any[];
+        // Pass 1: Search text column directly
+        const textWhere = [...shared, "m.text LIKE @query"].join(" AND ");
+        bindings.query = `%${params.query}%`;
 
-      // Post-process: extract text from attributedBody, filter false positives
-      const processed: any[] = [];
-      for (const row of rows) {
-        row.text = getMessageText(row);
-        delete row.attributedBody;
-        if (!row.text) continue;
-        if (params.query && !row.text.toLowerCase().includes(params.query.toLowerCase())) continue;
-        processed.push(row);
-        if (processed.length >= limit) break;
+        const textTotal = (db.prepare(
+          `SELECT COUNT(*) as total ${fromJoins} WHERE ${textWhere}`
+        ).get(bindings) as any)?.total ?? 0;
+
+        const textRows = db.prepare(
+          `SELECT ${selectCols} ${fromJoins} WHERE ${textWhere} ORDER BY m.date DESC LIMIT @limit OFFSET @offset`
+        ).all({ ...bindings, limit, offset }) as any[];
+
+        for (const row of textRows) {
+          row.text = getMessageText(row);
+          delete row.attributedBody;
+        }
+
+        // Pass 2: Stream attributedBody-only messages, extract text, filter
+        const abMatches: any[] = [];
+        const remaining = limit - textRows.length;
+
+        if (remaining > 0) {
+          const abWhere = [...shared, "m.text IS NULL", "m.attributedBody IS NOT NULL"].join(" AND ");
+          const abStmt = db.prepare(
+            `SELECT ${selectCols} ${fromJoins} WHERE ${abWhere} ORDER BY m.date DESC`
+          );
+          const MAX_SCAN = 10_000;
+          let scanned = 0;
+          for (const row of abStmt.iterate(bindings) as Iterable<any>) {
+            if (++scanned > MAX_SCAN) break;
+            const text = getMessageText(row);
+            if (text && text.toLowerCase().includes(queryLower)) {
+              row.text = text;
+              delete row.attributedBody;
+              abMatches.push(row);
+              if (abMatches.length >= remaining) break;
+            }
+          }
+        }
+
+        // Merge and sort by date descending
+        const merged = [...textRows, ...abMatches];
+        merged.sort((a, b) => (b.date > a.date ? 1 : b.date < a.date ? -1 : 0));
+
+        return {
+          content: [{ type: "text", text: formatResults(merged.slice(0, limit), textTotal, offset, limit) }],
+        };
+      } else {
+        // No query — straightforward fetch
+        const where = shared.join(" AND ");
+
+        const total = (db.prepare(
+          `SELECT COUNT(*) as total ${fromJoins} WHERE ${where}`
+        ).get(bindings) as any)?.total ?? 0;
+
+        const rows = db.prepare(
+          `SELECT ${selectCols} ${fromJoins} WHERE ${where} ORDER BY m.date DESC LIMIT @limit OFFSET @offset`
+        ).all({ ...bindings, limit, offset }) as any[];
+
+        for (const row of rows) {
+          row.text = getMessageText(row);
+          delete row.attributedBody;
+        }
+
+        return {
+          content: [{ type: "text", text: formatResults(rows, total, offset, limit) }],
+        };
       }
-
-      // When query includes attributedBody fallback, total may be inflated
-      const reportTotal = params.query ? undefined : total;
-
-      return {
-        content: [{ type: "text", text: formatResults(processed, reportTotal, offset, limit) }],
-      };
     },
   );
 
