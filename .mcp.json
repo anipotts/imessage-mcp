@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "imessage": {
+      "command": "npx",
+      "args": ["-y", "imessage-mcp"]
+    }
+  }
+}

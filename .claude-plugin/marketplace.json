@@ -1,0 +1,34 @@
+{
+  "name": "imessage-mcp",
+  "owner": {
+    "name": "Ani Potts"
+  },
+  "metadata": {
+    "description": "Claude Code plugins for iMessage MCP workflows",
+    "version": "1.2.0"
+  },
+  "plugins": [
+    {
+      "name": "imessage",
+      "source": {
+        "source": "github",
+        "repo": "anipotts/imessage-mcp"
+      },
+      "description": "25 tools for exploring your iMessage history with AI",
+      "version": "1.2.0",
+      "author": {
+        "name": "Ani Potts"
+      },
+      "homepage": "https://github.com/anipotts/imessage-mcp",
+      "repository": "https://github.com/anipotts/imessage-mcp",
+      "license": "MIT",
+      "keywords": [
+        "imessage",
+        "mcp",
+        "claude",
+        "analytics",
+        "macos"
+      ]
+    }
+  ]
+}

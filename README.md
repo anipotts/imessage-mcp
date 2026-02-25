@@ -6,8 +6,13 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![MCP](https://img.shields.io/badge/MCP-Compatible-8A2BE2?style=flat-square)](https://modelcontextprotocol.io)
 [![CI](https://github.com/anipotts/imessage-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/anipotts/imessage-mcp/actions/workflows/ci.yml)
+[![Node](https://img.shields.io/node/v/imessage-mcp?style=flat-square)](https://nodejs.org)
 
 25 tools for exploring your iMessage history on macOS.
+
+<p align="center">
+  <img src="assets/demo.png" alt="imessage-mcp in action" width="700">
+</p>
 
 Read-only access to your Mac's iMessage database — search messages, analyze conversations, explore reactions, read receipts, reply threads, edited messages, effects, streaks, conversation patterns, and more.
 
@@ -63,7 +68,8 @@ Or add to `.mcp.json` in your project root:
 }
 ```
 
-#### Cursor
+<details>
+<summary>Cursor</summary>
 
 `~/.cursor/mcp.json`:
 
@@ -77,8 +83,10 @@ Or add to `.mcp.json` in your project root:
   }
 }
 ```
+</details>
 
-#### Windsurf
+<details>
+<summary>Windsurf</summary>
 
 `~/.codeium/windsurf/mcp_config.json`:
 
@@ -92,8 +100,10 @@ Or add to `.mcp.json` in your project root:
   }
 }
 ```
+</details>
 
-#### VS Code (GitHub Copilot)
+<details>
+<summary>VS Code (GitHub Copilot)</summary>
 
 `.vscode/mcp.json` in your project root:
 
@@ -107,8 +117,10 @@ Or add to `.mcp.json` in your project root:
   }
 }
 ```
+</details>
 
-#### Cline (VS Code)
+<details>
+<summary>Cline (VS Code)</summary>
 
 Add via Cline MCP settings UI, or `cline_mcp_settings.json`:
 
@@ -122,15 +134,19 @@ Add via Cline MCP settings UI, or `cline_mcp_settings.json`:
   }
 }
 ```
+</details>
 
-#### JetBrains IDEs
+<details>
+<summary>JetBrains IDEs</summary>
 
 Settings → Tools → AI Assistant → MCP Servers → Add:
 - Name: `imessage`
 - Command: `npx`
 - Args: `-y imessage-mcp`
+</details>
 
-#### Zed
+<details>
+<summary>Zed</summary>
 
 `~/.config/zed/settings.json`:
 
@@ -146,6 +162,21 @@ Settings → Tools → AI Assistant → MCP Servers → Add:
   }
 }
 ```
+</details>
+
+## Claude Code Plugin
+
+Install as a Claude Code plugin for the best experience:
+
+```bash
+claude plugin marketplace add anipotts/imessage-mcp
+claude plugin install imessage@imessage-mcp
+```
+
+This auto-configures the MCP server and adds slash commands:
+- `/imessage:search` — Search your message history
+- `/imessage:wrapped` — Generate your iMessage Wrapped
+- `/imessage:stats` — Show messaging analytics
 
 ## Tools
 
