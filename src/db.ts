@@ -71,6 +71,17 @@ export const EFFECT_NAMES: Record<string, string> = {
   "com.apple.messages.effect.CKEchoEffect": "echo",
 };
 
+/** Check if safe mode is enabled (aggregate-only, no message bodies) */
+export function isSafeMode(): boolean {
+  return process.env.IMESSAGE_SAFE_MODE === "1" || process.env.IMESSAGE_SAFE_MODE === "true";
+}
+
+/** Redact text when safe mode is on */
+export function safeText(text: string | null): string | null {
+  if (!text) return null;
+  return isSafeMode() ? "[REDACTED - safe mode]" : text;
+}
+
 let _db: Database.Database | null = null;
 
 export function getDb(): Database.Database {
