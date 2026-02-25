@@ -166,11 +166,20 @@ Settings → Tools → AI Assistant → MCP Servers → Add:
 
 ## Claude Code Plugin
 
-Install as a Claude Code plugin for the best experience:
+Install as a Claude Code plugin for slash commands and auto-configured MCP:
 
 ```bash
-claude plugin marketplace add anipotts/imessage-mcp
-claude plugin install imessage@imessage-mcp
+# Add the marketplace (one-time)
+claude plugin marketplace add anipotts/claude-plugins
+
+# Install the plugin
+claude plugin install imessage
+```
+
+Or test directly from a local clone:
+
+```bash
+claude --plugin-dir ./path/to/imessage-mcp
 ```
 
 This auto-configures the MCP server and adds slash commands:
@@ -359,6 +368,24 @@ On macOS 14 (Sonoma) and later, Apple changed how message text is stored. Some m
 
 All 25 tools are annotated with `readOnlyHint: true` so MCP clients can auto-approve them without prompting.
 
+## Safe Mode
+
+Enable safe mode to prevent message bodies from being sent to the AI. Only metadata (counts, dates, contact names) is returned — no actual message text.
+
+```json
+{
+  "mcpServers": {
+    "imessage": {
+      "command": "npx",
+      "args": ["-y", "imessage-mcp"],
+      "env": { "IMESSAGE_SAFE_MODE": "1" }
+    }
+  }
+}
+```
+
+This is useful for demos, shared environments, or when you want analytics without exposing private conversations.
+
 ## Smart Filtering
 
 By default, listing and global search tools only include contacts you've actually replied to — filtering out spam, promo texts, and unknown senders. This affects: `search_messages` (global), `list_contacts`, `message_stats` (global), `temporal_heatmap` (global), `who_initiates` (global), `streaks` (global), `on_this_day` (global), `forgotten_contacts`, and `yearly_wrapped`.
@@ -372,6 +399,7 @@ To include all contacts (including unrecognized senders), pass `include_all: tru
 | Env var | Default | Description |
 |---------|---------|-------------|
 | `IMESSAGE_DB` | `~/Library/Messages/chat.db` | Path to iMessage database |
+| `IMESSAGE_SAFE_MODE` | `false` | Set to `1` to redact all message bodies. Tools return only metadata (counts, dates, contacts) — no message text is sent to the AI. |
 
 ## Requirements
 

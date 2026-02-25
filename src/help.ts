@@ -173,6 +173,15 @@ To include all contacts (including spam): pass \`include_all: true\` to any filt
 
 ---
 
+## Safe Mode
+
+Set \`IMESSAGE_SAFE_MODE=1\` to redact all message bodies. Tools return only metadata
+(counts, dates, contact names) — no actual message text is sent to the AI.
+
+Useful for demos, shared environments, or when you only need analytics.
+
+---
+
 ## CLI Commands
 
 - \`imessage-mcp\` — Start the MCP server (stdio transport)
