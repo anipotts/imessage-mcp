@@ -1,5 +1,11 @@
 # imessage-mcp
 
+[![npm version](https://img.shields.io/npm/v/imessage-mcp?style=flat-square)](https://www.npmjs.com/package/imessage-mcp)
+[![npm downloads](https://img.shields.io/npm/dm/imessage-mcp?style=flat-square)](https://www.npmjs.com/package/imessage-mcp)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](https://opensource.org/licenses/MIT)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![MCP](https://img.shields.io/badge/MCP-Compatible-8A2BE2?style=flat-square)](https://modelcontextprotocol.io)
+
 25 tools for exploring your iMessage history on macOS.
 
 Read-only access to your Mac's iMessage database — search messages, analyze conversations, explore reactions, read receipts, reply threads, edited messages, effects, streaks, conversation patterns, and more.

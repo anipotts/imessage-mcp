@@ -1,0 +1,29 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.anipotts/imessage-mcp",
+  "title": "iMessage MCP",
+  "description": "25 tools for searching, analyzing, and exploring your entire iMessage history on macOS. Read-only access to chat.db with contact resolution, conversation analytics, streaks, reactions, read receipts, and more.",
+  "repository": {
+    "url": "https://github.com/anipotts/imessage-mcp",
+    "source": "github"
+  },
+  "version": "1.1.0",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "imessage-mcp",
+      "version": "1.1.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "IMESSAGE_DB",
+          "description": "Path to iMessage database (default: ~/Library/Messages/chat.db)",
+          "required": false
+        }
+      ],
+      "runtimeHint": "node"
+    }
+  ]
+}

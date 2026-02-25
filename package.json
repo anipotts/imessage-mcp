@@ -1,7 +1,7 @@
 {
   "name": "imessage-mcp",
   "version": "1.1.0",
-  "description": "iMessage MCP server -- 25 tools for searching, analyzing, and exploring your iMessage history",
+  "description": "iMessage MCP server — 25 tools for searching, analyzing, and exploring your entire iMessage history on macOS",
   "author": "Ani Potts",
   "license": "MIT",
   "type": "module",
@@ -13,7 +13,8 @@
     "dist",
     "bin",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "server.json"
   ],
   "scripts": {
     "build": "tsc",
@@ -40,14 +41,25 @@
   "keywords": [
     "imessage",
     "mcp",
+    "mcp-server",
     "model-context-protocol",
+    "modelcontextprotocol",
     "macos",
     "messages",
     "claude",
-    "ai"
+    "ai",
+    "llm",
+    "apple",
+    "sms",
+    "chat-history",
+    "analytics"
   ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/anipotts/imessage-mcp.git"
+  },
+  "homepage": "https://github.com/anipotts/imessage-mcp",
+  "bugs": {
+    "url": "https://github.com/anipotts/imessage-mcp/issues"
   }
 }

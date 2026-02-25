@@ -22,10 +22,19 @@ import { registerPatternTools } from "./tools/patterns.js";
 import { registerWrappedTools } from "./tools/wrapped.js";
 import { registerHelp } from "./help.js";
 
-const server = new McpServer({
-  name: "imessage-mcp",
-  version: "1.1.0",
-});
+const server = new McpServer(
+  {
+    name: "imessage-mcp",
+    version: "1.1.0",
+  },
+  {
+    instructions: `iMessage MCP — read-only access to the user's iMessage history on macOS.
+
+When the user asks about their messages, texts, iMessages, or messaging history, use this server's tools to search and analyze their iMessage database. This includes questions like "what did I text [name] about", "show my conversation with [name]", "who do I text the most", etc.
+
+If the user mentions "messages" and it's ambiguous whether they mean iMessages or something else, check iMessage first — it's usually what they mean on macOS.`,
+  },
+);
 
 // Register all tool modules
 registerMessageTools(server);
