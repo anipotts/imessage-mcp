@@ -9,9 +9,7 @@
 
 **26 tools for locally exploring your iMessage history with AI.**
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/anipotts/imessage-mcp/main/assets/demo-dark.gif" alt="imessage-mcp demo" width="720">
-</p>
+<img src="https://raw.githubusercontent.com/anipotts/imessage-mcp/main/assets/demo-dark.gif" alt="imessage-mcp demo" width="100%">
 
 An [MCP server](https://modelcontextprotocol.io) that gives AI assistants **read-only** access to your local iMessage database. Nothing is written, modified, or uploaded. Your messages stay on your Mac; the AI only sees what you ask about.
 
@@ -112,13 +110,11 @@ Once connected, ask your AI assistant anything about your messages in plain lang
 
 </details>
 
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/anipotts/imessage-mcp/main/assets/wrapped-dark.png">
-    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/anipotts/imessage-mcp/main/assets/wrapped-light.png">
-    <img src="https://raw.githubusercontent.com/anipotts/imessage-mcp/main/assets/wrapped-dark.png" alt="iMessage Wrapped — year-in-review summary">
-  </picture>
-</p>
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/anipotts/imessage-mcp/main/assets/wrapped-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/anipotts/imessage-mcp/main/assets/wrapped-light.png">
+  <img src="https://raw.githubusercontent.com/anipotts/imessage-mcp/main/assets/wrapped-dark.png" alt="iMessage Wrapped — year-in-review summary" width="100%">
+</picture>
 
 ## Tools
 
@@ -367,13 +363,11 @@ imessage-mcp doctor
 All checks passed — ready to use!
 ```
 
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/anipotts/imessage-mcp/main/assets/doctor-dark.png">
-    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/anipotts/imessage-mcp/main/assets/doctor-light.png">
-    <img src="https://raw.githubusercontent.com/anipotts/imessage-mcp/main/assets/doctor-dark.png" alt="imessage-mcp doctor output">
-  </picture>
-</p>
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/anipotts/imessage-mcp/main/assets/doctor-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/anipotts/imessage-mcp/main/assets/doctor-light.png">
+  <img src="https://raw.githubusercontent.com/anipotts/imessage-mcp/main/assets/doctor-dark.png" alt="imessage-mcp doctor output" width="100%">
+</picture>
 
 Pass `--json` for machine-readable output:
 
@@ -468,13 +462,11 @@ Prevent message bodies from being sent to the AI. Only metadata (counts, dates, 
 }
 ```
 
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/anipotts/imessage-mcp/main/assets/safe-mode-dark.png">
-    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/anipotts/imessage-mcp/main/assets/safe-mode-light.png">
-    <img src="https://raw.githubusercontent.com/anipotts/imessage-mcp/main/assets/safe-mode-dark.png" alt="Safe Mode — all message bodies redacted">
-  </picture>
-</p>
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/anipotts/imessage-mcp/main/assets/safe-mode-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/anipotts/imessage-mcp/main/assets/safe-mode-light.png">
+  <img src="https://raw.githubusercontent.com/anipotts/imessage-mcp/main/assets/safe-mode-dark.png" alt="Safe Mode — all message bodies redacted" width="100%">
+</picture>
 
 Useful for demos, shared environments, or when you want analytics without exposing private conversations.
 
@@ -562,9 +554,7 @@ Without "Messages in iCloud" enabled **on your Mac**, the Mac's `chat.db` only c
 
 #### 1. Enable on your Mac
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/anipotts/imessage-mcp/main/assets/icloud-messages-mac-dark.png" alt="Messages.app Settings — Enable Messages in iCloud" width="600">
-</p>
+<img src="https://raw.githubusercontent.com/anipotts/imessage-mcp/main/assets/icloud-messages-mac-dark.png" alt="Messages.app Settings — Enable Messages in iCloud" width="100%">
 
 1. Open **Messages.app** on your Mac
 2. Go to **Settings** (Cmd+,) > **iMessage** tab
@@ -573,9 +563,7 @@ Without "Messages in iCloud" enabled **on your Mac**, the Mac's `chat.db` only c
 
 #### 2. Enable on your iPhone/iPad
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/anipotts/imessage-mcp/main/assets/icloud-messages-iphone-dark.png" alt="iPhone Settings — Messages in iCloud toggle" width="300">
-</p>
+<img src="https://raw.githubusercontent.com/anipotts/imessage-mcp/main/assets/icloud-messages-iphone-dark.png" alt="iPhone Settings — Messages in iCloud toggle" width="100%">
 
 1. Open **Settings** > tap your **name** (Apple ID) > **iCloud** > **Messages**
 2. Toggle **"Use on this iPhone"** ON
@@ -592,9 +580,7 @@ Initial sync can take **hours or even days** for large message histories. During
 - Your Mac should be connected to **Wi-Fi and power**
 - You'll see a **"Syncing with iCloud"** status in Messages.app
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/anipotts/imessage-mcp/main/assets/icloud-sync-progress-dark.png" alt="Messages.app — Downloading messages from iCloud progress" width="600">
-</p>
+<img src="https://raw.githubusercontent.com/anipotts/imessage-mcp/main/assets/icloud-sync-progress-dark.png" alt="Messages.app — Downloading messages from iCloud progress" width="100%">
 
 #### 5. Sync contacts for name resolution
 
