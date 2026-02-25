@@ -2,7 +2,7 @@
 
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { getDb, DATE_EXPR, getMessageText } from "../db.js";
+import { getDb, DATE_EXPR, getMessageText, safeText } from "../db.js";
 import { clamp, DEFAULT_LIMIT, MAX_LIMIT, isoDateSchema } from "../helpers.js";
 
 export function registerAttachmentTools(server: McpServer) {
@@ -84,7 +84,7 @@ export function registerAttachmentTools(server: McpServer) {
 
       // Post-process: extract text from attributedBody when text is null
       for (const row of rows) {
-        row.message_text = getMessageText({ text: row.message_text, attributedBody: row.attributedBody });
+        row.message_text = safeText(getMessageText({ text: row.message_text, attributedBody: row.attributedBody }));
         delete row.attributedBody;
       }
 

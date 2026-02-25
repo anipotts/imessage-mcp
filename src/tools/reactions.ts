@@ -2,7 +2,7 @@
 
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { getDb, DATE_EXPR, APPLE_EPOCH_OFFSET, REACTION_TYPES, getMessageText } from "../db.js";
+import { getDb, DATE_EXPR, APPLE_EPOCH_OFFSET, REACTION_TYPES, getMessageText, safeText } from "../db.js";
 import { lookupContact } from "../contacts.js";
 import { clamp, DEFAULT_LIMIT, MAX_LIMIT, isoDateSchema } from "../helpers.js";
 
@@ -133,7 +133,7 @@ export function registerReactionTools(server: McpServer) {
 
       // Post-process: extract text from attributedBody when text is null
       for (const row of mostReacted) {
-        row.reacted_to_text = getMessageText({ text: row.reacted_to_text, attributedBody: row.reacted_to_attributedBody });
+        row.reacted_to_text = safeText(getMessageText({ text: row.reacted_to_text, attributedBody: row.reacted_to_attributedBody }));
         delete row.reacted_to_attributedBody;
       }
 

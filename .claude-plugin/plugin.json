@@ -1,11 +1,13 @@
 {
   "name": "imessage",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "25 tools for exploring your iMessage history with AI",
   "author": {
-    "name": "Ani Potts"
+    "name": "Ani Potts",
+    "url": "https://github.com/anipotts"
   },
   "homepage": "https://github.com/anipotts/imessage-mcp",
   "repository": "https://github.com/anipotts/imessage-mcp",
-  "license": "MIT"
+  "license": "MIT",
+  "keywords": ["imessage", "analytics", "wrapped", "macos", "mcp", "claude"]
 }

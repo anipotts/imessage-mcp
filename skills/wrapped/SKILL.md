@@ -1,6 +1,13 @@
 ---
 name: wrapped
+version: "1.3.0"
 description: Generate a Spotify Wrapped-style summary of iMessage activity.
+allowed-tools:
+  - yearly_wrapped
+  - streaks
+  - who_initiates
+  - forgotten_contacts
+  - temporal_heatmap
 ---
 
 Use the `yearly_wrapped` tool to generate the user's iMessage year-in-review.
@@ -8,3 +15,9 @@ Use the `yearly_wrapped` tool to generate the user's iMessage year-in-review.
 If no year is provided, default to the previous calendar year.
 
 Present results in an engaging, sectioned format that highlights totals, top contacts, behavior patterns, and standout stats.
+
+Use emoji section headers to make the presentation visually engaging and fun.
+
+Highlight surprising or standout stats -- the numbers that make someone say "wait, really?"
+
+When asked to compare years, pull wrapped data for each year and surface the most meaningful changes in behavior, top contacts, and volume.

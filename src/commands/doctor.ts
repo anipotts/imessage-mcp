@@ -130,7 +130,23 @@ if (process.argv.includes("--json")) {
 
   console.log("");
   if (allPassed) {
-    console.log("All checks passed — ready to use!\n");
+    console.log("All checks passed — ready to use!");
+    console.log("");
+    console.log("Quick setup:");
+    console.log("");
+    console.log("  claude mcp add imessage -- npx -y imessage-mcp");
+    console.log("");
+    console.log("Or add to your client's JSON config:");
+    console.log("");
+    console.log(`  {`);
+    console.log(`    "mcpServers": {`);
+    console.log(`      "imessage": {`);
+    console.log(`        "command": "npx",`);
+    console.log(`        "args": ["-y", "imessage-mcp"]`);
+    console.log(`      }`);
+    console.log(`    }`);
+    console.log(`  }`);
+    console.log("");
   } else {
     console.log("Some checks failed — fix the issues above and run again.\n");
     process.exit(1);

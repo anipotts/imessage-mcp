@@ -2,7 +2,7 @@
 
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { getDb, APPLE_EPOCH_OFFSET, EFFECT_NAMES, DATE_EXPR, getMessageText } from "../db.js";
+import { getDb, APPLE_EPOCH_OFFSET, EFFECT_NAMES, DATE_EXPR, getMessageText, safeText } from "../db.js";
 import { lookupContact } from "../contacts.js";
 import { clamp, MAX_LIMIT, isoDateSchema } from "../helpers.js";
 
@@ -132,7 +132,7 @@ export function registerEffectTools(server: McpServer) {
 
       // Post-process: extract text from attributedBody when text is null
       for (const row of recentEffects) {
-        row.text = getMessageText(row);
+        row.text = safeText(getMessageText(row));
         delete row.attributedBody;
       }
 

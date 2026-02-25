@@ -2,7 +2,7 @@
 
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { getDb, DATE_EXPR, APPLE_EPOCH_OFFSET, getMessageText } from "../db.js";
+import { getDb, DATE_EXPR, APPLE_EPOCH_OFFSET, getMessageText, safeText } from "../db.js";
 import { lookupContact } from "../contacts.js";
 import { clamp, MAX_LIMIT } from "../helpers.js";
 
@@ -104,7 +104,7 @@ function getThreadByGuid(db: any, guid: string): any | null {
   if (!parent) return null;
 
   // Extract text from attributedBody if needed
-  parent.text = getMessageText(parent);
+  parent.text = safeText(getMessageText(parent));
   delete parent.attributedBody;
 
   // Get all replies
@@ -125,7 +125,7 @@ function getThreadByGuid(db: any, guid: string): any | null {
 
   // Post-process replies
   for (const reply of replies) {
-    reply.text = getMessageText(reply);
+    reply.text = safeText(getMessageText(reply));
     delete reply.attributedBody;
   }
 

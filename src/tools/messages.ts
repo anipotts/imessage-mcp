@@ -3,7 +3,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { getDb, DATE_EXPR, baseMessageConditions, getMessageText, repliedToCondition, safeText } from "../db.js";
-import { lookupContact } from "../contacts.js";
+import { lookupContact, resolveByName } from "../contacts.js";
 import { formatResults, clamp, DEFAULT_LIMIT, MAX_LIMIT, isoDateSchema } from "../helpers.js";
 
 /** Enrich rows with contact_name from AddressBook */
@@ -47,8 +47,26 @@ export function registerMessageTools(server: McpServer) {
         shared.push(repliedToCondition());
       }
       if (params.contact) {
-        shared.push("h.id LIKE @contact");
-        bindings.contact = `%${params.contact}%`;
+        // Check if contact looks like a phone/email (contains @ or starts with +/digit)
+        const isHandle = /^[+\d]|@/.test(params.contact.trim());
+        if (isHandle) {
+          shared.push("h.id LIKE @contact");
+          bindings.contact = `%${params.contact}%`;
+        } else {
+          // Name-based: reverse-resolve from AddressBook
+          const nameKeys = resolveByName(params.contact);
+          if (nameKeys.length > 0) {
+            // Build OR conditions for each resolved key
+            const orClauses = nameKeys.map((_, i) => `h.id LIKE @nk${i}`);
+            shared.push(`(${orClauses.join(" OR ")})`);
+            nameKeys.forEach((key, i) => {
+              bindings[`nk${i}`] = `%${key}%`;
+            });
+          } else {
+            shared.push("h.id LIKE @contact");
+            bindings.contact = `%${params.contact}%`;
+          }
+        }
       }
       if (params.date_from) {
         shared.push(`${DATE_EXPR} >= @date_from`);
@@ -189,8 +207,23 @@ export function registerMessageTools(server: McpServer) {
         conditions.push("c.chat_identifier = @chat_id");
         bindings.chat_id = params.chat_id;
       } else if (params.contact) {
-        conditions.push("h.id LIKE @contact");
-        bindings.contact = `%${params.contact}%`;
+        const isHandle = /^[+\d]|@/.test(params.contact.trim());
+        if (isHandle) {
+          conditions.push("h.id LIKE @contact");
+          bindings.contact = `%${params.contact}%`;
+        } else {
+          const nameKeys = resolveByName(params.contact);
+          if (nameKeys.length > 0) {
+            const orClauses = nameKeys.map((_, i) => `h.id LIKE @nk${i}`);
+            conditions.push(`(${orClauses.join(" OR ")})`);
+            nameKeys.forEach((key, i) => {
+              bindings[`nk${i}`] = `%${key}%`;
+            });
+          } else {
+            conditions.push("h.id LIKE @contact");
+            bindings.contact = `%${params.contact}%`;
+          }
+        }
       }
 
       if (params.before_rowid) {

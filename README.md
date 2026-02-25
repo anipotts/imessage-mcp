@@ -6,12 +6,16 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![MCP](https://img.shields.io/badge/MCP-Compatible-8A2BE2?style=flat-square)](https://modelcontextprotocol.io)
 [![CI](https://github.com/anipotts/imessage-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/anipotts/imessage-mcp/actions/workflows/ci.yml)
-[![Node](https://img.shields.io/node/v/imessage-mcp?style=flat-square)](https://nodejs.org)
+[![Node](https://img.shields.io/badge/Node.js-18%2B-339933?style=flat-square&logo=node.js&logoColor=white)](https://nodejs.org)
 
 **25 tools for exploring your iMessage history on macOS.**
 
 <p align="center">
-  <img src="assets/demo.gif" alt="imessage-mcp demo" width="700">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/anipotts/imessage-mcp/main/assets/demo-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/anipotts/imessage-mcp/main/assets/demo-light.png">
+    <img src="https://raw.githubusercontent.com/anipotts/imessage-mcp/main/assets/demo-dark.png" alt="imessage-mcp demo — emoji reactions analysis" width="700">
+  </picture>
 </p>
 
 An [MCP server](https://modelcontextprotocol.io) that gives AI assistants read-only access to your local iMessage database. Search messages, analyze conversations, explore reactions, read receipts, reply threads, edited messages, effects, streaks, conversation patterns, and more. Nothing leaves your machine.
@@ -35,12 +39,27 @@ npx imessage-mcp doctor
 claude mcp add imessage -- npx -y imessage-mcp
 ```
 
+### Claude Code Plugin
+
+For slash commands and agents:
+
+```bash
+claude plugin add anipotts/imessage-mcp
+```
+
 ```bash
 # Claude Desktop — add to ~/Library/Application Support/Claude/claude_desktop_config.json
 ```
 
 ```json
-{ "mcpServers": { "imessage": { "command": "npx", "args": ["-y", "imessage-mcp"] } } }
+{
+  "mcpServers": {
+    "imessage": {
+      "command": "npx",
+      "args": ["-y", "imessage-mcp"]
+    }
+  }
+}
 ```
 
 See [Setup](#setup) for Cursor, Windsurf, VS Code, Codex CLI, Cline, JetBrains, and Zed.
@@ -324,6 +343,14 @@ imessage-mcp doctor
 All checks passed — ready to use!
 ```
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/anipotts/imessage-mcp/main/assets/doctor-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/anipotts/imessage-mcp/main/assets/doctor-light.png">
+    <img src="https://raw.githubusercontent.com/anipotts/imessage-mcp/main/assets/doctor-dark.png" alt="imessage-mcp doctor output" width="600">
+  </picture>
+</p>
+
 Pass `--json` for machine-readable output:
 
 ```bash
@@ -401,6 +428,14 @@ Prevent message bodies from being sent to the AI. Only metadata (counts, dates, 
 }
 ```
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/anipotts/imessage-mcp/main/assets/safe-mode-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/anipotts/imessage-mcp/main/assets/safe-mode-light.png">
+    <img src="https://raw.githubusercontent.com/anipotts/imessage-mcp/main/assets/safe-mode-dark.png" alt="Safe Mode — all message bodies redacted" width="550">
+  </picture>
+</p>
+
 Useful for demos, shared environments, or when you want analytics without exposing private conversations.
 
 ## Smart Filtering
@@ -474,6 +509,14 @@ Fix by pointing to your system Node directly:
 2. Restart Claude Desktop completely (Cmd+Q, then reopen)
 3. Run `npx imessage-mcp doctor` to confirm the server works independently
 </details>
+
+## Uninstall
+
+```bash
+npm uninstall -g imessage-mcp
+```
+
+To revoke database access, remove your terminal from System Settings > Privacy & Security > Full Disk Access.
 
 ## How It Works
 

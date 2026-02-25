@@ -1,0 +1,9 @@
+{
+  "hooks": [
+    {
+      "event": "PostInstall",
+      "command": "npx imessage-mcp doctor --json",
+      "description": "Verify iMessage database access after plugin install"
+    }
+  ]
+}

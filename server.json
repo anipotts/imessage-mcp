@@ -7,12 +7,12 @@
     "url": "https://github.com/anipotts/imessage-mcp",
     "source": "github"
   },
-  "version": "1.2.1",
+  "version": "1.3.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "imessage-mcp",
-      "version": "1.2.1",
+      "version": "1.3.0",
       "transport": {
         "type": "stdio"
       },
@@ -20,6 +20,11 @@
         {
           "name": "IMESSAGE_DB",
           "description": "Path to iMessage database (default: ~/Library/Messages/chat.db)",
+          "isRequired": false
+        },
+        {
+          "name": "IMESSAGE_SAFE_MODE",
+          "description": "Set to 1 to redact all message bodies. Returns only metadata.",
           "isRequired": false
         }
       ],

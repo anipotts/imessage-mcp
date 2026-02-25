@@ -119,6 +119,27 @@ function resolveFromAddressBook(handle: string): string | null {
 }
 
 /**
+ * Reverse lookup: find handles from AddressBook whose resolved name matches the query.
+ * Returns normalized keys (last-10-digits for phones, lowercase emails).
+ */
+export function resolveByName(name: string): string[] {
+  if (addressBookCache === null) {
+    addressBookCache = loadAddressBook();
+  }
+
+  const lower = name.toLowerCase();
+  const matches: string[] = [];
+
+  for (const [key, resolvedName] of addressBookCache) {
+    if (resolvedName.toLowerCase().includes(lower)) {
+      matches.push(key);
+    }
+  }
+
+  return matches;
+}
+
+/**
  * Look up a contact by handle (phone number, email).
  * Uses macOS AddressBook for resolution, falls back to raw handle.
  */
