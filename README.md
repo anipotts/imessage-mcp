@@ -445,6 +445,14 @@ docker run -p 3000:3000 -v /path/to/chat.db:/data/chat.db:ro imessage-mcp
 
 The container starts with `--transport http --host 0.0.0.0` on port 3000 by default. Connect any MCP client to `http://localhost:3000/mcp`.
 
+To secure the HTTP endpoint with authentication:
+
+```bash
+docker run -p 3000:3000 -e IMESSAGE_API_TOKEN=your-secret-token -v /path/to/chat.db:/data/chat.db:ro imessage-mcp
+```
+
+All requests must then include the `Authorization: Bearer your-secret-token` header.
+
 <details>
 <summary><strong>Safe Mode</strong> — redact all message bodies</summary>
 
@@ -522,6 +530,7 @@ This watches your iMessage database for changes and notifies your AI client with
 | `IMESSAGE_DB` | `~/Library/Messages/chat.db` | Path to iMessage database |
 | `IMESSAGE_SAFE_MODE` | `false` | Set to `1` to redact all message bodies |
 | `IMESSAGE_SYNC` | `off` | Sync mode: `off`, `watch` (FSEvents), or `poll:N` (every N seconds) |
+| `IMESSAGE_API_TOKEN` | _(none)_ | Bearer token for HTTP/SSE auth. If set, requests must include `Authorization: Bearer <token>` |
 
 <details>
 <summary><strong>iCloud Sync & Multiple Devices</strong></summary>

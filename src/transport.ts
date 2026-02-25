@@ -4,7 +4,7 @@
 // startSse — Legacy SSE mode (deprecated MCP protocol, for older clients)
 
 import { createServer as createHttpServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { randomUUID } from "node:crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
@@ -63,6 +63,37 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.end(JSON.stringify(body));
 }
 
+// ── Auth ──
+
+const API_TOKEN = process.env.IMESSAGE_API_TOKEN || "";
+
+function checkAuth(req: IncomingMessage, res: ServerResponse): boolean {
+  if (!API_TOKEN) return true;
+  const header = req.headers.authorization ?? "";
+  if (!header.startsWith("Bearer ")) {
+    res.writeHead(401, { "Content-Type": "application/json", "WWW-Authenticate": "Bearer" });
+    res.end(JSON.stringify({ error: "Unauthorized" }));
+    return false;
+  }
+  const token = Buffer.from(header.slice(7));
+  const expected = Buffer.from(API_TOKEN);
+  if (token.length !== expected.length || !timingSafeEqual(token, expected)) {
+    res.writeHead(401, { "Content-Type": "application/json", "WWW-Authenticate": "Bearer" });
+    res.end(JSON.stringify({ error: "Unauthorized" }));
+    return false;
+  }
+  return true;
+}
+
+function warnIfExposed(host: string): void {
+  if (!API_TOKEN && host !== "127.0.0.1" && host !== "::1" && host !== "localhost") {
+    process.stderr.write(
+      `\nWARNING: Listening on ${host} without authentication.\n` +
+      `  Set IMESSAGE_API_TOKEN to require bearer token auth.\n\n`,
+    );
+  }
+}
+
 // ── Streamable HTTP ──
 
 export async function startStreamableHttp(port: number, host: string): Promise<void> {
@@ -79,6 +110,8 @@ export async function startStreamableHttp(port: number, host: string): Promise<v
       res.end();
       return;
     }
+
+    if (!checkAuth(req, res)) return;
 
     try {
       const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
@@ -177,6 +210,8 @@ export async function startStreamableHttp(port: number, host: string): Promise<v
 
   httpServer.listen(port, host, () => {
     process.stderr.write(`imessage-mcp Streamable HTTP server listening on http://${host}:${port}/mcp\n`);
+    if (API_TOKEN) process.stderr.write(`  Bearer token auth: enabled\n`);
+    warnIfExposed(host);
   });
 
   const shutdown = async () => {
@@ -206,6 +241,8 @@ export async function startSse(port: number, host: string): Promise<void> {
       res.end();
       return;
     }
+
+    if (!checkAuth(req, res)) return;
 
     try {
       const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
@@ -250,6 +287,8 @@ export async function startSse(port: number, host: string): Promise<void> {
 
   httpServer.listen(port, host, () => {
     process.stderr.write(`imessage-mcp SSE server listening on http://${host}:${port}/sse\n`);
+    if (API_TOKEN) process.stderr.write(`  Bearer token auth: enabled\n`);
+    warnIfExposed(host);
   });
 
   const shutdown = () => {
