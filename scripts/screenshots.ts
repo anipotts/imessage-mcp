@@ -1,21 +1,21 @@
-#!/usr/bin/env node
+#!/usr/bin/env tsx
 // Generate README screenshots using Playwright
-// Usage: node scripts/screenshots.mjs
+// Usage: npx tsx scripts/screenshots.ts
 
 import { execFileSync } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { chromium } from "playwright";
 
 // ── Capture real command output ────────────────────────────────────
-function run(cmd, args = [], timeout = 15_000) {
+function run(cmd: string, args: string[] = [], timeout = 15_000): string {
   try {
     return execFileSync(cmd, args, { encoding: "utf-8", timeout }).trim();
-  } catch (e) {
+  } catch (e: any) {
     return e.stdout?.trim() || e.message;
   }
 }
 
-function ansiToHtml(str) {
+function ansiToHtml(str: string): string {
   let html = str
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
@@ -34,7 +34,7 @@ function ansiToHtml(str) {
 }
 
 // ── HTML terminal template ─────────────────────────────────────────
-function terminalHtml(lines, { title = "Terminal", theme = "dark" } = {}) {
+function terminalHtml(lines: string, { title = "Terminal", theme = "dark" } = {}): string {
   const isDark = theme === "dark";
   const bg = isDark ? "#1e1e2e" : "#eff1f5";
   const fg = isDark ? "#cdd6f4" : "#4c4f69";
@@ -113,7 +113,7 @@ async function main() {
   const browser = await chromium.launch();
   const context = await browser.newContext({ deviceScaleFactor: 2 });
 
-  async function screenshot(html, filename) {
+  async function screenshot(html: string, filename: string) {
     const page = await context.newPage();
     await page.setViewportSize({ width: 880, height: 800 });
     await page.setContent(html);

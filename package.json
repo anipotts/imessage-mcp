@@ -25,6 +25,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "screenshots": "tsx scripts/screenshots.ts",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
