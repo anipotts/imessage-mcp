@@ -1,7 +1,7 @@
 {
   "name": "imessage",
   "version": "1.4.0",
-  "description": "26 tools for exploring your iMessage history with AI",
+  "description": "Give Claude access to your iMessage history so it can search your conversations, tell you who you should text back, analyze how your friendships are trending, and surface patterns from years of messages — all with a privacy layer so you control exactly what it sees.",
   "author": {
     "name": "Ani Potts",
     "url": "https://github.com/anipotts"
@@ -9,5 +9,5 @@
   "homepage": "https://github.com/anipotts/imessage-mcp",
   "repository": "https://github.com/anipotts/imessage-mcp",
   "license": "MIT",
-  "keywords": ["imessage", "analytics", "wrapped", "macos", "mcp", "claude"]
+  "keywords": ["imessage", "analytics", "wrapped", "macos", "mcp", "claude", "cowork", "messages", "texting"]
 }
