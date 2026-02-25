@@ -14,7 +14,7 @@
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/anipotts/imessage-mcp/main/assets/demo-dark.png">
     <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/anipotts/imessage-mcp/main/assets/demo-light.png">
-    <img src="https://raw.githubusercontent.com/anipotts/imessage-mcp/main/assets/demo-dark.png" alt="imessage-mcp demo — emoji reactions analysis" width="700">
+    <img src="https://raw.githubusercontent.com/anipotts/imessage-mcp/main/assets/demo-dark.png" alt="imessage-mcp demo — emoji reactions analysis">
   </picture>
 </p>
 
@@ -167,6 +167,14 @@ Once connected, ask your AI assistant anything about your messages in plain lang
 - "Show me the longest silence between me and [name]"
 - "Do I double-text [name] a lot?"
 - "What are the most popular group chats?"
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/anipotts/imessage-mcp/main/assets/wrapped-dark.png">
+    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/anipotts/imessage-mcp/main/assets/wrapped-light.png">
+    <img src="https://raw.githubusercontent.com/anipotts/imessage-mcp/main/assets/wrapped-dark.png" alt="iMessage Wrapped — year-in-review summary">
+  </picture>
+</p>
 
 ## Setup
 
@@ -347,7 +355,7 @@ All checks passed — ready to use!
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/anipotts/imessage-mcp/main/assets/doctor-dark.png">
     <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/anipotts/imessage-mcp/main/assets/doctor-light.png">
-    <img src="https://raw.githubusercontent.com/anipotts/imessage-mcp/main/assets/doctor-dark.png" alt="imessage-mcp doctor output" width="600">
+    <img src="https://raw.githubusercontent.com/anipotts/imessage-mcp/main/assets/doctor-dark.png" alt="imessage-mcp doctor output">
   </picture>
 </p>
 
@@ -432,7 +440,7 @@ Prevent message bodies from being sent to the AI. Only metadata (counts, dates, 
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/anipotts/imessage-mcp/main/assets/safe-mode-dark.png">
     <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/anipotts/imessage-mcp/main/assets/safe-mode-light.png">
-    <img src="https://raw.githubusercontent.com/anipotts/imessage-mcp/main/assets/safe-mode-dark.png" alt="Safe Mode — all message bodies redacted" width="550">
+    <img src="https://raw.githubusercontent.com/anipotts/imessage-mcp/main/assets/safe-mode-dark.png" alt="Safe Mode — all message bodies redacted">
   </picture>
 </p>
 

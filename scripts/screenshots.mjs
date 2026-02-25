@@ -21,9 +21,9 @@ function ansiToHtml(str) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
 
-  // Green ✓
+  // Green checkmark
   html = html.replace(/\x1b\[32m(.*?)\x1b\[0m/g, '<span style="color:#a6e3a1">$1</span>');
-  // Red ✗
+  // Red X
   html = html.replace(/\x1b\[31m(.*?)\x1b\[0m/g, '<span style="color:#f38ba8">$1</span>');
   // Yellow !
   html = html.replace(/\x1b\[33m(.*?)\x1b\[0m/g, '<span style="color:#f9e2af">$1</span>');
@@ -34,7 +34,7 @@ function ansiToHtml(str) {
 }
 
 // ── HTML terminal template ─────────────────────────────────────────
-function terminalHtml(lines, { title = "Terminal", theme = "dark", width = 700 } = {}) {
+function terminalHtml(lines, { title = "Terminal", theme = "dark" } = {}) {
   const isDark = theme === "dark";
   const bg = isDark ? "#1e1e2e" : "#eff1f5";
   const fg = isDark ? "#cdd6f4" : "#4c4f69";
@@ -58,15 +58,13 @@ function terminalHtml(lines, { title = "Terminal", theme = "dark", width = 700 }
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
-    background: transparent;
+    background: ${bg};
     font-family: "JetBrains Mono", "SF Mono", "Fira Code", "Menlo", monospace;
   }
   .window {
     background: ${bg};
-    border-radius: 12px;
-    width: ${width}px;
+    width: 100%;
     overflow: hidden;
-    box-shadow: 0 8px 32px rgba(0,0,0,${isDark ? "0.5" : "0.15"});
   }
   .titlebar {
     background: ${titleBg};
@@ -82,10 +80,10 @@ function terminalHtml(lines, { title = "Terminal", theme = "dark", width = 700 }
     margin-left: 8px;
   }
   .content {
-    padding: 20px;
+    padding: 24px;
     color: ${fg};
-    font-size: 13px;
-    line-height: 1.65;
+    font-size: 13.5px;
+    line-height: 1.7;
     white-space: pre-wrap;
     word-break: break-word;
   }
@@ -117,9 +115,8 @@ async function main() {
 
   async function screenshot(html, filename) {
     const page = await context.newPage();
-    await page.setViewportSize({ width: 1200, height: 900 });
+    await page.setViewportSize({ width: 880, height: 800 });
     await page.setContent(html);
-    // Wait for fonts
     await page.waitForTimeout(500);
     const el = page.locator(".window");
     await el.screenshot({ path: `assets/${filename}`, type: "png" });
@@ -137,14 +134,13 @@ async function main() {
     await screenshot(
       terminalHtml(
         `<span class="prompt">$</span> <span class="cmd">npx imessage-mcp doctor</span>\n\n${doctorHtml}`,
-        { title: "~/Code/my-project", theme, width: 680 }
+        { title: "~/Code/my-project", theme }
       ),
       `doctor-${theme}.png`
     );
   }
 
   // ── 2. Hero demo — emoji reactions ────────────────────────────
-  // Run the actual query
   console.log("  ⏳ Running Claude query for demo screenshot...");
   const emojiRaw = run("claude", [
     "-p", "--dangerously-skip-permissions", "--max-turns", "4",
@@ -163,7 +159,7 @@ async function main() {
       await screenshot(
         terminalHtml(
           `<span class="prompt">&gt;</span> <span class="cmd">what are my top 5 emoji reactions in imessage?</span>\n\n${cleaned}`,
-          { title: "Claude Code — imessage-mcp", theme, width: 720 }
+          { title: "Claude Code — imessage-mcp", theme }
         ),
         `demo-${theme}.png`
       );
@@ -187,7 +183,7 @@ async function main() {
       await screenshot(
         terminalHtml(
           `<span class="prompt">&gt;</span> <span class="cmd">what are my top 5 emoji reactions in imessage?</span>\n\n${escaped}`,
-          { title: "Claude Code — imessage-mcp", theme, width: 720 }
+          { title: "Claude Code — imessage-mcp", theme }
         ),
         `demo-${theme}.png`
       );
@@ -207,53 +203,37 @@ Messages (3 results):
 
   for (const theme of ["dark", "light"]) {
     await screenshot(
-      terminalHtml(safeContent, { title: "Safe Mode", theme, width: 620 }),
+      terminalHtml(safeContent, { title: "Safe Mode", theme }),
       `safe-mode-${theme}.png`
     );
   }
 
-  // ── 4. Setup ──────────────────────────────────────────────────
-  const setupContent = `<span class="muted"># Install</span>
-<span class="prompt">$</span> <span class="cmd">npm install -g imessage-mcp</span>
+  // ── 4. Wrapped — year-in-review ───────────────────────────────
+  const wrappedContent = `<span class="prompt">&gt;</span> <span class="cmd">give me my 2025 imessage wrapped</span>
 
-<span class="muted"># Add to Claude Code</span>
-<span class="prompt">$</span> <span class="cmd">claude mcp add imessage -- npx -y imessage-mcp</span>
+Your 2025 iMessage Wrapped
 
-<span class="muted"># Or add to any MCP client's JSON config:</span>
-{
-  "mcpServers": {
-    "imessage": {
-      "command": "npx",
-      "args": ["-y", "imessage-mcp"]
-    }
+  Total messages       28,441
+  Contacts             86
+  Busiest month        October (3,847 messages)
+  Most active hour     10 PM
+  Top contact          Best Friend (4,201 messages)
+
+  Longest streak       142 days (Mar 3 — Jul 23)
+  Most-used reaction   ❤️ Love (1,299 times)
+  Group chats          12 active
+
+  You sent first       62% of the time
+  Avg response time    4 minutes
+
+<span class="muted">You texted across 312 of 365 days. That's 85% of the year.</span>`;
+
+  for (const theme of ["dark", "light"]) {
+    await screenshot(
+      terminalHtml(wrappedContent, { title: "Claude Code — imessage-mcp", theme }),
+      `wrapped-${theme}.png`
+    );
   }
-}`;
-
-  await screenshot(
-    terminalHtml(setupContent, { title: "Setup", theme: "dark", width: 560 }),
-    "setup-dark.png"
-  );
-
-  // ── 5. Tools overview ─────────────────────────────────────────
-  const toolsContent = `<span class="cmd">25 tools</span> across 9 categories — all read-only
-
-  Messages     search_messages, get_conversation
-  Contacts     list_contacts, get_contact, resolve_contact
-  Analytics    message_stats, contact_stats, temporal_heatmap
-  Memories     on_this_day, first_last_message
-  Patterns     who_initiates, streaks, double_texts,
-               conversation_gaps, forgotten_contacts
-  Wrapped      yearly_wrapped
-  Groups       list_group_chats, get_group_chat
-  Media        list_attachments
-  Social       get_reactions, get_read_receipts, get_thread,
-               get_edited_messages, get_message_effects
-  System       help`;
-
-  await screenshot(
-    terminalHtml(toolsContent, { title: "Tools", theme: "dark", width: 600 }),
-    "tools-dark.png"
-  );
 
   await browser.close();
   console.log("\nDone!\n");
