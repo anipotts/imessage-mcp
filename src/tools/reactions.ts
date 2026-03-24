@@ -3,7 +3,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { getDb, DATE_EXPR, APPLE_EPOCH_OFFSET, REACTION_TYPES, getMessageText, safeText } from "../db.js";
-import { lookupContact } from "../contacts.js";
+import { lookupContact, resolveByName } from "../contacts.js";
 import { clamp, DEFAULT_LIMIT, MAX_LIMIT, isoDateSchema } from "../helpers.js";
 
 export function registerReactionTools(server: McpServer) {
@@ -32,8 +32,25 @@ export function registerReactionTools(server: McpServer) {
       const bindings: Record<string, any> = {};
 
       if (params.contact) {
-        conditions.push("h.id LIKE @contact");
-        bindings.contact = `%${params.contact}%`;
+        // Check if contact looks like a phone/email (contains @ or starts with +/digit)
+        const isHandle = /^[+\d]|@/.test(params.contact.trim());
+        if (isHandle) {
+          conditions.push("h.id LIKE @contact");
+          bindings.contact = `%${params.contact}%`;
+        } else {
+          // Name-based: reverse-resolve from AddressBook
+          const nameKeys = resolveByName(params.contact);
+          if (nameKeys.length > 0) {
+            const orClauses = nameKeys.map((_, i) => `h.id LIKE @nk${i}`);
+            conditions.push(`(${orClauses.join(" OR ")})`);
+            nameKeys.forEach((key, i) => {
+              bindings[`nk${i}`] = `%${key}%`;
+            });
+          } else {
+            conditions.push("h.id LIKE @contact");
+            bindings.contact = `%${params.contact}%`;
+          }
+        }
       }
       if (params.reaction_type) {
         const typeCode = Object.entries(REACTION_TYPES)
@@ -123,7 +140,9 @@ export function registerReactionTools(server: McpServer) {
         LEFT JOIN handle h ON r.handle_id = h.ROWID
         LEFT JOIN handle h2 ON p.handle_id = h2.ROWID
         WHERE r.associated_message_type BETWEEN 2000 AND 2005
-          ${params.contact ? "AND (h.id LIKE @contact OR h2.id LIKE @contact)" : ""}
+          ${params.contact ? (bindings.contact !== undefined
+            ? "AND (h.id LIKE @contact OR h2.id LIKE @contact)"
+            : `AND (${Object.keys(bindings).filter(k => k.startsWith("nk")).map(k => `h.id LIKE @${k} OR h2.id LIKE @${k}`).join(" OR ")})`) : ""}
           ${params.date_from ? `AND ${DATE.replace(/\bm\./g, 'r.')} >= @date_from` : ""}
           ${params.date_to ? `AND ${DATE.replace(/\bm\./g, 'r.')} <= @date_to` : ""}
         GROUP BY r.associated_message_guid
@@ -155,7 +174,9 @@ export function registerReactionTools(server: McpServer) {
           LEFT JOIN handle h ON m.handle_id = h.ROWID
           WHERE m.associated_message_emoji IS NOT NULL
             AND m.associated_message_emoji <> ''
-            ${params.contact ? "AND h.id LIKE @contact" : ""}
+            ${params.contact ? (bindings.contact !== undefined
+              ? "AND h.id LIKE @contact"
+              : `AND (${Object.keys(bindings).filter(k => k.startsWith("nk")).map(k => `h.id LIKE @${k}`).join(" OR ")})`) : ""}
             ${params.date_from ? `AND ${DATE} >= @date_from` : ""}
             ${params.date_to ? `AND ${DATE} <= @date_to` : ""}
           GROUP BY m.associated_message_emoji
