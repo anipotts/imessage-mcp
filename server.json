@@ -34,33 +34,6 @@
         }
       ],
       "runtimeHint": "node"
-    },
-    {
-      "registryType": "npm",
-      "identifier": "imessage-mcp",
-      "version": "1.5.0",
-      "transport": {
-        "type": "streamableHttp"
-      },
-      "arguments": ["--transport", "http", "--port", "3000"],
-      "environmentVariables": [
-        {
-          "name": "IMESSAGE_DB",
-          "description": "Path to iMessage database (default: ~/Library/Messages/chat.db)",
-          "isRequired": false
-        },
-        {
-          "name": "IMESSAGE_SAFE_MODE",
-          "description": "Set to 1 to redact all message bodies. Returns only metadata.",
-          "isRequired": false
-        },
-        {
-          "name": "IMESSAGE_SYNC",
-          "description": "Message sync mode: 'off' (default), 'watch' (FSEvents, near-real-time), or 'poll:N' (every N seconds)",
-          "isRequired": false
-        }
-      ],
-      "runtimeHint": "node"
     }
   ]
 }
