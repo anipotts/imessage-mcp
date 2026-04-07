@@ -96,80 +96,60 @@ export function getDb(): Database.Database {
 /**
  * Extract text from NSAttributedString binary blob (attributedBody column).
  * On macOS 14+, some messages have null `text` but valid `attributedBody`.
- * The blob contains a bplist with the text encoded as UTF-8.
+ *
+ * The blob is an NSKeyedArchiver-encoded NSAttributedString. The plain text
+ * lives after an "NSString" class marker + a 5-byte preamble, then a
+ * length-prefixed UTF-8 string:
+ *
+ *   [marker] [5 preamble bytes] [length] [UTF-8 text]
+ *
+ * Length encoding:
+ *   - If first byte after preamble is 0x81, length is next 2 bytes (LE uint16)
+ *   - Otherwise, the byte itself is the length (for messages <= 127 chars)
+ *
+ * References: LangChain iMessage loader, imessage_tools project.
  */
 export function extractTextFromAttributedBody(blob: Buffer): string | null {
   if (!blob || blob.length === 0) return null;
 
   try {
-    // Strategy 1: Look for NSString marker followed by the text
-    // The pattern is: "NSString" marker -> type byte -> length -> UTF-8 text
     const nsStringMarker = Buffer.from("NSString");
     let idx = blob.indexOf(nsStringMarker);
+    let markerLen = nsStringMarker.length;
+
     if (idx === -1) {
-      // Strategy 2: Look for "NSMutableString" marker
       const nsMutableMarker = Buffer.from("NSMutableString");
       idx = blob.indexOf(nsMutableMarker);
+      markerLen = nsMutableMarker.length;
     }
 
-    if (idx !== -1) {
-      // Advance past the marker + some header bytes to find text content
-      // The text typically follows a few bytes after the class name
-      const searchStart = idx + 8;
+    if (idx === -1) return null;
 
-      // Look for the actual text by scanning for a length-prefixed UTF-8 string
-      // Format varies but generally: skip class metadata, find text block
-      for (let i = searchStart; i < Math.min(searchStart + 50, blob.length - 2); i++) {
-        const byte = blob[i];
-        // Check for short string length byte (0x01-0x7f range indicates length)
-        if (byte > 1 && byte < 128) {
-          const potentialLen = byte;
-          if (i + 1 + potentialLen <= blob.length) {
-            const candidate = blob.subarray(i + 1, i + 1 + potentialLen);
-            // Validate it's printable UTF-8 and at least 2 chars (skip metadata bytes)
-            const text = candidate.toString("utf-8");
-            if (text.length >= 2 && /^[\x20-\x7E\u00A0-\uFFFF]+/.test(text)) {
-              return text.trim();
-            }
-          }
-        }
-      }
+    // Skip past the marker + 5 preamble bytes
+    const preambleLen = 5;
+    const contentStart = idx + markerLen + preambleLen;
+    if (contentStart >= blob.length) return null;
+
+    const content = blob.subarray(contentStart);
+
+    let textLength: number;
+    let textStart: number;
+
+    if (content[0] === 0x81) {
+      // 3-byte length encoding: flag byte 0x81 + 2-byte little-endian uint16
+      if (content.length < 3) return null;
+      textLength = content[1] | (content[2] << 8);
+      textStart = 3;
+    } else {
+      // 1-byte length encoding (messages <= 127 chars)
+      textLength = content[0];
+      textStart = 1;
     }
 
-    // Strategy 3: Brute-force scan for longest UTF-8 text run
-    // This handles edge cases where the marker approach fails
-    let bestText = "";
-    let i = 0;
-    while (i < blob.length) {
-      // Skip null bytes and control characters
-      if (blob[i] < 0x20 && blob[i] !== 0x0A && blob[i] !== 0x0D) {
-        i++;
-        continue;
-      }
+    if (textStart + textLength > content.length) return null;
 
-      // Try to read a text run
-      let end = i;
-      while (end < blob.length && (blob[end] >= 0x20 || blob[end] === 0x0A || blob[end] === 0x0D)) {
-        end++;
-      }
-
-      if (end - i > bestText.length && end - i >= 2) {
-        const candidate = blob.subarray(i, end).toString("utf-8").trim();
-        // Filter out binary-looking strings and class names
-        if (
-          candidate.length > bestText.length &&
-          !candidate.startsWith("NS") &&
-          !candidate.startsWith("bplist") &&
-          !candidate.includes("streamtyped") &&
-          !/^[A-Z][a-z]+[A-Z]/.test(candidate) // Skip CamelCase class names
-        ) {
-          bestText = candidate;
-        }
-      }
-      i = end + 1;
-    }
-
-    return bestText.length >= 2 ? bestText : null;
+    const text = content.subarray(textStart, textStart + textLength).toString("utf-8");
+    return text.trim() || null;
   } catch {
     return null;
   }
