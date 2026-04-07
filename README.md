@@ -11,6 +11,8 @@
 
 <img src="https://raw.githubusercontent.com/anipotts/imessage-mcp/main/assets/demo-dark.gif" alt="imessage-mcp demo" width="100%">
 
+> if this helped you, star it — it helps others find it.
+
 An [MCP server](https://modelcontextprotocol.io) that gives AI assistants **read-only** access to your local iMessage database. Nothing is written, modified, or uploaded. Your messages stay on your Mac; the AI only sees what you ask about.
 
 > **Read-only access to 2 local files** (`chat.db` + `AddressBook`). Zero network requests. Nothing is written, uploaded, or shared. All 26 tools are annotated `readOnlyHint: true` — your MCP client can auto-approve every call without prompts.
@@ -707,6 +709,21 @@ imessage-mcp reads `~/Library/Messages/chat.db` using [better-sqlite3](https://g
 On macOS 14 (Sonoma) and later, Apple changed how message text is stored. Some messages have `NULL` in the `text` column but contain the actual text in the `attributedBody` binary blob. imessage-mcp extracts text from this blob automatically so no messages are left behind.
 
 All 26 tools are annotated with `readOnlyHint: true` so MCP clients can auto-approve them without user prompts.
+
+## part of [claude-code-tips](https://github.com/anipotts/claude-code-tips)
+
+tools i built while living in claude code every day.
+
+- **[claude-code-tips](https://github.com/anipotts/claude-code-tips)** — practical patterns for agentic coding
+- **[claudemon](https://github.com/anipotts/claudemon)** — real-time session monitor
+- **[cc](https://github.com/anipotts/cc)** — cross-session messaging
+- **[mine](https://github.com/anipotts/mine)** — session mining to sqlite
+
+## more from me
+
+- [anipotts.com/thoughts](https://anipotts.com/thoughts) — long-form
+- [buttondown.com/anipotts](https://buttondown.com/anipotts) — newsletter
+- [@anipottsbuilds](https://instagram.com/anipottsbuilds) — short-form
 
 ## License
 
