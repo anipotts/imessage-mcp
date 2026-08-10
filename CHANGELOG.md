@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.1] - 2026-08-10
+
+### Fixed
+- attributed-body messages now decode their complete Foundation string without binary prefixes or truncation
+- contact lookup now uses Apple's unified Contacts view instead of format-dependent per-source database order
+- shared handles return structured ambiguity candidates instead of silently selecting a contact
+- empty contact queries are rejected before they can match every handle
+- the Claude plugin validates again and no longer runs a database probe during installation
+
+### Changed
+- patched runtime dependencies while retaining the 1.x Node.js 18 compatibility floor
+- added Foundation-generated parser fixtures and deterministic contact-collision coverage
+
 ## [1.3.0] - 2026-02-25
 
 ### Added

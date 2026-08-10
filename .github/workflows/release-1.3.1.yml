@@ -1,0 +1,145 @@
+name: release 1.3.1
+
+on:
+  push:
+    tags: [v1.3.1]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: verify release candidate
+    runs-on: macos-14
+
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22
+          cache: npm
+      - name: Match tag and package versions
+        run: >-
+          node -e 'const packageVersion=require("./package.json").version;
+          if (process.env.GITHUB_REF_NAME !== `v${packageVersion}`)
+          throw new Error("tag and package versions differ")'
+      - run: npm ci
+      - run: npm run build
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm audit --audit-level=high
+      - run: npm run test:packed-stdio
+      - run: npm pack --dry-run
+
+  publish-npm:
+    name: publish npm with provenance
+    needs: verify
+    runs-on: macos-14
+    environment: npm-release
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 24
+          cache: npm
+          registry-url: https://registry.npmjs.org
+      - run: npm ci
+      - run: npm publish --access public --provenance
+
+  verify-public-tarball:
+    name: verify public npm tarball
+    needs: publish-npm
+    runs-on: macos-14
+
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22
+          cache: npm
+          registry-url: https://registry.npmjs.org
+      - run: npm ci
+      - name: Install and exercise the public package
+        env:
+          IMESSAGE_PACKAGE_SPEC: imessage-mcp@1.3.1
+        run: |
+          for attempt in 1 2 3 4 5; do
+            if npm run test:packed-stdio; then
+              exit 0
+            fi
+            sleep 15
+          done
+          exit 1
+
+  github-release:
+    name: publish github release
+    needs: verify-public-tarball
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create v1.3.1
+          --verify-tag
+          --title "imessage-mcp 1.3.1"
+          --generate-notes
+
+  mcp-registry:
+    name: publish mcp registry metadata
+    needs: verify-public-tarball
+    runs-on: ubuntu-latest
+    environment: mcp-registry-release
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - name: Install pinned MCP publisher
+        run: |
+          curl -fsSLo mcp-publisher.tar.gz https://github.com/modelcontextprotocol/registry/releases/download/v1.7.9/mcp-publisher_linux_amd64.tar.gz
+          echo "ab128162b0616090b47cf245afe0a23f3ef08936fdce19074f5ba0a4469281ac  mcp-publisher.tar.gz" | sha256sum -c -
+          tar -xzf mcp-publisher.tar.gz mcp-publisher
+      - run: ./mcp-publisher login github-oidc
+      - run: ./mcp-publisher publish
+      - name: Verify registry version
+        run: |
+          for attempt in 1 2 3 4 5; do
+            if curl -fsS "https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.anipotts%2Fimessage-mcp" | jq -e '.servers[] | select((.server.name // .name) == "io.github.anipotts/imessage-mcp" and (.server.version // .version) == "1.3.1")' > /dev/null; then
+              exit 0
+            fi
+            sleep 15
+          done
+          exit 1
+
+  close-fixed-issues:
+    name: close verified issues
+    needs: [github-release, mcp-registry]
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+
+    steps:
+      - name: Close issue 5 after public verification
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$(gh issue view 5 --repo anipotts/imessage-mcp --json state --jq .state)" = "OPEN" ]; then
+            gh issue close 5 --repo anipotts/imessage-mcp --comment "Fixed in imessage-mcp@1.3.1. The public npm tarball passed the attributed-body stdio reproduction before this issue was closed."
+          fi
+      - name: Close issue 6 after public verification
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$(gh issue view 6 --repo anipotts/imessage-mcp --json state --jq .state)" = "OPEN" ]; then
+            gh issue close 6 --repo anipotts/imessage-mcp --comment "Fixed in imessage-mcp@1.3.1. Contact resolution now uses Apple's unified contacts, preserves collisions as candidates, and the public npm tarball passed its stdio gate before this issue was closed."
+          fi
