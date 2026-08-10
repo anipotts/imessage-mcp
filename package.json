@@ -13,6 +13,7 @@
   "files": [
     "dist",
     "bin",
+    "native",
     "README.md",
     "LICENSE",
     "server.json"

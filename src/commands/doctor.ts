@@ -85,22 +85,21 @@ async function runChecks(): Promise<Check[]> {
   }
 
   // 6. AddressBook
-  const { getAddressBookSources, loadAddressBook } = await import("../contacts.js");
-  const sources = getAddressBookSources();
-  if (sources.length > 0) {
-    const contacts = loadAddressBook();
+  const { getAddressBookStatus } = await import("../contacts.js");
+  const contacts = getAddressBookStatus();
+  if (contacts.available) {
     checks.push({
       name: "AddressBook",
-      status: contacts.size > 0 ? "pass" : "warn",
-      detail: contacts.size > 0
-        ? `${contacts.size} contacts resolved from macOS AddressBook`
-        : "AddressBook databases found but no contacts loaded",
+      status: contacts.contactCount > 0 ? "pass" : "warn",
+      detail: contacts.contactCount > 0
+        ? `${contacts.contactCount} unified contacts available from macOS Contacts`
+        : "macOS Contacts is available but contains no contacts with handles",
     });
   } else {
     checks.push({
       name: "AddressBook",
       status: "warn",
-      detail: "No AddressBook databases found — contact names won't be resolved. This is optional.",
+      detail: "macOS Contacts is unavailable — contact names will use raw handles. Allow Contacts access for your MCP client if you want names.",
     });
   }
 

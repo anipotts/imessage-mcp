@@ -3,8 +3,41 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { getDb, DATE_EXPR, MSG_FILTER, repliedToCondition } from "../db.js";
-import { lookupContact } from "../contacts.js";
+import {
+  lookupContact,
+  normalizeContactHandle,
+  resolveContact,
+  type ContactCandidate,
+} from "../contacts.js";
 import { clamp, DEFAULT_LIMIT, MAX_LIMIT } from "../helpers.js";
+
+interface AmbiguousContactCandidate {
+  name: string;
+  handles: string[];
+}
+
+export function contactAmbiguityResult(
+  query: string,
+  candidates: AmbiguousContactCandidate[],
+) {
+  const ambiguity = {
+    status: "ambiguous" as const,
+    query,
+    candidates: candidates.map((candidate, index) => ({
+      candidate: index + 1,
+      name: candidate.name,
+      handles: candidate.handles,
+    })),
+  };
+
+  return {
+    content: [{
+      type: "text" as const,
+      text: `Multiple contacts match "${query}". Choose one candidate; no contact was guessed.\n\n${JSON.stringify(ambiguity, null, 2)}`,
+    }],
+    structuredContent: ambiguity,
+  };
+}
 
 export function registerContactTools(server: McpServer) {
   // -- list_contacts --
@@ -151,15 +184,17 @@ export function registerContactTools(server: McpServer) {
     "resolve_contact",
     "Fuzzy-match a name, phone number, or email to a contact record. Uses multi-level resolution: exact match, digits, fuzzy, and macOS AddressBook.",
     {
-      query: z.string().describe("Name, phone number, or email to resolve"),
+      query: z.string().trim().min(1).max(512).describe("Nonempty name, phone number, or email to resolve"),
     },
     { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
     async (params) => {
       const db = getDb();
-      const query = params.query;
+      const query = params.query.trim();
+      const nativeResolution = resolveContact(query);
 
-      // Try direct lookup via contacts.ts
-      const contact = lookupContact(query);
+      if (nativeResolution.status === "ambiguous") {
+        return contactAmbiguityResult(query, nativeResolution.candidates);
+      }
 
       // Also search handles in the database
       const dbMatches = db.prepare(`
@@ -173,19 +208,64 @@ export function registerContactTools(server: McpServer) {
       `).all({ pattern: `%${query}%` }) as any[];
 
       // Search by name via display_name in chats
-      const nameMatches = db.prepare(`
+      const nameMatches = nativeResolution.status === "not_found" || nativeResolution.status === "unavailable"
+        ? db.prepare(`
         SELECT DISTINCT h.id
         FROM handle h
         JOIN chat_handle_join chj ON h.ROWID = chj.handle_id
         JOIN chat c ON chj.chat_id = c.ROWID
         WHERE c.display_name LIKE @pattern
         LIMIT 10
-      `).all({ pattern: `%${query}%` }) as any[];
+      `).all({ pattern: `%${query}%` }) as any[]
+        : [];
 
       const allHandles = new Set<string>();
-      if (contact.tier !== "unknown") allHandles.add(contact.id);
+      const messageCounts = new Map<string, number>();
+
+      const addCandidateHandles = (candidate: ContactCandidate) => {
+        for (const candidateHandle of candidate.handles) {
+          const normalized = normalizeContactHandle(candidateHandle);
+          const matches = normalized
+            ? db.prepare(`
+                SELECT h.id, COUNT(*) as msg_count
+                FROM handle h
+                JOIN message m ON m.handle_id = h.ROWID
+                WHERE h.id LIKE @pattern
+                  AND (m.text IS NOT NULL OR m.attributedBody IS NOT NULL)
+                GROUP BY h.id
+                ORDER BY msg_count DESC, h.id ASC
+                LIMIT 10
+              `).all({ pattern: `%${normalized.searchKey}%` }) as any[]
+            : [];
+
+          if (matches.length === 0) {
+            allHandles.add(candidateHandle);
+          } else {
+            for (const match of matches) {
+              allHandles.add(match.id);
+              messageCounts.set(match.id, match.msg_count);
+            }
+          }
+        }
+      };
+
+      if (nativeResolution.status === "unique") {
+        addCandidateHandles(nativeResolution.candidate);
+      }
       for (const m of dbMatches) allHandles.add(m.id);
       for (const m of nameMatches) allHandles.add(m.id);
+
+      if (nativeResolution.status !== "unique" && allHandles.size > 1) {
+        return contactAmbiguityResult(
+          query,
+          [...allHandles]
+            .sort((left, right) => left.localeCompare(right, "en-US"))
+            .map((handle) => ({
+              name: lookupContact(handle).name,
+              handles: [handle],
+            })),
+        );
+      }
 
       const results = [...allHandles].map((id) => {
         const c = lookupContact(id);
@@ -194,7 +274,7 @@ export function registerContactTools(server: McpServer) {
           handle: id,
           name: c.name,
           tier: c.tier,
-          message_count: match?.msg_count ?? 0,
+          message_count: messageCounts.get(id) ?? match?.msg_count ?? 0,
         };
       });
 

@@ -55,6 +55,26 @@ describe("no network imports in source files", () => {
   });
 });
 
+describe("unified contact access", () => {
+  const contactsSource = readFileSync(path.join(SRC_DIR, "contacts.ts"), "utf-8");
+  const nativeResolver = readFileSync(
+    path.resolve(SRC_DIR, "..", "native", "contact-resolver.js"),
+    "utf-8",
+  );
+
+  it("uses a fixed native executable without a shell or sqlite3 subprocess", () => {
+    expect(contactsSource).toContain('"/usr/bin/osascript"');
+    expect(contactsSource).not.toContain('execFileSync("sqlite3"');
+    expect(contactsSource).not.toContain("execSync(");
+    expect(contactsSource).not.toContain("readdirSync");
+  });
+
+  it("asks Contacts.framework for unified records", () => {
+    expect(nativeResolver).toContain("request.unifyResults = true");
+    expect(nativeResolver).toContain("CNContactStore");
+  });
+});
+
 describe("MAX_LIMIT enforcement", () => {
   it("MAX_LIMIT is at most 500", () => {
     expect(MAX_LIMIT).toBeLessThanOrEqual(500);
