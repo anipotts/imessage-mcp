@@ -7,6 +7,11 @@ import {
   extractTextFromAttributedBody,
   getMessageText,
 } from "../src/db.js";
+import {
+  FOUNDATION_ATTRIBUTED_BODY_FIXTURES,
+  attributedBodyFixture,
+  malformedAttributedBodyFixture,
+} from "./fixtures/attributed-body.js";
 
 describe("repliedToCondition()", () => {
   it("returns a SQL string containing is_from_me", () => {
@@ -69,6 +74,19 @@ describe("extractTextFromAttributedBody()", () => {
   it("returns null when passed null/undefined input", () => {
     expect(extractTextFromAttributedBody(null as any)).toBeNull();
     expect(extractTextFromAttributedBody(undefined as any)).toBeNull();
+  });
+
+  it.each(Object.keys(FOUNDATION_ATTRIBUTED_BODY_FIXTURES) as Array<keyof typeof FOUNDATION_ATTRIBUTED_BODY_FIXTURES>)(
+    "decodes the Foundation-generated %s fixture exactly",
+    (name) => {
+      expect(extractTextFromAttributedBody(attributedBodyFixture(name))).toBe(
+        FOUNDATION_ATTRIBUTED_BODY_FIXTURES[name].text,
+      );
+    },
+  );
+
+  it("fails closed for a truncated Foundation archive", () => {
+    expect(extractTextFromAttributedBody(malformedAttributedBodyFixture())).toBeNull();
   });
 });
 
