@@ -1,4 +1,8 @@
 import { describe, it, expect } from "vitest";
+import Database from "better-sqlite3";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   repliedToCondition,
   baseMessageConditions,
@@ -6,6 +10,7 @@ import {
   APPLE_EPOCH_OFFSET,
   extractTextFromAttributedBody,
   getMessageText,
+  openReadonlyDatabase,
 } from "../src/db.js";
 import {
   FOUNDATION_ATTRIBUTED_BODY_FIXTURES,
@@ -58,6 +63,28 @@ describe("DATE_EXPR", () => {
     expect(DATE_EXPR).toContain("datetime(");
     expect(DATE_EXPR).toContain("unixepoch");
     expect(DATE_EXPR).toContain("localtime");
+  });
+});
+
+describe("openReadonlyDatabase()", () => {
+  it("opens a non-WAL database without trying to change its journal mode", () => {
+    const directory = mkdtempSync(join(tmpdir(), "imessage-mcp-readonly-"));
+    const databasePath = join(directory, "chat.db");
+
+    try {
+      const writer = new Database(databasePath);
+      writer.exec("CREATE TABLE sample (value TEXT); INSERT INTO sample VALUES ('synthetic')");
+      expect(writer.pragma("journal_mode", { simple: true })).toBe("delete");
+      writer.close();
+
+      const reader = openReadonlyDatabase(databasePath);
+      expect(reader.prepare("SELECT value FROM sample").pluck().get()).toBe("synthetic");
+      expect(() => reader.prepare("INSERT INTO sample VALUES ('blocked')").run()).toThrow();
+      expect(reader.pragma("journal_mode", { simple: true })).toBe("delete");
+      reader.close();
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 });
 

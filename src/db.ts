@@ -84,11 +84,15 @@ export function safeText(text: string | null): string | null {
 
 let _db: Database.Database | null = null;
 
+export function openReadonlyDatabase(databasePath: string): Database.Database {
+  const database = new Database(databasePath, { readonly: true, fileMustExist: true });
+  database.pragma("query_only = ON");
+  return database;
+}
+
 export function getDb(): Database.Database {
   if (!_db) {
-    _db = new Database(CHAT_DB, { readonly: true, fileMustExist: true });
-    _db.pragma("journal_mode = WAL");
-    _db.pragma("query_only = ON");
+    _db = openReadonlyDatabase(CHAT_DB);
   }
   return _db;
 }
