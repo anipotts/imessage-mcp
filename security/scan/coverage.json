@@ -1,0 +1,81 @@
+{
+  "completeness": "complete",
+  "deferred": [],
+  "documentType": "codex-security.coverage",
+  "excludePaths": [],
+  "explicitExclusions": [],
+  "includePaths": [
+    "."
+  ],
+  "inventoryStrategy": "repository",
+  "mode": "repository",
+  "openQuestions": [],
+  "scanId": "f4327f9d-f49b-497d-9927-2ef1b2f8664e",
+  "schemaVersion": "1.0",
+  "surfaces": [
+    {
+      "disposition": "no_issue_found",
+      "id": "surface_readonly-sqlite-lifecycle-and-schema-capability-detection",
+      "label": "Readonly SQLite lifecycle and schema capability detection",
+      "notes": "Reviewed open flags, query_only, request snapshots, path identity, schema budgets, source modes, and database-change checks.",
+      "receiptRefs": [],
+      "riskArea": "data-integrity"
+    },
+    {
+      "disposition": "no_issue_found",
+      "id": "surface_conversation-joins-sender-attribution-timestamps-and-sync-integrity",
+      "label": "Conversation joins, sender attribution, timestamps, and sync integrity",
+      "notes": "Reviewed canonical chat relationships, exact integer watermarks, reactions, receipts, lifecycle changes, copied fingerprints, live integrity, and cursor pagination.",
+      "receiptRefs": [],
+      "riskArea": "data-integrity"
+    },
+    {
+      "disposition": "no_issue_found",
+      "id": "surface_attributed-body-decoding-and-contact-resolution",
+      "label": "Attributed-body decoding and contact resolution",
+      "notes": "Reviewed fixed executable invocation, limits, Foundation allowlists, certified legacy frames, malformed inputs, and process termination.",
+      "receiptRefs": [],
+      "riskArea": "native-boundary"
+    },
+    {
+      "disposition": "no_issue_found",
+      "id": "surface_search-indexing-analytics-and-query-budgets",
+      "label": "Search indexing, analytics, and query budgets",
+      "notes": "Reviewed memory-only indexes, exact and substring modes, wildcard handling, source preflight, memory ceilings, frozen traversals, and set-based analytics.",
+      "receiptRefs": [],
+      "riskArea": "availability"
+    },
+    {
+      "disposition": "no_issue_found",
+      "id": "surface_privacy-ceilings-errors-warnings-summaries-and-diagnostics",
+      "label": "Privacy ceilings, errors, warnings, summaries, and diagnostics",
+      "notes": "Reviewed full, redacted, and aggregate projection plus post-projection assertions, response bounds, error detail allowlisting, and stderr diagnostics.",
+      "receiptRefs": [],
+      "riskArea": "confidentiality"
+    },
+    {
+      "disposition": "no_issue_found",
+      "id": "surface_stdio-and-authenticated-stateless-loopback-http",
+      "label": "Stdio and authenticated stateless loopback HTTP",
+      "notes": "Reviewed authentication before parsing, constant-time comparison, Host and Origin validation, proxy trust, rate limits, concurrency, and timeouts.",
+      "receiptRefs": [],
+      "riskArea": "transport"
+    },
+    {
+      "disposition": "no_issue_found",
+      "id": "surface_opaque-references-secrets-and-database-lineage",
+      "label": "Opaque references, secrets, and database lineage",
+      "notes": "Reviewed AES-256-GCM encoding, size checks, lineage anchors, token-file no-follow handling, and cross-database rejection.",
+      "receiptRefs": [],
+      "riskArea": "cryptography"
+    },
+    {
+      "disposition": "no_issue_found",
+      "id": "surface_packaging-dependencies-workflows-and-release-provenance",
+      "label": "Packaging, dependencies, workflows, and release provenance",
+      "notes": "Reviewed exact package contents, installed dependency graph, canonical signed scan bundle, two-commit release checkout, exact artifact attestations, publication ordering, stable fail-closed gate, and rollback semantics.",
+      "receiptRefs": [],
+      "riskArea": "supply-chain"
+    }
+  ]
+}
