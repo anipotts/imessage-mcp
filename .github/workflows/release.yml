@@ -155,7 +155,7 @@ jobs:
             --signer-workflow anipotts/imessage-mcp/.github/workflows/attest-security-evidence.yml \
             --source-digest "$GITHUB_SHA" --deny-self-hosted-runners
           TARBALL="$TARBALL" EVIDENCE="$EVIDENCE" VERSION="${{ needs.verify-release.outputs.version }}" \
-            node -e "const fs=require('fs'),crypto=require('crypto'),path=require('path'); const e=JSON.parse(fs.readFileSync(process.env.EVIDENCE)); const h=crypto.createHash('sha256').update(fs.readFileSync(process.env.TARBALL)).digest('hex'); if(e.schema_version!==2||e.repository!=='anipotts/imessage-mcp'||e.subject.commit!==process.env.GITHUB_SHA||e.subject.version!==process.env.VERSION||e.subject.package_file!==path.basename(process.env.TARBALL)||e.subject.package_sha256!==h||e.security_scan.status!=='passed') process.exit(1)"
+            node -e "const fs=require('fs'),crypto=require('crypto'),path=require('path'); const e=JSON.parse(fs.readFileSync(process.env.EVIDENCE)); const h=crypto.createHash('sha256').update(fs.readFileSync(process.env.TARBALL)).digest('hex'); if(e.schema_version!==3||e.repository!=='anipotts/imessage-mcp'||e.subject.commit!==process.env.GITHUB_SHA||e.subject.version!==process.env.VERSION||e.subject.package_file!==path.basename(process.env.TARBALL)||e.subject.package_sha256!==h||e.security_scan.target_kind!=='git_revision'||e.security_scan.coverage!=='complete'||e.security_scan.finding_count!==0||e.security_scan.status!=='passed') process.exit(1)"
           if [[ "${{ needs.verify-release.outputs.prerelease }}" == "true" ]]; then
             npm publish "$TARBALL" --ignore-scripts --access public --provenance --tag next
           else

@@ -21,7 +21,7 @@ jobs:
         with:
           fetch-depth: 2
           persist-credentials: false
-      - name: verify operator-signed tree-preserving scan evidence commit
+      - name: verify operator-signed scan-bundle commit
         env:
           SECURITY_SCAN_ALLOWED_SIGNER: ${{ vars.SECURITY_SCAN_ALLOWED_SIGNER }}
         shell: bash
@@ -32,7 +32,6 @@ jobs:
           git -c gpg.format=ssh \
             -c gpg.ssh.allowedSignersFile="$RUNNER_TEMP/security-scan-allowed-signers" \
             verify-commit "$GITHUB_SHA"
-          git diff-tree --quiet "$GITHUB_SHA^" "$GITHUB_SHA"
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 24

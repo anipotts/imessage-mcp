@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { chmodSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { decodeReference, encodeReference } from "../src/references.js";
 import { successResult } from "../src/result.js";
@@ -122,7 +123,7 @@ describe("native and release hardening", () => {
     const attestation = readFileSync(new URL("../.github/workflows/attest-security-evidence.yml", import.meta.url), "utf8");
     expect(attestation).toContain("SECURITY_SCAN_ALLOWED_SIGNER");
     expect(attestation).toContain("verify-commit \"$GITHUB_SHA\"");
-    expect(attestation).toContain("git diff-tree --quiet \"$GITHUB_SHA^\" \"$GITHUB_SHA\"");
+    expect(attestation).toContain("scripts/security-evidence.ts create");
     const release = readFileSync(new URL("../.github/workflows/release.yml", import.meta.url), "utf8");
     expect(release).toContain("needs: [verify-release, release-secret-scan, release-codeql]");
     expect(release).toContain("--signer-workflow anipotts/imessage-mcp/.github/workflows/attest-security-evidence.yml");
@@ -147,7 +148,7 @@ describe("native and release hardening", () => {
     expect(github).not.toContain("mcp-publisher");
   });
 
-  it("binds security evidence to a tree-preserving commit whose parent was scanned", () => {
+  it("binds security evidence to canonical scan files whose exact parent was scanned", () => {
     const directory = mkdtempSync(path.join(tmpdir(), "imessage-security-evidence-"));
     const runGit = (...args: string[]) => execFileSync("git", args, { cwd: directory, encoding: "utf8" }).trim();
     try {
@@ -161,20 +162,65 @@ describe("native and release hardening", () => {
       runGit("add", "package.json", "package.tgz");
       runGit("commit", "--quiet", "-m", "base");
       const scanned = runGit("rev-parse", "HEAD");
-      const digest = "a".repeat(64);
-      runGit("commit", "--allow-empty", "--quiet", "-m", [
-        "chore: attest security scan",
-        "",
-        `Security-Scan-Revision: ${scanned}`,
-        "Security-Scan-Status: passed",
-        "Security-Scan-Id: 11111111-1111-1111-1111-111111111111",
-        `Security-Snapshot-Digest: codex-security-snapshot/v1:sha256:${digest}`,
-        `Security-Scan-Manifest-SHA256: ${digest}`,
-        `Security-Scan-Findings-SHA256: ${digest}`,
-        `Security-Scan-Coverage-SHA256: ${digest}`,
-        "Security-Scan-Producer: codex-security-plugin@0.1.18",
-        "Security-Scan-Finding-Count: 0",
-      ].join("\n"));
+      const scanId = "11111111-1111-1111-1111-111111111111";
+      const findings = `${JSON.stringify({
+        documentType: "codex-security.findings",
+        schemaVersion: "1.0",
+        scanId,
+        findings: [],
+      }, null, 2)}\n`;
+      const coverage = `${JSON.stringify({
+        documentType: "codex-security.coverage",
+        schemaVersion: "1.0",
+        scanId,
+        mode: "repository",
+        completeness: "complete",
+        inventoryStrategy: "repository",
+        includePaths: ["."],
+        excludePaths: [],
+        surfaces: [{
+          id: "surface_release",
+          label: "Release provenance",
+          disposition: "no_issue_found",
+          receiptRefs: [],
+        }],
+        explicitExclusions: [],
+        deferred: [],
+        openQuestions: [],
+      }, null, 2)}\n`;
+      const hash = (value: string) => createHash("sha256").update(value).digest("hex");
+      const manifest = `${JSON.stringify({
+        documentType: "codex-security.scan-manifest",
+        schemaVersion: "1.0",
+        scan: {
+          id: scanId,
+          producer: { name: "codex-security-plugin", version: "0.1.18" },
+          status: "completed",
+          startedAt: "2026-08-11T00:00:00.000Z",
+          completedAt: "2026-08-11T00:01:00.000Z",
+          sealedAt: "2026-08-11T00:01:00.000Z",
+          target: {
+            kind: "git_revision",
+            targetId: `target_sha256_${"a".repeat(64)}`,
+            displayName: "imessage-mcp",
+            revision: scanned,
+          },
+          scope: { includePaths: ["."], excludePaths: [] },
+          coverageRef: "coverage.json",
+          findingsRef: "findings.json",
+          artifacts: [
+            { path: "findings.json", sha256: hash(findings), mediaType: "application/json" },
+            { path: "coverage.json", sha256: hash(coverage), mediaType: "application/json" },
+          ],
+        },
+      }, null, 2)}\n`;
+      const scanDirectory = path.join(directory, "security", "scan");
+      mkdirSync(scanDirectory, { recursive: true });
+      writeFileSync(path.join(scanDirectory, "findings.json"), findings);
+      writeFileSync(path.join(scanDirectory, "coverage.json"), coverage);
+      writeFileSync(path.join(scanDirectory, "scan-manifest.json"), manifest);
+      runGit("add", "security/scan/coverage.json", "security/scan/findings.json", "security/scan/scan-manifest.json");
+      runGit("commit", "--quiet", "-m", "chore: attach sealed security scan");
       const evidenceCommit = runGit("rev-parse", "HEAD");
       const tsx = fileURLToPath(new URL("../node_modules/.bin/tsx", import.meta.url));
       const script = fileURLToPath(new URL("../scripts/security-evidence.ts", import.meta.url));
@@ -183,11 +229,14 @@ describe("native and release hardening", () => {
         stdio: "ignore",
       });
       const evidence = JSON.parse(readFileSync(path.join(directory, "evidence.json"), "utf8")) as {
-        subject: { commit: string };
-        security_scan: { scan_revision: string; finding_count: number };
+        schema_version: number;
+        subject: { commit: string; scanned_commit: string };
+        security_scan: { scan_revision: string; finding_count: number; coverage: string };
       };
+      expect(evidence.schema_version).toBe(3);
       expect(evidence.subject.commit).toBe(evidenceCommit);
-      expect(evidence.security_scan).toMatchObject({ scan_revision: scanned, finding_count: 0 });
+      expect(evidence.subject.scanned_commit).toBe(scanned);
+      expect(evidence.security_scan).toMatchObject({ scan_revision: scanned, finding_count: 0, coverage: "complete" });
 
       runGit("commit", "--allow-empty", "--quiet", "-m", "unscanned child");
       const unscanned = runGit("rev-parse", "HEAD");
