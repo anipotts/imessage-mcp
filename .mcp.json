@@ -2,7 +2,10 @@
   "mcpServers": {
     "imessage": {
       "command": "npx",
-      "args": ["-y", "imessage-mcp"]
+      "args": ["-y", "imessage-mcp@2.0.0-beta.1"],
+      "env": {
+        "IMESSAGE_REFERENCE_KEY_FILE": "${HOME}/.imessage-mcp-reference-key"
+      }
     }
   }
 }

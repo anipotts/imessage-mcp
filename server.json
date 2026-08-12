@@ -2,35 +2,45 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.anipotts/imessage-mcp",
   "title": "iMessage MCP",
-  "description": "26 tools for searching, analyzing, and exploring your iMessage history on macOS.",
+  "description": "Read-only MCP for iMessage, SMS, MMS, and RCS history already present in Apple Messages on Mac.",
   "repository": {
     "url": "https://github.com/anipotts/imessage-mcp",
     "source": "github"
   },
-  "version": "1.5.0",
+  "version": "2.0.0-beta.1",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "imessage-mcp",
-      "version": "1.5.0",
+      "version": "2.0.0-beta.1",
       "transport": {
         "type": "stdio"
       },
       "environmentVariables": [
         {
           "name": "IMESSAGE_DB",
-          "description": "Path to iMessage database (default: ~/Library/Messages/chat.db)",
+          "description": "Absolute path to a live or faithfully copied Mac chat.db. Defaults to the current user's Messages database.",
           "isRequired": false
         },
         {
-          "name": "IMESSAGE_SAFE_MODE",
-          "description": "Set to 1 to redact all message bodies. Returns only metadata.",
+          "name": "IMESSAGE_CONTACTS",
+          "description": "Use live unified Contacts or handles only. Values: live, none.",
           "isRequired": false
         },
         {
-          "name": "IMESSAGE_SYNC",
-          "description": "Message sync mode: 'off' (default), 'watch' (FSEvents, near-real-time), or 'poll:N' (every N seconds)",
+          "name": "IMESSAGE_PRIVACY",
+          "description": "Startup disclosure ceiling. Values: full, redacted, aggregate.",
           "isRequired": false
+        },
+        {
+          "name": "IMESSAGE_ATTACHMENT_PATHS",
+          "description": "Set to 1 to permit explicit full-mode attachment-path requests.",
+          "isRequired": false
+        },
+        {
+          "name": "IMESSAGE_REFERENCE_KEY_FILE",
+          "description": "Operator-owned 0600 regular file containing at least 32 random bytes for stable authenticated opaque references.",
+          "isRequired": true
         }
       ],
       "runtimeHint": "node"

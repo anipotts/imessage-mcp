@@ -1,242 +1,139 @@
 #!/usr/bin/env tsx
-// Generate README screenshots using Playwright
-// Usage: npx tsx scripts/screenshots.ts
 
 import { execFileSync } from "node:child_process";
-import { mkdirSync } from "node:fs";
-import { chromium } from "playwright";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { DEFAULT_DATABASE_PATH, runtimeConfig } from "../src/config.js";
+import { LocalToolRuntime } from "../src/tool-local.js";
+import { createFixture } from "../tests/fixture.js";
 
-// ── Capture real command output ────────────────────────────────────
-function run(cmd: string, args: string[] = [], timeout = 15_000): string {
+const suppliedDatabase = process.argv.find((value) => value.startsWith("--database="))?.slice("--database=".length) ?? process.env.IMESSAGE_DB;
+if (suppliedDatabase && path.resolve(suppliedDatabase) === path.resolve(DEFAULT_DATABASE_PATH)) {
+  throw new Error("screenshot generation refuses the live default Messages database");
+}
+if (suppliedDatabase) {
+  throw new Error("screenshot generation accepts only its generated synthetic database");
+}
+
+function escapeXml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
+function terminalSvg(lines: string[], theme: "light" | "dark", title: string): string {
+  const dark = theme === "dark";
+  const page = dark ? "#101218" : "#f5f7fb";
+  const panel = dark ? "#191d27" : "#ffffff";
+  const bar = dark ? "#232938" : "#e9edf5";
+  const text = dark ? "#e5e9f3" : "#202634";
+  const muted = dark ? "#8b95aa" : "#687386";
+  const height = Math.max(500, 132 + lines.length * 25);
+  const rendered = lines.map((line, index) => {
+    const y = 98 + index * 25;
+    const color = line.startsWith("pass ") || line.startsWith("›") || line.startsWith("$")
+      ? (dark ? "#78dba9" : "#18794e")
+      : line.startsWith("meta ")
+        ? muted
+        : text;
+    const value = line.startsWith("meta ") ? line.slice(5) : line;
+    return `<text x="52" y="${y}" fill="${color}">${escapeXml(value)}</text>`;
+  }).join("\n");
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="940" height="${height}" viewBox="0 0 940 ${height}">
+    <rect width="940" height="${height}" fill="${page}"/>
+    <rect x="28" y="28" width="884" height="${height - 56}" rx="15" fill="${panel}"/>
+    <path d="M43 28h854a15 15 0 0 1 15 15v33H28V43a15 15 0 0 1 15-15z" fill="${bar}"/>
+    <circle cx="50" cy="52" r="6" fill="#ff6b6b"/>
+    <circle cx="70" cy="52" r="6" fill="#f5c451"/>
+    <circle cx="90" cy="52" r="6" fill="#62c98d"/>
+    <text x="112" y="57" fill="${muted}" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="12">${escapeXml(title)}</text>
+    <g font-family="SFMono-Regular, Menlo, monospace" font-size="14">${rendered}</g>
+  </svg>`;
+}
+
+async function main(): Promise<void> {
+  const fixture = createFixture();
+  const runtime = new LocalToolRuntime(
+    runtimeConfig({
+      transport: "stdio",
+      databasePath: fixture.databasePath,
+      contacts: "none",
+      referenceKey: Buffer.alloc(32, 0x5a),
+    }),
+    Buffer.alloc(32, 9),
+  );
+  const scratch = mkdtempSync(path.join(tmpdir(), "imessage-mcp-screenshots-"));
   try {
-    return execFileSync(cmd, args, { encoding: "utf-8", timeout }).trim();
-  } catch (e: any) {
-    return e.stdout?.trim() || e.message;
-  }
-}
+    const status = await runtime.call("server_status", {});
+    const listed = await runtime.call("list_conversations", { limit: 50 });
+    const statusData = (status.structuredContent?.data ?? {}) as Record<string, unknown>;
+    const listedData = (listed.structuredContent?.data ?? {}) as { conversations?: Array<Record<string, unknown>> };
+    const conversations = listedData.conversations ?? [];
+    const services = Array.isArray(statusData.detected_services)
+      ? statusData.detected_services.join(", ")
+      : "imessage, rcs, sms, unknown";
+    const conversationLines = conversations.map((conversation) => {
+      const families = Array.isArray(conversation.service_families)
+        ? conversation.service_families.map(String).join(" + ")
+        : "unknown";
+      const kind = conversation.kind === "group" ? "synthetic group" : "synthetic direct chat";
+      const label = typeof conversation.display_name === "string" && conversation.display_name
+        ? conversation.display_name.toLowerCase()
+        : kind;
+      const count = Number(conversation.message_count ?? 0);
+      return `  ${label.padEnd(25)} ${families.padEnd(19)} ${count} message${count === 1 ? "" : "s"}`;
+    });
+    const demo = [
+      "› list my conversations by service",
+      "",
+      `imessage-mcp: complete; count=${conversations.length}`,
+      "",
+      ...conversationLines,
+      "",
+      `meta services detected: ${services}`,
+      "meta source: synthetic-chat.db · privacy: full · read-only",
+    ];
+    const doctor = [
+      "$ imessage-mcp doctor",
+      "",
+      "imessage-mcp doctor: pass",
+      "pass platform: macOS 14 or newer",
+      "pass node: supported active release",
+      "pass database_read: synthetic chat.db is readable",
+      "pass wal_read: no active WAL is present",
+      "pass schema: supported Mac Messages fixture",
+      "pass decoder: Foundation self-test passed",
+      "pass package: metadata versions match",
+      "",
+      "meta database: /Users/example/Library/Messages/synthetic-chat.db",
+      "meta no settings or files were changed",
+    ];
 
-function ansiToHtml(str: string): string {
-  let html = str
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-
-  // Green checkmark
-  html = html.replace(/\x1b\[32m(.*?)\x1b\[0m/g, '<span style="color:#a6e3a1">$1</span>');
-  // Red X
-  html = html.replace(/\x1b\[31m(.*?)\x1b\[0m/g, '<span style="color:#f38ba8">$1</span>');
-  // Yellow !
-  html = html.replace(/\x1b\[33m(.*?)\x1b\[0m/g, '<span style="color:#f9e2af">$1</span>');
-  // Clean remaining ANSI
-  html = html.replace(/\x1b\[[0-9;]*m/g, "");
-
-  return html;
-}
-
-// ── HTML terminal template ─────────────────────────────────────────
-function terminalHtml(lines: string, { title = "Terminal", theme = "dark" } = {}): string {
-  const isDark = theme === "dark";
-  const bg = isDark ? "#1e1e2e" : "#eff1f5";
-  const fg = isDark ? "#cdd6f4" : "#4c4f69";
-  const titleBg = isDark ? "#313244" : "#dce0e8";
-  const green = isDark ? "#a6e3a1" : "#40a02b";
-  const muted = isDark ? "#6c7086" : "#9ca0b0";
-
-  // For light theme, swap colors in the HTML content
-  let content = lines;
-  if (!isDark) {
-    content = content
-      .replace(/#a6e3a1/g, "#40a02b")
-      .replace(/#f38ba8/g, "#d20f39")
-      .replace(/#f9e2af/g, "#df8e1d")
-      .replace(/#6c7086/g, "#9ca0b0");
-  }
-
-  return `<!DOCTYPE html>
-<html>
-<head>
-<style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body {
-    background: ${bg};
-    font-family: "JetBrains Mono", "SF Mono", "Fira Code", "Menlo", monospace;
-  }
-  .window {
-    background: ${bg};
-    width: 100%;
-    overflow: hidden;
-  }
-  .titlebar {
-    background: ${titleBg};
-    padding: 12px 16px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  .dot { width: 12px; height: 12px; border-radius: 50%; }
-  .title {
-    color: ${isDark ? "#a6adc8" : "#6c6f85"};
-    font-size: 12px;
-    margin-left: 8px;
-  }
-  .content {
-    padding: 24px;
-    color: ${fg};
-    font-size: 13.5px;
-    line-height: 1.7;
-    white-space: pre-wrap;
-    word-break: break-word;
-  }
-  .prompt { color: ${green}; }
-  .cmd { color: ${fg}; font-weight: 600; }
-  .muted { color: ${muted}; }
-</style>
-</head>
-<body>
-<div class="window">
-  <div class="titlebar">
-    <div class="dot" style="background:#f38ba8"></div>
-    <div class="dot" style="background:#f9e2af"></div>
-    <div class="dot" style="background:#a6e3a1"></div>
-    <span class="title">${title}</span>
-  </div>
-  <div class="content">${content}</div>
-</div>
-</body>
-</html>`;
-}
-
-// ── Generate screenshots ───────────────────────────────────────────
-async function main() {
-  mkdirSync("assets", { recursive: true });
-
-  const browser = await chromium.launch();
-  const context = await browser.newContext({ deviceScaleFactor: 2 });
-
-  async function screenshot(html: string, filename: string) {
-    const page = await context.newPage();
-    await page.setViewportSize({ width: 880, height: 800 });
-    await page.setContent(html);
-    await page.waitForTimeout(500);
-    const el = page.locator(".window");
-    await el.screenshot({ path: `assets/${filename}`, type: "png" });
-    await page.close();
-    console.log(`  ✓ assets/${filename}`);
-  }
-
-  console.log("\nGenerating screenshots...\n");
-
-  // ── 1. Doctor output ──────────────────────────────────────────
-  const doctorRaw = run("node", ["bin/imessage-mcp.js", "doctor"]);
-  const doctorHtml = ansiToHtml(doctorRaw);
-
-  for (const theme of ["dark", "light"]) {
-    await screenshot(
-      terminalHtml(
-        `<span class="prompt">$</span> <span class="cmd">npx imessage-mcp doctor</span>\n\n${doctorHtml}`,
-        { title: "~/Code/my-project", theme }
-      ),
-      `doctor-${theme}.png`
-    );
-  }
-
-  // ── 2. Hero demo — emoji reactions ────────────────────────────
-  console.log("  ⏳ Running Claude query for demo screenshot...");
-  const emojiRaw = run("claude", [
-    "-p", "--dangerously-skip-permissions", "--max-turns", "4",
-    "what are my top 5 emoji reactions in imessage? keep it short, use a markdown table"
-  ], 60_000);
-
-  if (emojiRaw && !emojiRaw.includes("Error") && !emojiRaw.includes("Reached max turns")) {
-    const cleaned = emojiRaw
-      .replace(/\*\*(.*?)\*\*/g, "$1")
-      .replace(/^#+\s*/gm, "")
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;");
-
-    for (const theme of ["dark", "light"]) {
-      await screenshot(
-        terminalHtml(
-          `<span class="prompt">&gt;</span> <span class="cmd">what are my top 5 emoji reactions in imessage?</span>\n\n${cleaned}`,
-          { title: "Claude Code — imessage-mcp", theme }
-        ),
-        `demo-${theme}.png`
-      );
+    mkdirSync("assets", { recursive: true });
+    for (const theme of ["light", "dark"] as const) {
+      for (const [name, lines, title] of [
+        ["demo", demo, "synthetic imessage-mcp session"],
+        ["doctor", doctor, "synthetic read-only diagnostics"],
+      ] as const) {
+        const source = path.join(scratch, `${name}-${theme}.svg`);
+        writeFileSync(source, terminalSvg([...lines], theme, title));
+        execFileSync("rsvg-convert", [
+          "--format", "png",
+          "--width", "1880",
+          "--output", `assets/${name}-${theme}.png`,
+          source,
+        ], { stdio: "ignore" });
+        process.stdout.write(`generated assets/${name}-${theme}.png\n`);
+      }
     }
-  } else {
-    console.log("  ⚠ Claude query failed, using static demo content");
-    const staticDemo = `Your top 5 tapback reactions across 2,160 total:
-
-| # | Reaction      | Count | Vibe                          |
-|---|---------------|-------|-------------------------------|
-| 1 | ❤️ Love       | 1,299 | You're a lover, not a fighter |
-| 2 | 👍 Like       |   342 | The classic acknowledgment    |
-| 3 | ‼️ Emphasize  |   295 | "THIS." energy                |
-| 4 | 😂 Laugh      |   131 | Reserved for the actually funny|
-| 5 | 👎 Dislike    |    81 | Sometimes people are wrong    |
-
-60% of your reactions are hearts — overwhelmingly positive.`;
-
-    for (const theme of ["dark", "light"]) {
-      const escaped = staticDemo.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-      await screenshot(
-        terminalHtml(
-          `<span class="prompt">&gt;</span> <span class="cmd">what are my top 5 emoji reactions in imessage?</span>\n\n${escaped}`,
-          { title: "Claude Code — imessage-mcp", theme }
-        ),
-        `demo-${theme}.png`
-      );
-    }
+  } finally {
+    runtime.close();
+    fixture.cleanup();
+    rmSync(scratch, { recursive: true, force: true });
   }
-
-  // ── 3. Safe Mode ──────────────────────────────────────────────
-  const safeContent = `<span class="prompt">$</span> <span class="cmd">IMESSAGE_SAFE_MODE=1 claude -p 'show my last 3 messages'</span>
-
-Messages (3 results):
-
-  2026-02-24 11:32 PM  sent      [REDACTED - safe mode]
-  2026-02-24 11:30 PM  received  [REDACTED - safe mode]
-  2026-02-24 11:28 PM  sent      [REDACTED - safe mode]
-
-<span class="muted">All message bodies redacted. Only metadata returned.</span>`;
-
-  for (const theme of ["dark", "light"]) {
-    await screenshot(
-      terminalHtml(safeContent, { title: "Safe Mode", theme }),
-      `safe-mode-${theme}.png`
-    );
-  }
-
-  // ── 4. Wrapped — year-in-review ───────────────────────────────
-  const wrappedContent = `<span class="prompt">&gt;</span> <span class="cmd">give me my 2025 imessage wrapped</span>
-
-Your 2025 iMessage Wrapped
-
-  Total messages       28,441
-  Contacts             86
-  Busiest month        October (3,847 messages)
-  Most active hour     10 PM
-  Top contact          Best Friend (4,201 messages)
-
-  Longest streak       142 days (Mar 3 — Jul 23)
-  Most-used reaction   ❤️ Love (1,299 times)
-  Group chats          12 active
-
-  You sent first       62% of the time
-  Avg response time    4 minutes
-
-<span class="muted">You texted across 312 of 365 days. That's 85% of the year.</span>`;
-
-  for (const theme of ["dark", "light"]) {
-    await screenshot(
-      terminalHtml(wrappedContent, { title: "Claude Code — imessage-mcp", theme }),
-      `wrapped-${theme}.png`
-    );
-  }
-
-  await browser.close();
-  console.log("\nDone!\n");
 }
 
-main().catch(console.error);
+await main();

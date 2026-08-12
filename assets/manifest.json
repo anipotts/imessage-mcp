@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "assets": [
+    {
+      "path": "assets/demo-dark.png",
+      "sha256": "8afbd3be93e35eef7335dd4838d5858798ff162b9ad53c49b8fafa23d1449ead",
+      "width": 1880,
+      "height": 1000
+    },
+    {
+      "path": "assets/demo-light.png",
+      "sha256": "86030ed4690422457a0d8df279ddcbb9004f68016df9ea3a1280205ae3ac26bd",
+      "width": 1880,
+      "height": 1000
+    },
+    {
+      "path": "assets/doctor-dark.png",
+      "sha256": "efb52d036b0282e7cfc5d8a2db8a71ca7ee6dd1df3ec2cc165ed0e21011ba8eb",
+      "width": 1880,
+      "height": 1000
+    },
+    {
+      "path": "assets/doctor-light.png",
+      "sha256": "5e03aef364eabb376f96bab36acfba7bd236b149d855fb608748626f6bc808be",
+      "width": 1880,
+      "height": 1000
+    },
+    {
+      "path": "assets/logo.png",
+      "sha256": "965a3ac964bce226be9818d2d8f07743bd75a52c42673feb1f6aaddf9894814a",
+      "width": 400,
+      "height": 400
+    }
+  ]
+}

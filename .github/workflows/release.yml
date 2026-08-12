@@ -1,0 +1,270 @@
+name: release 2.x
+
+on:
+  push:
+    tags:
+      - "v2.*"
+
+permissions:
+  contents: read
+
+jobs:
+  verify-release:
+    name: verify attested exact release artifact
+    runs-on: macos-26
+    timeout-minutes: 35
+    permissions:
+      actions: read
+      attestations: read
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+      tarball: ${{ steps.evidence.outputs.tarball }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          cache: npm
+          package-manager-cache: true
+      - run: npm ci
+      - id: version
+        name: verify tag and version-bound release gate
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          test "v${VERSION}" = "${GITHUB_REF_NAME}"
+          npm run check:release -- "${VERSION}"
+          if [[ "${VERSION}" == *-* ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+      - run: npm run verify
+      - run: npm run test:performance
+      - id: evidence
+        name: retrieve and verify protected security evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          RUN_ID=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow attest-security-evidence.yml \
+            --commit "$GITHUB_SHA" --status success --limit 10 --json databaseId \
+            --jq '.[0].databaseId')
+          test -n "$RUN_ID"
+          gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name "security-evidence-${GITHUB_SHA}" --dir evidence
+          TARBALL=$(find evidence -maxdepth 1 -type f -name '*.tgz' -print)
+          test -n "$TARBALL"
+          test "$(printf '%s\n' "$TARBALL" | wc -l | tr -d ' ')" = "1"
+          gh attestation verify evidence/security-evidence.json --repo "$GITHUB_REPOSITORY" \
+            --signer-workflow anipotts/imessage-mcp/.github/workflows/attest-security-evidence.yml \
+            --source-digest "$GITHUB_SHA" --deny-self-hosted-runners
+          gh attestation verify "$TARBALL" --repo "$GITHUB_REPOSITORY" \
+            --signer-workflow anipotts/imessage-mcp/.github/workflows/attest-security-evidence.yml \
+            --source-digest "$GITHUB_SHA" --deny-self-hosted-runners
+          npx tsx scripts/security-evidence.ts verify "$TARBALL" "$GITHUB_SHA" evidence/security-evidence.json
+          echo "tarball=$(basename "$TARBALL")" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: verified-release-${{ steps.version.outputs.version }}
+          path: |
+            evidence/${{ steps.evidence.outputs.tarball }}
+            evidence/security-evidence.json
+          if-no-files-found: error
+
+  release-secret-scan:
+    name: exact revision secret scan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  release-codeql:
+    name: exact revision codeql
+    runs-on: macos-26
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write
+      packages: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: github/codeql-action/init@5595ccaf912efad79be6eef63a5619ff05969be3 # v4
+        with:
+          languages: javascript-typescript
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+          cache: npm
+          package-manager-cache: true
+      - run: npm ci
+      - run: npm run build
+      - uses: github/codeql-action/analyze@5595ccaf912efad79be6eef63a5619ff05969be3 # v4
+        with:
+          category: /language:javascript-typescript
+
+  publish-npm:
+    name: publish verified npm artifact
+    needs: [verify-release, release-secret-scan, release-codeql]
+    runs-on: macos-26
+    timeout-minutes: 15
+    environment: npm-release
+    permissions:
+      actions: read
+      attestations: read
+      contents: read
+      id-token: write
+    outputs:
+      version: ${{ needs.verify-release.outputs.version }}
+      prerelease: ${{ needs.verify-release.outputs.prerelease }}
+      tarball: ${{ needs.verify-release.outputs.tarball }}
+    steps:
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: verified-release-${{ needs.verify-release.outputs.version }}
+          path: release-artifact
+      - name: publish with provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          TARBALL="release-artifact/${{ needs.verify-release.outputs.tarball }}"
+          EVIDENCE="release-artifact/security-evidence.json"
+          gh attestation verify "$EVIDENCE" --repo "$GITHUB_REPOSITORY" \
+            --signer-workflow anipotts/imessage-mcp/.github/workflows/attest-security-evidence.yml \
+            --source-digest "$GITHUB_SHA" --deny-self-hosted-runners
+          gh attestation verify "$TARBALL" --repo "$GITHUB_REPOSITORY" \
+            --signer-workflow anipotts/imessage-mcp/.github/workflows/attest-security-evidence.yml \
+            --source-digest "$GITHUB_SHA" --deny-self-hosted-runners
+          TARBALL="$TARBALL" EVIDENCE="$EVIDENCE" VERSION="${{ needs.verify-release.outputs.version }}" \
+            node -e "const fs=require('fs'),crypto=require('crypto'),path=require('path'); const e=JSON.parse(fs.readFileSync(process.env.EVIDENCE)); const h=crypto.createHash('sha256').update(fs.readFileSync(process.env.TARBALL)).digest('hex'); if(e.schema_version!==2||e.repository!=='anipotts/imessage-mcp'||e.subject.commit!==process.env.GITHUB_SHA||e.subject.version!==process.env.VERSION||e.subject.package_file!==path.basename(process.env.TARBALL)||e.subject.package_sha256!==h||e.security_scan.status!=='passed') process.exit(1)"
+          if [[ "${{ needs.verify-release.outputs.prerelease }}" == "true" ]]; then
+            npm publish "$TARBALL" --ignore-scripts --access public --provenance --tag next
+          else
+            npm publish "$TARBALL" --ignore-scripts --access public --provenance --tag latest
+          fi
+
+  verify-public-npm:
+    name: verify public npm installation
+    needs: publish-npm
+    runs-on: macos-26
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: verified-release-${{ needs.publish-npm.outputs.version }}
+          path: release-artifact
+      - name: verify public tarball identity and installed graph
+        shell: bash
+        run: |
+          VERSION="${{ needs.publish-npm.outputs.version }}"
+          for ATTEMPT in {1..20}; do
+            URL=$(npm view "imessage-mcp@${VERSION}" dist.tarball 2>/dev/null || true)
+            if [[ -n "$URL" ]]; then break; fi
+            sleep 3
+          done
+          test -n "$URL"
+          curl --fail --location --silent --show-error "$URL" --output public.tgz
+          cmp "release-artifact/${{ needs.publish-npm.outputs.tarball }}" public.tgz
+          SCRATCH=$(mktemp -d)
+          npm install --prefix "$SCRATCH" --no-audit --no-fund "imessage-mcp@${VERSION}"
+          "$SCRATCH/node_modules/.bin/imessage-mcp" --version
+          npm ls --prefix "$SCRATCH" --omit=dev --all --json > public-runtime-graph.json
+          tar -xOf public.tgz package/npm-shrinkwrap.json > published-shrinkwrap.json
+          tar -xOf public.tgz package/dist/verify-installed-graph.js > verify-installed-graph.js
+          node verify-installed-graph.js "$SCRATCH" published-shrinkwrap.json
+
+  publish-registry:
+    name: publish mcp registry metadata
+    needs: [publish-npm, verify-public-npm]
+    runs-on: macos-26
+    timeout-minutes: 15
+    environment: mcp-registry-release
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: install verified mcp publisher
+        shell: bash
+        run: |
+          curl --fail --location --silent --show-error \
+            https://github.com/modelcontextprotocol/registry/releases/download/v1.8.1/mcp-publisher_darwin_arm64.tar.gz \
+            --output mcp-publisher.tar.gz
+          echo "e45e520892460732a4bdf37255576415d4a53ec171f8b913faf15bb1aef7cb77  mcp-publisher.tar.gz" | shasum -a 256 -c -
+          tar -xzf mcp-publisher.tar.gz mcp-publisher
+          chmod 700 mcp-publisher
+      - name: publish matching registry metadata
+        run: |
+          ./mcp-publisher validate
+          ./mcp-publisher login github-oidc
+          ./mcp-publisher publish
+      - name: verify registry version
+        shell: bash
+        run: |
+          VERSION="${{ needs.publish-npm.outputs.version }}"
+          for ATTEMPT in {1..20}; do
+            BODY=$(curl --fail --silent --show-error \
+              "https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.anipotts/imessage-mcp" || true)
+            if printf '%s' "$BODY" | VERSION="$VERSION" node -e "
+              let body='';
+              process.stdin.on('data', chunk => body += chunk).on('end', () => {
+                const payload = JSON.parse(body);
+                const matched = Array.isArray(payload.servers) && payload.servers.some(entry => {
+                  const server = entry && entry.server;
+                  return server && server.name === 'io.github.anipotts/imessage-mcp' &&
+                    server.version === process.env.VERSION && Array.isArray(server.packages) &&
+                    server.packages.some(pkg => pkg.registryType === 'npm' &&
+                      pkg.identifier === 'imessage-mcp' && pkg.version === process.env.VERSION);
+                });
+                process.exit(matched ? 0 : 1);
+              });
+            "; then exit 0; fi
+            sleep 3
+          done
+          exit 1
+
+  publish-github-release:
+    name: publish github release
+    needs: [publish-npm, verify-public-npm, publish-registry]
+    runs-on: macos-26
+    timeout-minutes: 10
+    environment: github-release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: verified-release-${{ needs.publish-npm.outputs.version }}
+          path: release-artifact
+      - uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3
+        with:
+          prerelease: ${{ needs.publish-npm.outputs.prerelease == 'true' }}
+          generate_release_notes: true
+          files: release-artifact/*

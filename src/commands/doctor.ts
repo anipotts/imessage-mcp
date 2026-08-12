@@ -1,154 +1,108 @@
-// doctor — setup diagnostics for imessage-mcp
-//
-// Checks: macOS?, chat.db exists?, database access (Application Data / FDA)?,
-// message count, AddressBook contacts, Node version.
+import { accessSync, constants, existsSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import type { RuntimeConfig } from "../config.js";
+import { DatabaseContext } from "../database.js";
+import { MessageTextDecoder } from "../decoder.js";
+import { UnifiedContactResolver } from "../contacts.js";
+import { validateHttpConfiguration } from "../transport.js";
 
-import { existsSync } from "node:fs";
-import { homedir, platform } from "node:os";
-import path from "node:path";
-
-const CHAT_DB = process.env.IMESSAGE_DB || path.join(homedir(), "Library/Messages/chat.db");
-
-interface Check {
+interface DoctorCheck {
   name: string;
-  status: "pass" | "fail" | "warn";
+  status: "pass" | "warn" | "fail";
   detail: string;
 }
 
-async function runChecks(): Promise<Check[]> {
-  const checks: Check[] = [];
-
-  // 1. Platform check
-  const os = platform();
+export async function doctor(config: RuntimeConfig, json: boolean): Promise<number> {
+  const checks: DoctorCheck[] = [];
+  try {
+    const packageRoot = join(dirname(fileURLToPath(import.meta.url)), "../..");
+    const packageJson = JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8")) as {
+      name?: string;
+      version?: string;
+      mcpName?: string;
+    };
+    const serverJson = JSON.parse(readFileSync(join(packageRoot, "server.json"), "utf8")) as {
+      version?: string;
+      packages?: Array<{ version?: string }>;
+    };
+    const valid = packageJson.name === "imessage-mcp" &&
+      /^2\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u.test(packageJson.version ?? "") &&
+      packageJson.mcpName === "io.github.anipotts/imessage-mcp" &&
+      serverJson.version === packageJson.version &&
+      serverJson.packages?.[0]?.version === packageJson.version &&
+      existsSync(join(packageRoot, "native", "message-text-decoder.js"));
+    checks.push({
+      name: "package",
+      status: valid ? "pass" : "fail",
+      detail: valid ? `package metadata is consistent at ${packageJson.version}` : "installed package metadata is incomplete or inconsistent",
+    });
+  } catch {
+    checks.push({ name: "package", status: "fail", detail: "installed package metadata could not be verified" });
+  }
+  checks.push({ name: "platform", status: process.platform === "darwin" ? "pass" : "fail", detail: process.platform === "darwin" ? "macOS detected" : "macOS is required" });
+  const nodeMajor = Number(process.versions.node.split(".")[0]);
+  const nodeSupported = [22, 24, 26].includes(nodeMajor);
   checks.push({
-    name: "macOS",
-    status: os === "darwin" ? "pass" : "fail",
-    detail: os === "darwin" ? `Running on macOS (${os})` : `Not macOS — got "${os}". iMessage is only available on macOS.`,
+    name: "node",
+    status: nodeSupported ? "pass" : "fail",
+    detail: nodeSupported ? `supported Node ${process.versions.node}` : `Node ${process.versions.node}; use active Node 22, 24, or 26`,
   });
-
-  // 2. Node version
-  const nodeVersion = process.version;
-  const major = parseInt(nodeVersion.slice(1));
-  checks.push({
-    name: "Node.js",
-    status: major >= 18 ? "pass" : "fail",
-    detail: major >= 18
-      ? `Node ${nodeVersion} (>= 18 required)`
-      : `Node ${nodeVersion} is too old — upgrade to Node 18+`,
-  });
-
-  // 3. chat.db exists
-  const dbExists = existsSync(CHAT_DB);
-  checks.push({
-    name: "chat.db",
-    status: dbExists ? "pass" : "fail",
-    detail: dbExists
-      ? `Found at ${CHAT_DB}`
-      : `Not found at ${CHAT_DB}. Make sure Messages.app has been used on this Mac.`,
-  });
-
-  // 4. Database access (Application Data / Full Disk Access)
-  if (dbExists) {
+  try {
+    accessSync(config.database_path, constants.R_OK);
+    checks.push({ name: "database_read", status: "pass", detail: "database is readable" });
+  } catch {
+    checks.push({ name: "database_read", status: "fail", detail: "grant Full Disk Access to the MCP client and confirm Messages has created chat.db" });
+  }
+  const walPath = `${config.database_path}-wal`;
+  if (existsSync(walPath)) {
     try {
-      const Database = (await import("better-sqlite3")).default;
-      const db = new Database(CHAT_DB, { readonly: true, fileMustExist: true });
-      db.pragma("query_only = ON");
-
-      // 5. Message count
-      const row = db.prepare("SELECT COUNT(*) as count FROM message").get() as any;
-      const count = row?.count ?? 0;
-      checks.push({
-        name: "Database access",
-        status: "pass",
-        detail: "Database readable — access granted",
-      });
-      checks.push({
-        name: "Messages",
-        status: count > 0 ? "pass" : "warn",
-        detail: count > 0
-          ? `${count.toLocaleString()} messages indexed`
-          : "Database is empty — no messages found",
-      });
-
-      db.close();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      const isFDA = message.includes("SQLITE_CANTOPEN") || message.includes("authorization denied");
-      checks.push({
-        name: "Database access",
-        status: "fail",
-        detail: isFDA
-          ? "Cannot read chat.db — grant access in:\n  System Settings → Privacy & Security → Full Disk Access → enable your terminal app\n  (This covers the Application Data permission that chat.db requires.\n   Claude Desktop & Cursor users: your app may already have access.)"
-          : `Database error: ${message}`,
-      });
+      accessSync(walPath, constants.R_OK);
+      checks.push({ name: "wal_read", status: "pass", detail: "active WAL is readable" });
+    } catch {
+      checks.push({ name: "wal_read", status: "fail", detail: "active Messages WAL is not readable" });
+    }
+  } else {
+    checks.push({ name: "wal_read", status: "pass", detail: "no active WAL is present" });
+  }
+  try {
+    const database = new DatabaseContext(
+      config.database_path,
+      config.reference_key ? Buffer.from(config.reference_key, "base64") : Buffer.alloc(32),
+      config.source_mode,
+    );
+    try {
+      checks.push({ name: "schema", status: database.capabilities.required_core === "available" ? "pass" : "fail", detail: `schema ${database.capabilities.schema_fingerprint.slice(0, 12)}` });
+    } finally {
+      database.close();
+    }
+  } catch {
+    checks.push({ name: "schema", status: "fail", detail: "unsupported or unavailable Mac chat.db schema" });
+  }
+  const contacts = new UnifiedContactResolver(config.contacts_mode === "live").status();
+  checks.push({ name: "contacts", status: contacts.state === "available" ? "pass" : "warn", detail: contacts.state === "available" ? `${contacts.count} unified contacts available` : `continuing with handles: ${contacts.reason}` });
+  const decoder = new MessageTextDecoder();
+  checks.push({ name: "decoder", status: await decoder.selfTest() ? "pass" : "fail", detail: decoder.healthState() === "healthy" ? "Foundation decoder self-test passed" : "Foundation decoder self-test failed" });
+  checks.push({
+    name: "reference_key",
+    status: config.reference_key ? "pass" : "fail",
+    detail: config.reference_key
+      ? "stable opaque-reference authentication is configured"
+      : "configure IMESSAGE_REFERENCE_KEY or an operator-owned 0600 IMESSAGE_REFERENCE_KEY_FILE",
+  });
+  if (config.transport === "http") {
+    try {
+      validateHttpConfiguration();
+      checks.push({ name: "http_auth", status: "pass", detail: "bearer token source and Host/Origin allowlists are valid" });
+    } catch {
+      checks.push({ name: "http_auth", status: "fail", detail: "configure one 32-byte token source; token files must be operator-owned regular files with mode 0600" });
     }
   }
-
-  // 6. AddressBook
-  const { getAddressBookSources, loadAddressBook } = await import("../contacts.js");
-  const sources = getAddressBookSources();
-  if (sources.length > 0) {
-    const contacts = loadAddressBook();
-    checks.push({
-      name: "AddressBook",
-      status: contacts.size > 0 ? "pass" : "warn",
-      detail: contacts.size > 0
-        ? `${contacts.size} contacts resolved from macOS AddressBook`
-        : "AddressBook databases found but no contacts loaded",
-    });
-  } else {
-    checks.push({
-      name: "AddressBook",
-      status: "warn",
-      detail: "No AddressBook databases found — contact names won't be resolved. This is optional.",
-    });
+  const output = { status: checks.some((check) => check.status === "fail") ? "fail" : checks.some((check) => check.status === "warn") ? "warn" : "pass", source_mode: config.source_mode, privacy_ceiling: config.privacy_ceiling, checks };
+  if (json) process.stdout.write(JSON.stringify(output, null, 2) + "\n");
+  else {
+    process.stdout.write(`imessage-mcp doctor: ${output.status}\n`);
+    for (const check of checks) process.stdout.write(`${check.status.padEnd(4)} ${check.name}: ${check.detail}\n`);
   }
-
-  return checks;
-}
-
-// Run and display
-const checks = await runChecks();
-const allPassed = checks.every((c) => c.status !== "fail");
-
-// --json flag for machine-readable output
-if (process.argv.includes("--json")) {
-  console.log(JSON.stringify({ checks, all_passed: allPassed }, null, 2));
-  if (!allPassed) process.exit(1);
-} else {
-  const SYMBOLS = { pass: "\u2713", fail: "\u2717", warn: "!" };
-  const COLORS = { pass: "\x1b[32m", fail: "\x1b[31m", warn: "\x1b[33m" };
-  const RESET = "\x1b[0m";
-
-  console.log("\nimessage-mcp doctor\n");
-
-  for (const check of checks) {
-    const sym = SYMBOLS[check.status];
-    const color = COLORS[check.status];
-    console.log(`  ${color}${sym}${RESET} ${check.name}: ${check.detail}`);
-  }
-
-  console.log("");
-  if (allPassed) {
-    console.log("All checks passed — ready to use!");
-    console.log("");
-    console.log("Quick setup:");
-    console.log("");
-    console.log("  claude mcp add imessage -- npx -y imessage-mcp");
-    console.log("");
-    console.log("Or add to your client's JSON config:");
-    console.log("");
-    console.log(`  {`);
-    console.log(`    "mcpServers": {`);
-    console.log(`      "imessage": {`);
-    console.log(`        "command": "npx",`);
-    console.log(`        "args": ["-y", "imessage-mcp"]`);
-    console.log(`      }`);
-    console.log(`    }`);
-    console.log(`  }`);
-    console.log("");
-  } else {
-    console.log("Some checks failed — fix the issues above and run again.\n");
-    process.exit(1);
-  }
+  return output.status === "fail" ? 1 : 0;
 }

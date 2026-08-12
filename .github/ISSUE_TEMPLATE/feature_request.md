@@ -14,3 +14,5 @@ How you'd like it to work.
 
 **Alternatives considered**
 Other approaches you've thought about.
+
+Do not include private message contents, identities, database files, attachment paths, opaque references, tokens, or private screenshots in this public issue.

@@ -1,0 +1,40 @@
+{
+  "schema_version": 4,
+  "subject_version": "2.0.0-beta.1",
+  "prerelease_ready": false,
+  "security_scan": {
+    "authority": "external_signed_commit",
+    "status": "external_attestation_required"
+  },
+  "prerelease_gates": {
+    "seven_tools": true,
+    "privacy_matrix": true,
+    "stdio_and_http": true,
+    "installed_clients": true,
+    "million_message_performance": true,
+    "dependency_and_secret_audit": true,
+    "protocol_security": true
+  },
+  "stable": {
+    "ready": false,
+    "subject_version": null,
+    "release_candidate": null,
+    "candidate_commit": null,
+    "candidate_package_sha256": null,
+    "canary_started_at": null,
+    "canary_completed_at": null,
+    "exercises": {
+      "all_seven_tools": false,
+      "all_privacy_modes": false,
+      "all_service_families": false,
+      "stdio": false,
+      "http_proxy_simulation": false,
+      "live_database": false,
+      "copied_database": false,
+      "codex": false,
+      "claude_desktop": false,
+      "claude_code": false,
+      "cursor": false
+    }
+  }
+}

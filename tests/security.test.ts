@@ -1,143 +1,202 @@
-import { describe, it, expect, afterEach } from "vitest";
-import { readFileSync, readdirSync } from "node:fs";
+import { afterEach, describe, expect, it } from "vitest";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
-import { MAX_LIMIT } from "../src/helpers.js";
-import { isSafeMode, safeText } from "../src/db.js";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { decodeReference, encodeReference } from "../src/references.js";
+import { successResult } from "../src/result.js";
+import { loadApiToken } from "../src/transport.js";
 
-// Collect all .ts source files recursively from src/
-function collectTsFiles(dir: string): string[] {
-  const files: string[] = [];
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      files.push(...collectTsFiles(full));
-    } else if (entry.name.endsWith(".ts")) {
-      files.push(full);
+const originalToken = process.env.IMESSAGE_API_TOKEN;
+const originalFile = process.env.IMESSAGE_API_TOKEN_FILE;
+
+afterEach(() => {
+  if (originalToken === undefined) delete process.env.IMESSAGE_API_TOKEN;
+  else process.env.IMESSAGE_API_TOKEN = originalToken;
+  if (originalFile === undefined) delete process.env.IMESSAGE_API_TOKEN_FILE;
+  else process.env.IMESSAGE_API_TOKEN_FILE = originalFile;
+});
+
+describe("HTTP token boundary", () => {
+  it("rejects missing, short, and conflicting token sources", () => {
+    delete process.env.IMESSAGE_API_TOKEN;
+    delete process.env.IMESSAGE_API_TOKEN_FILE;
+    expect(() => loadApiToken()).toThrow(/requires/u);
+    process.env.IMESSAGE_API_TOKEN = "short";
+    expect(() => loadApiToken()).toThrow(/32/u);
+    process.env.IMESSAGE_API_TOKEN_FILE = "/tmp/also-set";
+    expect(() => loadApiToken()).toThrow(/only one/u);
+  });
+
+  it("rejects an oversized direct token before transport startup", () => {
+    delete process.env.IMESSAGE_API_TOKEN_FILE;
+    process.env.IMESSAGE_API_TOKEN = "x".repeat(4097);
+    expect(() => loadApiToken()).toThrow(/4096/u);
+  });
+
+  it("requires an operator-owned 0600 regular token file", () => {
+    const directory = mkdtempSync(path.join(tmpdir(), "imessage-token-test-"));
+    const file = path.join(directory, "token");
+    try {
+      writeFileSync(file, "a".repeat(32));
+      chmodSync(file, 0o644);
+      delete process.env.IMESSAGE_API_TOKEN;
+      process.env.IMESSAGE_API_TOKEN_FILE = file;
+      expect(() => loadApiToken()).toThrow(/0600/u);
+      chmodSync(file, 0o600);
+      expect(loadApiToken()).toHaveLength(32);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
     }
-  }
-  return files;
-}
+  });
 
-const SRC_DIR = path.resolve(import.meta.dirname, "..", "src");
-const sourceFiles = collectTsFiles(SRC_DIR);
-
-describe("no network imports in source files", () => {
-  // These patterns would indicate outbound network capability, which a
-  // read-only local MCP server should never need.
-  const forbiddenPatterns = [
-    /\bimport\b.*['"]node-fetch['"]/,
-    /\brequire\s*\(\s*['"]node-fetch['"]\)/,
-    /\bimport\b.*['"]axios['"]/,
-    /\brequire\s*\(\s*['"]axios['"]\)/,
-    /\bimport\b.*['"]request['"]/,
-    /\brequire\s*\(\s*['"]request['"]\)/,
-    /\bimport\b.*from\s+['"]node:https?['"]/,
-    /\brequire\s*\(\s*['"]node:https?['"]\)/,
-    /\brequire\s*\(\s*['"]https?['"]\)/,
-    /\bimport\b.*from\s+['"]node:net['"]/,
-    /\brequire\s*\(\s*['"]node:net['"]\)/,
-    /\bglobalThis\.fetch\b/,
-  ];
-
-  // transport.ts is explicitly allowed to use node:http — it implements the HTTP transport mode
-  const allowedNetworkFiles = new Set(["transport.ts"]);
-
-  it("source files do not import fetch, http, https, net, axios, or request", () => {
-    const violations: string[] = [];
-
-    for (const filePath of sourceFiles) {
-      const relPath = path.relative(SRC_DIR, filePath);
-      if (allowedNetworkFiles.has(relPath)) continue;
-
-      const content = readFileSync(filePath, "utf-8");
-      for (const pattern of forbiddenPatterns) {
-        if (pattern.test(content)) {
-          violations.push(`${relPath} matches ${pattern}`);
-        }
-      }
+  it("rejects symlinked and oversized token files", () => {
+    const directory = mkdtempSync(path.join(tmpdir(), "imessage-token-boundary-"));
+    const target = path.join(directory, "target");
+    const link = path.join(directory, "link");
+    try {
+      writeFileSync(target, "a".repeat(32));
+      chmodSync(target, 0o600);
+      symlinkSync(target, link);
+      delete process.env.IMESSAGE_API_TOKEN;
+      process.env.IMESSAGE_API_TOKEN_FILE = link;
+      expect(() => loadApiToken()).toThrow(/opened safely/u);
+      writeFileSync(target, "a".repeat(4097));
+      process.env.IMESSAGE_API_TOKEN_FILE = target;
+      expect(() => loadApiToken()).toThrow(/regular file/u);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
     }
-
-    expect(violations).toEqual([]);
   });
 });
 
-describe("MAX_LIMIT enforcement", () => {
-  it("MAX_LIMIT is at most 500", () => {
-    expect(MAX_LIMIT).toBeLessThanOrEqual(500);
-  });
-
-  it("MAX_LIMIT is a positive integer", () => {
-    expect(MAX_LIMIT).toBeGreaterThan(0);
-    expect(Number.isInteger(MAX_LIMIT)).toBe(true);
-  });
-});
-
-describe("safe mode", () => {
-  const origEnv = process.env.IMESSAGE_SAFE_MODE;
-
-  afterEach(() => {
-    if (origEnv === undefined) {
-      delete process.env.IMESSAGE_SAFE_MODE;
-    } else {
-      process.env.IMESSAGE_SAFE_MODE = origEnv;
-    }
-  });
-
-  it("isSafeMode returns false by default", () => {
-    delete process.env.IMESSAGE_SAFE_MODE;
-    expect(isSafeMode()).toBe(false);
-  });
-
-  it("isSafeMode returns true when IMESSAGE_SAFE_MODE=1", () => {
-    process.env.IMESSAGE_SAFE_MODE = "1";
-    expect(isSafeMode()).toBe(true);
-  });
-
-  it("isSafeMode returns true when IMESSAGE_SAFE_MODE=true", () => {
-    process.env.IMESSAGE_SAFE_MODE = "true";
-    expect(isSafeMode()).toBe(true);
-  });
-
-  it("safeText passes through when safe mode is off", () => {
-    delete process.env.IMESSAGE_SAFE_MODE;
-    expect(safeText("hello world")).toBe("hello world");
-    expect(safeText(null)).toBe(null);
-  });
-
-  it("safeText redacts when safe mode is on", () => {
-    process.env.IMESSAGE_SAFE_MODE = "1";
-    expect(safeText("hello world")).toBe("[REDACTED - safe mode]");
-    expect(safeText(null)).toBe(null);
+describe("opaque references", () => {
+  it("survives restarts and rejects tampering or unrelated database lineages", () => {
+    const key = Buffer.alloc(32, 0x5a);
+    const otherKey = Buffer.alloc(32, 0x6b);
+    const reference = encodeReference(key, "lineage-a", "conversation", { chat_ids: [1, 2] });
+    expect(decodeReference(key, "lineage-a", "conversation", reference).value).toEqual({ chat_ids: [1, 2] });
+    expect(() => decodeReference(key, "lineage-b", "conversation", reference)).toThrow(/lineage/u);
+    expect(() => decodeReference(otherKey, "lineage-a", "conversation", reference)).toThrow(/lineage/u);
+    const tamperIndex = 40;
+    const tampered = reference.slice(0, tamperIndex) +
+      (reference[tamperIndex] === "A" ? "B" : "A") + reference.slice(tamperIndex + 1);
+    expect(() => decodeReference(key, "lineage-a", "conversation", tampered)).toThrow(/lineage/u);
+    expect(() => decodeReference(key, "lineage-a", "conversation", "not-a-reference"))
+      .toThrowError(expect.objectContaining({ reason: "INVALID_INPUT" }));
+    expect(() => decodeReference(key, "lineage-a", "message", reference))
+      .toThrowError(expect.objectContaining({ reason: "INVALID_INPUT" }));
   });
 });
 
-describe("tool registration functions exist and are callable", () => {
-  it("all register* functions are exported and are functions", async () => {
-    const modules = [
-      { path: "../src/tools/messages.js", name: "registerMessageTools" },
-      { path: "../src/tools/contacts.js", name: "registerContactTools" },
-      { path: "../src/tools/analytics.js", name: "registerAnalyticsTools" },
-      { path: "../src/tools/groups.js", name: "registerGroupTools" },
-      { path: "../src/tools/attachments.js", name: "registerAttachmentTools" },
-      { path: "../src/tools/reactions.js", name: "registerReactionTools" },
-      { path: "../src/tools/receipts.js", name: "registerReceiptTools" },
-      { path: "../src/tools/threads.js", name: "registerThreadTools" },
-      { path: "../src/tools/edits.js", name: "registerEditTools" },
-      { path: "../src/tools/effects.js", name: "registerEffectTools" },
-      { path: "../src/tools/memories.js", name: "registerMemoryTools" },
-      { path: "../src/tools/patterns.js", name: "registerPatternTools" },
-      { path: "../src/tools/wrapped.js", name: "registerWrappedTools" },
-      { path: "../src/tools/sync.js", name: "registerSyncTools" },
-    ];
+describe("bounded results", () => {
+  it("rejects an MCP result before either transport can exceed four MiB", () => {
+    expect(() => successResult({
+      tool: "server_status",
+      privacy: "full",
+      maskingKey: Buffer.alloc(32, 1),
+      effectiveScope: { privacy_mode: "full" },
+      data: { oversized: "x".repeat(4 * 1024 * 1024) },
+    })).toThrowError(expect.objectContaining({ reason: "QUERY_BUDGET_EXCEEDED" }));
+  });
+});
 
-    for (const mod of modules) {
-      const imported = await import(mod.path);
-      expect(typeof imported[mod.name]).toBe("function");
+describe("native and release hardening", () => {
+  it("never invokes legacy NSUnarchiver", () => {
+    const helper = readFileSync(new URL("../native/message-text-decoder.js", import.meta.url), "utf8");
+    expect(helper).not.toContain("NSUnarchiver");
+    expect(helper).toContain("NSKeyedUnarchiver.unarchivedObjectOfClassesFromDataError");
+  });
+
+  it("pins every workflow action to an immutable commit", () => {
+    for (const file of ["attest-security-evidence.yml", "ci.yml", "security.yml", "release.yml"]) {
+      const workflow = readFileSync(new URL(`../.github/workflows/${file}`, import.meta.url), "utf8");
+      const uses = [...workflow.matchAll(/^\s*- uses:\s+[^\s@]+@([^\s#]+)/gmu)].map((match) => match[1]);
+      expect(uses.length).toBeGreaterThan(0);
+      expect(uses.every((revision) => /^[a-f0-9]{40}$/u.test(revision))).toBe(true);
     }
   });
 
-  it("registerHelp is exported from help module", async () => {
-    const { registerHelp } = await import("../src/help.js");
-    expect(typeof registerHelp).toBe("function");
+  it("keeps publication downstream of protected, exact-revision evidence with split authority", () => {
+    const attestation = readFileSync(new URL("../.github/workflows/attest-security-evidence.yml", import.meta.url), "utf8");
+    expect(attestation).toContain("SECURITY_SCAN_ALLOWED_SIGNER");
+    expect(attestation).toContain("verify-commit \"$GITHUB_SHA\"");
+    expect(attestation).toContain("git diff-tree --quiet \"$GITHUB_SHA^\" \"$GITHUB_SHA\"");
+    const release = readFileSync(new URL("../.github/workflows/release.yml", import.meta.url), "utf8");
+    expect(release).toContain("needs: [verify-release, release-secret-scan, release-codeql]");
+    expect(release).toContain("--signer-workflow anipotts/imessage-mcp/.github/workflows/attest-security-evidence.yml");
+    expect(release).toContain("--source-digest \"$GITHUB_SHA\"");
+    expect(release).toContain("--ignore-scripts --access public --provenance");
+    const verifyJob = release.slice(release.indexOf("  verify-release:"), release.indexOf("  release-secret-scan:"));
+    expect(verifyJob.indexOf("npm run test:performance")).toBeLessThan(verifyJob.indexOf("retrieve and verify protected security evidence"));
+    expect(verifyJob.slice(verifyJob.indexOf("retrieve and verify protected security evidence")))
+      .not.toMatch(/npm run (?:verify|test:performance)/u);
+    const npmJob = release.slice(release.indexOf("  publish-npm:"), release.indexOf("  verify-public-npm:"));
+    expect(npmJob).toContain("attestations: read");
+    expect(npmJob.match(/gh attestation verify/gu)).toHaveLength(2);
+    expect(npmJob.indexOf("gh attestation verify")).toBeLessThan(npmJob.indexOf("npm publish"));
+    const registry = release.slice(release.indexOf("  publish-registry:"), release.indexOf("  publish-github-release:"));
+    expect(registry).toContain("contents: read");
+    expect(registry).toContain("id-token: write");
+    expect(registry).not.toContain("contents: write");
+    expect(registry).toContain("persist-credentials: false");
+    const github = release.slice(release.indexOf("  publish-github-release:"));
+    expect(github).toContain("contents: write");
+    expect(github).not.toContain("id-token: write");
+    expect(github).not.toContain("mcp-publisher");
+  });
+
+  it("binds security evidence to a tree-preserving commit whose parent was scanned", () => {
+    const directory = mkdtempSync(path.join(tmpdir(), "imessage-security-evidence-"));
+    const runGit = (...args: string[]) => execFileSync("git", args, { cwd: directory, encoding: "utf8" }).trim();
+    try {
+      runGit("init", "--quiet");
+      runGit("config", "core.hooksPath", "/dev/null");
+      runGit("config", "user.name", "Fixture");
+      runGit("config", "user.email", "fixture@example.test");
+      runGit("config", "commit.gpgsign", "false");
+      writeFileSync(path.join(directory, "package.json"), JSON.stringify({ version: "2.0.0-beta.1" }));
+      writeFileSync(path.join(directory, "package.tgz"), "synthetic package bytes");
+      runGit("add", "package.json", "package.tgz");
+      runGit("commit", "--quiet", "-m", "base");
+      const scanned = runGit("rev-parse", "HEAD");
+      const digest = "a".repeat(64);
+      runGit("commit", "--allow-empty", "--quiet", "-m", [
+        "chore: attest security scan",
+        "",
+        `Security-Scan-Revision: ${scanned}`,
+        "Security-Scan-Status: passed",
+        "Security-Scan-Id: 11111111-1111-1111-1111-111111111111",
+        `Security-Snapshot-Digest: codex-security-snapshot/v1:sha256:${digest}`,
+        `Security-Scan-Manifest-SHA256: ${digest}`,
+        `Security-Scan-Findings-SHA256: ${digest}`,
+        `Security-Scan-Coverage-SHA256: ${digest}`,
+        "Security-Scan-Producer: codex-security-plugin@0.1.18",
+        "Security-Scan-Finding-Count: 0",
+      ].join("\n"));
+      const evidenceCommit = runGit("rev-parse", "HEAD");
+      const tsx = fileURLToPath(new URL("../node_modules/.bin/tsx", import.meta.url));
+      const script = fileURLToPath(new URL("../scripts/security-evidence.ts", import.meta.url));
+      execFileSync(tsx, [script, "create", "package.tgz", evidenceCommit, "evidence.json"], {
+        cwd: directory,
+        stdio: "ignore",
+      });
+      const evidence = JSON.parse(readFileSync(path.join(directory, "evidence.json"), "utf8")) as {
+        subject: { commit: string };
+        security_scan: { scan_revision: string; finding_count: number };
+      };
+      expect(evidence.subject.commit).toBe(evidenceCommit);
+      expect(evidence.security_scan).toMatchObject({ scan_revision: scanned, finding_count: 0 });
+
+      runGit("commit", "--allow-empty", "--quiet", "-m", "unscanned child");
+      const unscanned = runGit("rev-parse", "HEAD");
+      expect(() => execFileSync(tsx, [script, "create", "package.tgz", unscanned, "invalid.json"], {
+        cwd: directory,
+        stdio: "ignore",
+      })).toThrow();
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 });
