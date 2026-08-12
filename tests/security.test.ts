@@ -130,6 +130,7 @@ describe("native and release hardening", () => {
     expect(release).toContain("--source-digest \"$GITHUB_SHA\"");
     expect(release).toContain("--ignore-scripts --access public --provenance");
     const verifyJob = release.slice(release.indexOf("  verify-release:"), release.indexOf("  release-secret-scan:"));
+    expect(verifyJob).toContain("fetch-depth: 2");
     expect(verifyJob.indexOf("npm run test:performance")).toBeLessThan(verifyJob.indexOf("retrieve and verify protected security evidence"));
     expect(verifyJob.slice(verifyJob.indexOf("retrieve and verify protected security evidence")))
       .not.toMatch(/npm run (?:verify|test:performance)/u);
