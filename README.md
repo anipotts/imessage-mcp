@@ -33,14 +33,14 @@ The supported inputs are a live Mac `chat.db` and a faithful copy of that same M
 ## install
 
 ```sh
-npm install -g imessage-mcp@next
+npm install -g imessage-mcp@2.0.0-beta.1
 umask 077
 openssl rand -base64 32 > "$HOME/.imessage-mcp-reference-key"
 export IMESSAGE_REFERENCE_KEY_FILE="$HOME/.imessage-mcp-reference-key"
 imessage-mcp doctor
 ```
 
-The `next` tag installs the 2.0 prerelease. It will be replaced with the normal `imessage-mcp` install command when 2.0 becomes stable.
+This exact version installs the 2.0 prerelease. Upgrade only by explicitly selecting a newer exact version. The stable setup will remain version-pinned so an existing Full Disk Access client never begins executing a different package only because an npm dist-tag moved.
 
 The default transport is stdio. It reads `~/Library/Messages/chat.db` and uses unified Contacts when the live Contacts permission is already available. The reference-key file is mandatory, must be an operator-owned `0600` regular file, and is never written by the server.
 
@@ -67,7 +67,7 @@ Set a stricter ceiling at startup:
   "mcpServers": {
     "imessage": {
       "command": "npx",
-      "args": ["-y", "imessage-mcp@next"],
+      "args": ["-y", "imessage-mcp@2.0.0-beta.1"],
       "env": {
         "IMESSAGE_PRIVACY": "redacted",
         "IMESSAGE_REFERENCE_KEY_FILE": "/Users/you/.imessage-mcp-reference-key"
@@ -101,7 +101,7 @@ Add the server through Codex MCP settings or the CLI:
 
 ```sh
 codex mcp add --env IMESSAGE_REFERENCE_KEY_FILE="$HOME/.imessage-mcp-reference-key" \
-  imessage -- npx -y imessage-mcp@next
+  imessage -- npx -y imessage-mcp@2.0.0-beta.1
 ```
 
 Grant Full Disk Access to the Codex application that launches the process, then restart that application.
@@ -115,7 +115,7 @@ Add this entry to Claude Desktop's MCP configuration:
   "mcpServers": {
     "imessage": {
       "command": "npx",
-      "args": ["-y", "imessage-mcp@next"],
+      "args": ["-y", "imessage-mcp@2.0.0-beta.1"],
       "env": {
         "IMESSAGE_REFERENCE_KEY_FILE": "/Users/you/.imessage-mcp-reference-key"
       }
@@ -130,7 +130,7 @@ Grant Full Disk Access to Claude Desktop, restart it, and run `server_status`.
 
 ```sh
 claude mcp add imessage -e IMESSAGE_REFERENCE_KEY_FILE="$HOME/.imessage-mcp-reference-key" \
-  -- npx -y imessage-mcp@next
+  -- npx -y imessage-mcp@2.0.0-beta.1
 ```
 
 ### cursor
@@ -252,7 +252,8 @@ The HTTP boundary enforces:
 
 - a 256 KiB request-body limit and 4 MiB response limit
 - one global authenticated rate limit of 60 requests per minute
-- two active tool calls with no unbounded waiting queue
+- a two-second incomplete-header deadline and a five-second request-body deadline
+- two active HTTP requests from body read through response, with no waiting queue
 - Host and Origin hostname allowlists
 - no JSON-RPC batch arrays, sessions, subscriptions, or legacy SSE
 
