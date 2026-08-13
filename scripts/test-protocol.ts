@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { once } from "node:events";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer as createHttpProxy, request as httpRequest } from "node:http";
-import { createServer as createNetServer } from "node:net";
+import { createConnection, createServer as createNetServer, type Socket } from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
@@ -247,6 +247,43 @@ async function rawPostStatus(
   });
 }
 
+function slowPost(
+  port: number,
+  headers: Record<string, string>,
+): { request: ReturnType<typeof httpRequest>; status: Promise<number> } {
+  let settle!: (status: number) => void;
+  const status = new Promise<number>((resolve) => {
+    settle = resolve;
+  });
+  const request = httpRequest({
+    host: "127.0.0.1",
+    port,
+    path: "/mcp",
+    method: "POST",
+    headers: { ...headers, "content-length": "64" },
+  }, (response) => {
+    response.resume();
+    response.once("end", () => settle(response.statusCode ?? 0));
+  });
+  request.once("error", () => settle(0));
+  request.write("{");
+  return { request, status };
+}
+
+async function wait(milliseconds: number): Promise<void> {
+  await new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
+}
+
+async function openHeaderlessConnections(port: number, count: number): Promise<Socket[]> {
+  const sockets = Array.from({ length: count }, () => createConnection({ host: "127.0.0.1", port }));
+  await Promise.all(sockets.map((socket) => new Promise<void>((resolve) => {
+    const finish = () => resolve();
+    socket.once("connect", finish);
+    socket.once("close", finish);
+  })));
+  return sockets;
+}
+
 async function runHttp(fixture: Fixture): Promise<void> {
   const port = await freePort();
   const proxyPort = await freePort();
@@ -305,6 +342,11 @@ async function runHttp(fixture: Fixture): Promise<void> {
       headers: { authorization: `Bearer ${"wrong-token-".padEnd(48, "y")}` },
     });
     assert.equal(wrongToken.status, 401);
+    const wrongLengthToken = await fetch(url, {
+      method: "POST",
+      headers: { authorization: `Bearer ${"wrong-length-token-".padEnd(32, "z")}` },
+    });
+    assert.equal(wrongLengthToken.status, 401);
     const badHost = await rawPostStatus(port, {
       authorization: `Bearer ${token}`,
       "content-type": "application/json",
@@ -329,6 +371,52 @@ async function runHttp(fixture: Fixture): Promise<void> {
       body: JSON.stringify({ value: "x".repeat(256 * 1024) }),
     });
     assert.equal(oversized.status, 413);
+
+    const slowA = slowPost(port, {
+      authorization: `Bearer ${token}`,
+      "content-type": "application/json",
+    });
+    const slowB = slowPost(port, {
+      authorization: `Bearer ${token}`,
+      "content-type": "application/json",
+    });
+    await wait(100);
+    const saturated = await rawPostStatus(port, {
+      authorization: `Bearer ${token}`,
+      "content-type": "application/json",
+    }, "{}");
+    assert.equal(saturated, 429);
+    slowA.request.destroy();
+    slowB.request.destroy();
+    await Promise.all([slowA.status, slowB.status]);
+    const afterRelease = await rawPostStatus(port, {
+      authorization: `Bearer ${token}`,
+      "content-type": "application/json",
+    }, "{}");
+    assert.equal(afterRelease, 400);
+
+    const bodyDeadlineStarted = Date.now();
+    const deadlineRequest = slowPost(port, {
+      authorization: `Bearer ${token}`,
+      "content-type": "application/json",
+    });
+    assert.equal(await deadlineRequest.status, 0);
+    const bodyDeadlineElapsed = Date.now() - bodyDeadlineStarted;
+    assert.ok(bodyDeadlineElapsed >= 4_000 && bodyDeadlineElapsed < 8_000);
+    const afterBodyDeadline = await rawPostStatus(port, {
+      authorization: `Bearer ${token}`,
+      "content-type": "application/json",
+    }, "{}");
+    assert.equal(afterBodyDeadline, 400);
+
+    const headerless = await openHeaderlessConnections(port, 32);
+    await wait(2_500);
+    assert.equal(headerless.every((socket) => socket.destroyed), true);
+    const afterHeaderDeadline = await rawPostStatus(port, {
+      authorization: `Bearer ${token}`,
+      "content-type": "application/json",
+    }, "{}");
+    assert.equal(afterHeaderDeadline, 400);
 
     const transport = new StreamableHTTPClientTransport(url, {
       authProvider: { token: async () => token },

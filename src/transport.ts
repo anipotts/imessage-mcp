@@ -1,4 +1,4 @@
-import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { timingSafeEqual } from "node:crypto";
 import { createServer as createHttpServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { Socket } from "node:net";
 import {
@@ -16,7 +16,11 @@ const MAX_BODY_BYTES = 256 * 1024;
 const MAX_RESPONSE_BYTES = 4 * 1024 * 1024;
 const RATE_LIMIT = 60;
 const RATE_WINDOW_MS = 60_000;
+const MAX_ACTIVE_HTTP_REQUESTS = 2;
 const MAX_HTTP_CONNECTIONS = 32;
+const MAX_TOKEN_BYTES = 4096;
+const HEADER_READ_TIMEOUT_MS = 2_000;
+const BODY_READ_TIMEOUT_MS = 5_000;
 
 function csv(value: string | undefined, fallback: string[]): string[] {
   if (!value) return fallback;
@@ -41,16 +45,28 @@ export function loadApiToken(): Buffer {
   return readApiToken(true) as Buffer;
 }
 
-function tokenMac(token: Buffer | string, key: Buffer): Buffer {
-  return createHmac("sha256", key).update(token).digest();
+interface TokenVerifier {
+  expected: Buffer;
+  length: number;
 }
 
-function authorize(req: IncomingMessage, key: Buffer, expectedMac: Buffer): boolean {
+function tokenVerifier(token: Buffer): TokenVerifier {
+  const expected = Buffer.alloc(MAX_TOKEN_BYTES);
+  token.copy(expected);
+  return { expected, length: token.length };
+}
+
+function authorize(req: IncomingMessage, verifier: TokenVerifier): boolean {
   const header = req.headers.authorization;
   if (typeof header !== "string" || !header.startsWith("Bearer ")) return false;
-  const suppliedMac = tokenMac(header.slice(7), key);
-  const authorized = timingSafeEqual(suppliedMac, expectedMac);
-  suppliedMac.fill(0);
+  const supplied = Buffer.from(header.slice(7), "utf8");
+  const candidate = Buffer.alloc(MAX_TOKEN_BYTES);
+  const withinLimit = supplied.length <= MAX_TOKEN_BYTES;
+  if (withinLimit) supplied.copy(candidate);
+  const authorized = timingSafeEqual(candidate, verifier.expected) &&
+    withinLimit && supplied.length === verifier.length;
+  supplied.fill(0);
+  candidate.fill(0);
   return authorized;
 }
 
@@ -120,11 +136,29 @@ async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   }
   const chunks: Buffer[] = [];
   let size = 0;
-  for await (const raw of req) {
-    const chunk = Buffer.isBuffer(raw) ? raw : Buffer.from(raw);
-    size += chunk.length;
-    if (size > MAX_BODY_BYTES) throw new ImessageMcpError("QUERY_BUDGET_EXCEEDED", "HTTP request body exceeds 256 KiB");
-    chunks.push(chunk);
+  let timedOut = false;
+  const deadline = setTimeout(() => {
+    timedOut = true;
+    req.destroy();
+  }, BODY_READ_TIMEOUT_MS);
+  deadline.unref();
+  try {
+    for await (const raw of req) {
+      const chunk = Buffer.isBuffer(raw) ? raw : Buffer.from(raw);
+      size += chunk.length;
+      if (size > MAX_BODY_BYTES) throw new ImessageMcpError("QUERY_BUDGET_EXCEEDED", "HTTP request body exceeds 256 KiB");
+      chunks.push(chunk);
+    }
+    if (timedOut) {
+      throw new ImessageMcpError("QUERY_BUDGET_EXCEEDED", "HTTP request body exceeded its five-second read deadline");
+    }
+  } catch (error) {
+    if (timedOut) {
+      throw new ImessageMcpError("QUERY_BUDGET_EXCEEDED", "HTTP request body exceeded its five-second read deadline");
+    }
+    throw error;
+  } finally {
+    clearTimeout(deadline);
   }
   try {
     return JSON.parse(Buffer.concat(chunks).toString("utf8"));
@@ -172,21 +206,35 @@ class RateLimiter {
   }
 }
 
+class RequestLimiter {
+  private active = 0;
+
+  tryAcquire(): (() => void) | null {
+    if (this.active >= MAX_ACTIVE_HTTP_REQUESTS) return null;
+    this.active += 1;
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      this.active -= 1;
+    };
+  }
+}
+
 export async function startHttp(runtime: ToolRuntime): Promise<void> {
   const allowedHosts = csv(process.env.IMESSAGE_ALLOWED_HOSTS, ["localhost", "127.0.0.1", "[::1]"]);
   const allowedOrigins = csv(process.env.IMESSAGE_ALLOWED_ORIGINS, allowedHosts);
   const token = loadApiToken();
-  const tokenKey = randomBytes(32);
-  const expectedTokenMac = tokenMac(token, tokenKey);
+  const verifier = tokenVerifier(token);
   token.fill(0);
   try {
     await runtime.initialize();
   } catch (error) {
-    tokenKey.fill(0);
-    expectedTokenMac.fill(0);
+    verifier.expected.fill(0);
     throw error;
   }
   const limiter = new RateLimiter();
+  const requests = new RequestLimiter();
   const handler = createMcpHandler(() => createMcpServer(runtime), {
     legacy: "stateless",
     responseMode: "json",
@@ -195,9 +243,15 @@ export async function startHttp(runtime: ToolRuntime): Promise<void> {
   });
   let closing = false;
   const sockets = new Set<Socket>();
+  const headerDeadlines = new Map<Socket, NodeJS.Timeout>();
 
   const server = createHttpServer(async (req, res) => {
-    if (!authorize(req, tokenKey, expectedTokenMac)) {
+    const headerDeadline = headerDeadlines.get(req.socket);
+    if (headerDeadline) {
+      clearTimeout(headerDeadline);
+      headerDeadlines.delete(req.socket);
+    }
+    if (!authorize(req, verifier)) {
       rejectAndClose(req, res, 401, { error: "unauthorized" }, { "www-authenticate": "Bearer" });
       return;
     }
@@ -218,6 +272,13 @@ export async function startHttp(runtime: ToolRuntime): Promise<void> {
       return;
     }
 
+    const release = requests.tryAcquire();
+    if (!release) {
+      rejectAndClose(req, res, 429, {
+        error: { reason: "QUERY_BUDGET_EXCEEDED", message: "two HTTP requests are already active" },
+      }, { "retry-after": "1" });
+      return;
+    }
     try {
       const parsedBody = await readJsonBody(req);
       if (Array.isArray(parsedBody)) {
@@ -240,11 +301,13 @@ export async function startHttp(runtime: ToolRuntime): Promise<void> {
         if (reason === "QUERY_BUDGET_EXCEEDED") rejectAndClose(req, res, status, { error: { reason } });
         else json(res, status, { error: { reason } });
       }
+    } finally {
+      release();
     }
   });
 
   server.requestTimeout = 95_000;
-  server.headersTimeout = 10_000;
+  server.headersTimeout = HEADER_READ_TIMEOUT_MS;
   server.keepAliveTimeout = 5_000;
   server.timeout = 95_000;
   server.maxHeadersCount = 64;
@@ -256,7 +319,18 @@ export async function startHttp(runtime: ToolRuntime): Promise<void> {
       return;
     }
     sockets.add(socket);
-    socket.once("close", () => sockets.delete(socket));
+    const deadline = setTimeout(() => {
+      headerDeadlines.delete(socket);
+      socket.destroy();
+    }, HEADER_READ_TIMEOUT_MS);
+    deadline.unref();
+    headerDeadlines.set(socket, deadline);
+    socket.once("close", () => {
+      const pending = headerDeadlines.get(socket);
+      if (pending) clearTimeout(pending);
+      headerDeadlines.delete(socket);
+      sockets.delete(socket);
+    });
   });
 
   try {
@@ -270,8 +344,7 @@ export async function startHttp(runtime: ToolRuntime): Promise<void> {
       });
     });
   } catch (error) {
-    tokenKey.fill(0);
-    expectedTokenMac.fill(0);
+    verifier.expected.fill(0);
     await handler.close();
     await runtime.close();
     throw error;
@@ -280,8 +353,7 @@ export async function startHttp(runtime: ToolRuntime): Promise<void> {
   const shutdown = async () => {
     if (closing) return;
     closing = true;
-    tokenKey.fill(0);
-    expectedTokenMac.fill(0);
+    verifier.expected.fill(0);
     await handler.close();
     await runtime.close();
     server.close(() => process.exit(0));
