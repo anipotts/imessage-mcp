@@ -1,4 +1,4 @@
-import { createHash, timingSafeEqual } from "node:crypto";
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer as createHttpServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { Socket } from "node:net";
 import {
@@ -41,11 +41,17 @@ export function loadApiToken(): Buffer {
   return readApiToken(true) as Buffer;
 }
 
-function authorize(req: IncomingMessage, expectedDigest: Buffer): boolean {
+function tokenMac(token: Buffer | string, key: Buffer): Buffer {
+  return createHmac("sha256", key).update(token).digest();
+}
+
+function authorize(req: IncomingMessage, key: Buffer, expectedMac: Buffer): boolean {
   const header = req.headers.authorization;
   if (typeof header !== "string" || !header.startsWith("Bearer ")) return false;
-  const suppliedDigest = createHash("sha256").update(header.slice(7), "utf8").digest();
-  return timingSafeEqual(suppliedDigest, expectedDigest);
+  const suppliedMac = tokenMac(header.slice(7), key);
+  const authorized = timingSafeEqual(suppliedMac, expectedMac);
+  suppliedMac.fill(0);
+  return authorized;
 }
 
 function json(res: ServerResponse, status: number, value: unknown, headers: Record<string, string> = {}): void {
@@ -167,12 +173,19 @@ class RateLimiter {
 }
 
 export async function startHttp(runtime: ToolRuntime): Promise<void> {
-  const token = loadApiToken();
-  const tokenDigest = createHash("sha256").update(token).digest();
-  token.fill(0);
   const allowedHosts = csv(process.env.IMESSAGE_ALLOWED_HOSTS, ["localhost", "127.0.0.1", "[::1]"]);
   const allowedOrigins = csv(process.env.IMESSAGE_ALLOWED_ORIGINS, allowedHosts);
-  await runtime.initialize();
+  const token = loadApiToken();
+  const tokenKey = randomBytes(32);
+  const expectedTokenMac = tokenMac(token, tokenKey);
+  token.fill(0);
+  try {
+    await runtime.initialize();
+  } catch (error) {
+    tokenKey.fill(0);
+    expectedTokenMac.fill(0);
+    throw error;
+  }
   const limiter = new RateLimiter();
   const handler = createMcpHandler(() => createMcpServer(runtime), {
     legacy: "stateless",
@@ -184,7 +197,7 @@ export async function startHttp(runtime: ToolRuntime): Promise<void> {
   const sockets = new Set<Socket>();
 
   const server = createHttpServer(async (req, res) => {
-    if (!authorize(req, tokenDigest)) {
+    if (!authorize(req, tokenKey, expectedTokenMac)) {
       rejectAndClose(req, res, 401, { error: "unauthorized" }, { "www-authenticate": "Bearer" });
       return;
     }
@@ -257,6 +270,8 @@ export async function startHttp(runtime: ToolRuntime): Promise<void> {
       });
     });
   } catch (error) {
+    tokenKey.fill(0);
+    expectedTokenMac.fill(0);
     await handler.close();
     await runtime.close();
     throw error;
@@ -265,6 +280,8 @@ export async function startHttp(runtime: ToolRuntime): Promise<void> {
   const shutdown = async () => {
     if (closing) return;
     closing = true;
+    tokenKey.fill(0);
+    expectedTokenMac.fill(0);
     await handler.close();
     await runtime.close();
     server.close(() => process.exit(0));

@@ -26,6 +26,9 @@ const MAX_SAMPLE = 500;
 const MAX_BATCH_ITEMS = 500;
 const MAX_BATCH_BYTES = 8 * 1024 * 1024;
 const MAX_BLOB_BYTES = 1024 * 1024;
+// The one-million-message reference fixture owns the 60-second index SLA. A growing live archive
+// is bounded by the supported cold-request deadline while this check verifies exact private parity.
+const MAX_LIVE_COLD_SEARCH_MS = 90_000;
 
 function structured(result: { isError?: boolean; structuredContent?: unknown }): Record<string, unknown> {
   assert.notEqual(result.isError, true);
@@ -128,7 +131,10 @@ async function exerciseLiveTools(): Promise<{
     assert.doesNotMatch(serialized, /"query"\s*:/u);
     assert.ok(durationMs.server_status < 1_000, "live server_status exceeded the sub-second metadata budget");
     assert.ok(durationMs.list_conversations < 1_000, "live list_conversations exceeded the sub-second metadata budget");
-    assert.ok(durationMs.search_messages < 60_000, `live cold search exceeded the 60-second complete-index budget: ${durationMs.search_messages}ms`);
+    assert.ok(
+      durationMs.search_messages < MAX_LIVE_COLD_SEARCH_MS,
+      `live cold search exceeded the 90-second request budget: ${durationMs.search_messages}ms`,
+    );
     return { tools: results.length, aggregate_leaks: leaks, duration_ms: durationMs };
   } finally {
     runtime.close();

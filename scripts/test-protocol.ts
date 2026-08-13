@@ -300,6 +300,11 @@ async function runHttp(fixture: Fixture): Promise<void> {
     const url = new URL(`http://127.0.0.1:${port}/mcp`);
     const unauthorized = await fetch(url, { method: "POST" });
     assert.equal(unauthorized.status, 401);
+    const wrongToken = await fetch(url, {
+      method: "POST",
+      headers: { authorization: `Bearer ${"wrong-token-".padEnd(48, "y")}` },
+    });
+    assert.equal(wrongToken.status, 401);
     const badHost = await rawPostStatus(port, {
       authorization: `Bearer ${token}`,
       "content-type": "application/json",
