@@ -18,6 +18,8 @@ const privateData = {
     path: "/Users/real/Library/Messages/private.png",
     timestamp: "2026-08-10T12:34:56.000Z",
     edit: { timestamps: ["2026-08-10T12:35:56.000Z"] },
+    reactions: [{ type: "emoji", emoji: "private-custom-reaction" }],
+    current_state: { reaction_type: 2007, reaction_emoji: "private-sync-reaction" },
     attachments: [{ name: "private-alias.png", transfer_name: "private-transfer.png" }],
   }],
 };
@@ -32,6 +34,8 @@ describe("privacy ceilings", () => {
     const result = successResult({ tool: "list_conversations", privacy: "full", maskingKey, effectiveScope: {}, data: privateData });
     expect(JSON.stringify(result.structuredContent)).toContain("private body");
     expect(JSON.stringify(result.structuredContent)).toContain("+15551234567");
+    expect(JSON.stringify(result.structuredContent)).toContain("private-custom-reaction");
+    expect(JSON.stringify(result.structuredContent)).toContain("private-sync-reaction");
   });
 
   it("keeps names, masks handles, reduces timestamps, and removes content in redacted mode", () => {
@@ -45,6 +49,8 @@ describe("privacy ceilings", () => {
     expect(serialized).not.toContain("private.png");
     expect(serialized).not.toContain("private-alias.png");
     expect(serialized).not.toContain("private-transfer.png");
+    expect(serialized).not.toContain("private-custom-reaction");
+    expect(serialized).not.toContain("private-sync-reaction");
     expect(serialized).not.toContain("/Users/real");
     expect(serialized).toContain("2026-08-10");
     expect(serialized).not.toContain("12:35:56");

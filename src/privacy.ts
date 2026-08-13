@@ -17,6 +17,9 @@ const BODY_KEYS = new Set([
   "attachment_path",
   "attachment_paths",
   "transfer_name",
+  "emoji",
+  "reaction_emoji",
+  "associated_message_emoji",
 ]);
 const IDENTITY_KEYS = new Set([
   "name",
