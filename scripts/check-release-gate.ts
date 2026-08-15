@@ -36,4 +36,38 @@ if (expected.includes("-")) {
   process.exit(0);
 }
 
-assert.fail("stable publication is fail-closed until a protected, immutable seven-day canary attestation is implemented and verified");
+assert.match(expected, /^\d+\.\d+\.\d+$/u, "stable release version must not be a prerelease");
+assert.equal(status.stable.ready, true, "stable publication remains blocked until its canary state is ready");
+assert.equal(status.stable.subject_version, expected, "stable state must name the exact requested version");
+assert.ok(typeof status.stable.release_candidate === "string");
+assert.match(status.stable.release_candidate, new RegExp(`^${expected.replaceAll(".", "\\.")}-rc\\.[1-9]\\d*$`, "u"),
+  "stable release must derive from a numbered release candidate");
+assert.ok(typeof status.stable.candidate_commit === "string" && /^[a-f0-9]{40}$/u.test(status.stable.candidate_commit),
+  "stable state must bind the exact release-candidate commit");
+assert.ok(
+  typeof status.stable.candidate_package_sha256 === "string" &&
+  /^[a-f0-9]{64}$/u.test(status.stable.candidate_package_sha256),
+  "stable state must bind the exact release-candidate package digest",
+);
+const started = Date.parse(status.stable.canary_started_at ?? "");
+const completed = Date.parse(status.stable.canary_completed_at ?? "");
+assert.ok(Number.isFinite(started) && Number.isFinite(completed), "stable canary timestamps must be valid");
+assert.ok(completed - started >= 7 * 24 * 60 * 60 * 1_000, "stable canary must run for at least seven full days");
+assert.ok(completed <= Date.now(), "stable canary completion cannot be in the future");
+assert.deepEqual(Object.keys(status.stable.exercises).sort(), [
+  "all_privacy_modes",
+  "all_service_families",
+  "all_seven_tools",
+  "claude_code",
+  "claude_desktop",
+  "codex",
+  "copied_database",
+  "cursor",
+  "http_proxy_simulation",
+  "live_database",
+  "stdio",
+]);
+assert.ok(Object.values(status.stable.exercises).every((value) => value === true),
+  "stable release requires every named canary exercise");
+assert.match(readFileSync("VERIFICATION.md", "utf8"), /stable release gate:\s*passed/iu);
+process.stdout.write(`stable release state is structurally ready for protected canary attestation at ${expected}\n`);

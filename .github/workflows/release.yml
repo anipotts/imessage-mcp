@@ -24,7 +24,7 @@ jobs:
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          fetch-depth: 2
+          fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
@@ -70,6 +70,47 @@ jobs:
             --signer-workflow anipotts/imessage-mcp/.github/workflows/attest-security-evidence.yml \
             --source-digest "$GITHUB_SHA" --deny-self-hosted-runners
           npx tsx scripts/security-evidence.ts verify "$TARBALL" "$GITHUB_SHA" evidence/security-evidence.json
+          if [[ "${{ steps.version.outputs.prerelease }}" == "false" ]]; then
+            CANARY_RUN_ID=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow attest-canary.yml \
+              --commit "$GITHUB_SHA" --status success --limit 10 --json databaseId \
+              --jq '.[0].databaseId')
+            test -n "$CANARY_RUN_ID"
+            gh run download "$CANARY_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+              --name "canary-evidence-${GITHUB_SHA}" --dir evidence
+            gh attestation verify evidence/canary-evidence.json --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow anipotts/imessage-mcp/.github/workflows/attest-canary.yml \
+              --source-digest "$GITHUB_SHA" --deny-self-hosted-runners
+            CANDIDATE_VERSION=$(node -p "require('./release-status.json').stable.release_candidate")
+            CANDIDATE_COMMIT=$(node -p "require('./release-status.json').stable.candidate_commit")
+            npm view "imessage-mcp@${CANDIDATE_VERSION}" --json | node -e \
+              "let s=''; process.stdin.on('data',c=>{s+=c;if(Buffer.byteLength(s)>1048576)process.exit(1)}).on('end',()=>{const m=JSON.parse(s); process.stdout.write(JSON.stringify({version:m.version,gitHead:m.gitHead,dist:{tarball:m.dist?.tarball,attestations:m.dist?.attestations},time:m.time},null,2)+'\\n')})" \
+              > evidence/candidate-npm.json
+            CANDIDATE_URL=$(node -e \
+              "const m=require('./evidence/candidate-npm.json'),v=process.argv[1],c=process.argv[2]; if(m.version!==v||(m.gitHead!==undefined&&m.gitHead!==c)||m.dist?.tarball!==\`https://registry.npmjs.org/imessage-mcp/-/imessage-mcp-\${v}.tgz\`||m.dist?.attestations?.url!==\`https://registry.npmjs.org/-/npm/v1/attestations/imessage-mcp@\${v}\`) process.exit(1); process.stdout.write(m.dist.tarball)" \
+              "$CANDIDATE_VERSION" "$CANDIDATE_COMMIT")
+            ATTESTATION_URL=$(node -p "require('./evidence/candidate-npm.json').dist.attestations.url")
+            curl --fail --location --silent --show-error --max-filesize 16777216 "$CANDIDATE_URL" \
+              --output evidence/release-candidate.tgz
+            curl --fail --location --silent --show-error --max-filesize 4194304 "$ATTESTATION_URL" \
+              --output evidence/candidate-attestations.json
+            AUDIT_DIR=$(mktemp -d)
+            npm install --prefix "$AUDIT_DIR" --ignore-scripts --no-audit --no-fund \
+              "imessage-mcp@${CANDIDATE_VERSION}"
+            npm --prefix "$AUDIT_DIR" audit signatures
+            CANDIDATE_RUN_ID=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow release.yml \
+              --commit "$CANDIDATE_COMMIT" --status success --limit 10 \
+              --json databaseId,headBranch,headSha \
+              --jq "[.[] | select(.headBranch == \"v${CANDIDATE_VERSION}\" and .headSha == \"${CANDIDATE_COMMIT}\")][0].databaseId")
+            test -n "$CANDIDATE_RUN_ID"
+            gh run view "$CANDIDATE_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+              --json conclusion,databaseId,event,headBranch,headSha,url,workflowName \
+              > evidence/candidate-release-run.json
+            npx tsx scripts/canary-evidence.ts verify \
+              "$TARBALL" "$GITHUB_SHA" \
+              evidence/release-candidate.tgz evidence/candidate-npm.json \
+              evidence/candidate-attestations.json evidence/candidate-release-run.json \
+              evidence/canary-evidence.json
+          fi
           echo "tarball=$(basename "$TARBALL")" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
@@ -77,6 +118,7 @@ jobs:
           path: |
             evidence/${{ steps.evidence.outputs.tarball }}
             evidence/security-evidence.json
+            evidence/canary-evidence.json
           if-no-files-found: error
 
   release-secret-scan:
@@ -158,8 +200,16 @@ jobs:
           TARBALL="$TARBALL" EVIDENCE="$EVIDENCE" VERSION="${{ needs.verify-release.outputs.version }}" \
             node -e "const fs=require('fs'),crypto=require('crypto'),path=require('path'); const e=JSON.parse(fs.readFileSync(process.env.EVIDENCE)); const h=crypto.createHash('sha256').update(fs.readFileSync(process.env.TARBALL)).digest('hex'); if(e.schema_version!==3||e.repository!=='anipotts/imessage-mcp'||e.subject.commit!==process.env.GITHUB_SHA||e.subject.version!==process.env.VERSION||e.subject.package_file!==path.basename(process.env.TARBALL)||e.subject.package_sha256!==h||e.security_scan.target_kind!=='git_revision'||e.security_scan.coverage!=='complete'||e.security_scan.finding_count!==0||e.security_scan.status!=='passed') process.exit(1)"
           if [[ "${{ needs.verify-release.outputs.prerelease }}" == "true" ]]; then
+            test ! -e release-artifact/canary-evidence.json
             npm publish "$TARBALL" --ignore-scripts --access public --provenance --tag next
           else
+            CANARY=release-artifact/canary-evidence.json
+            test -f "$CANARY"
+            gh attestation verify "$CANARY" --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow anipotts/imessage-mcp/.github/workflows/attest-canary.yml \
+              --source-digest "$GITHUB_SHA" --deny-self-hosted-runners
+            TARBALL="$TARBALL" CANARY="$CANARY" VERSION="${{ needs.verify-release.outputs.version }}" \
+              node -e "const fs=require('fs'),crypto=require('crypto'),path=require('path'); const e=JSON.parse(fs.readFileSync(process.env.CANARY)); const h=crypto.createHash('sha256').update(fs.readFileSync(process.env.TARBALL)).digest('hex'); if(e.schema_version!==1||e.repository!=='anipotts/imessage-mcp'||e.subject.stable_evidence_commit!==process.env.GITHUB_SHA||e.subject.stable_version!==process.env.VERSION||e.subject.stable_package_file!==path.basename(process.env.TARBALL)||e.subject.stable_package_sha256!==h||e.canary.elapsed_seconds<604800||!Object.values(e.canary.exercises).every(v=>v===true)||e.stable_derivation.direct_parent!==true||e.stable_derivation.other_package_files_identical!==true) process.exit(1)"
             npm publish "$TARBALL" --ignore-scripts --access public --provenance --tag latest
           fi
 

@@ -2,14 +2,14 @@
 
 This report contains only synthetic, aggregate, or redacted evidence. It does not retain message text, contact values, database paths, tokens, or screenshots from a live archive.
 
-Last updated: 2026-08-13
+Last updated: 2026-08-15
 
 ## release state
 
 | release | state | evidence boundary |
 | --- | --- | --- |
 | `1.3.1` | gated, not yet published | local hotfix gates and GitHub Actions are green; npm trusted-publisher confirmation and public-tarball reproduction remain |
-| `2.0.0-beta.1` | gated, not yet published | implementation and all seven named local gates are green; fresh sealed scan, manual Messages.app comparison, and remote candidate checks remain |
+| `2.0.0-beta.1` | gated, not yet published | implementation and all seven named local gates are green; fresh sealed scan, manual Messages.app comparison, npm publisher setup, and remote candidate checks remain |
 | `2.0.0-rc.1` | not started | requires every beta gate and public prerelease verification |
 | `2.0.0` | blocked by design gate | requires a seven-day release-candidate canary; it cannot be promoted on the beta implementation day |
 
@@ -20,7 +20,7 @@ Last updated: 2026-08-13
 | host | macOS 26.5 arm64 |
 | supported Node matrix | Node 22.23.1, 24.19.0, and 26.7.0 each passed the full local `npm run verify` gate |
 | TypeScript | green with `tsc --noEmit` |
-| fixture suite | 92 tests green, including lifecycle freshness, inode replacement, source budgets, privacy, decoder safety, immutable workflows, and seven-tool semantics |
+| fixture suite | 95 tests green, including lifecycle freshness, inode replacement, source budgets, privacy, decoder safety, immutable workflows, seven-tool semantics, and stable-package tamper rejection |
 | attributed-body decoding | 375 of 375 stratified live iMessage, SMS/MMS, and RCS bodies exactly matched Apple's populated text; attachment placeholders were excluded; no private values emitted |
 | built worker runtime | seven tools registered; deadlines wait for worker and native-child termination before a slot is reused |
 | synthetic screenshots | four PNGs regenerated from a temporary synthetic database and fake home path |
@@ -52,7 +52,7 @@ Aggregate mode is deterministic identity-free redaction. It is not differential 
 
 A sealed baseline scan at commit `c911b17` validated 15 findings across privacy, transport, resource bounds, packaging, public assets, optional schemas, and legacy decoding. Those classes were repaired during the 2.0 rebuild.
 
-The latest pre-remediation whole-working-tree scan used scan `3212fa03-e2da-4947-b22a-a1f7b6afbe50`, snapshot `codex-security-snapshot/v1:sha256:7b1189f278de89b4a0facce221b46f512d5ac24e8d8eb380ed8863ad365f3882`, and reported nine release blockers. Remediation makes the signed evidence commit carry the sealed canonical scan files themselves, validates their exact Git-revision target, hashes, zero-finding state, and complete coverage before attesting the package, and re-verifies the attested tarball immediately before npm publication. It also makes stable promotion fail closed until an immutable canary attestation exists, uses an exact package allowlist, removes duplicated sync cursor state, authenticates `chat_lookup` relationships, rejects unsupported SQLite body types, recognizes only certified legacy archive frames, and budgets schema discovery before materialization. A fresh sealed scan of the exact committed tree remains required before beta publication.
+The latest pre-remediation whole-working-tree scan used scan `3212fa03-e2da-4947-b22a-a1f7b6afbe50`, snapshot `codex-security-snapshot/v1:sha256:7b1189f278de89b4a0facce221b46f512d5ac24e8d8eb380ed8863ad365f3882`, and reported nine release blockers. Remediation makes the signed evidence commit carry the sealed canonical scan files themselves, validates their exact Git-revision target, hashes, zero-finding state, and complete coverage before attesting the package, and re-verifies the attested tarball immediately before npm publication. Stable promotion now requires a protected canary attestation that verifies npm's signed RC provenance, source commit, public package digest, publication time, and successful release workflow; certifies every exercise; restricts stable source to a direct metadata-only child; and byte-compares both packages outside those reviewed metadata files. The rebuild also uses an exact package allowlist, removes duplicated sync cursor state, authenticates `chat_lookup` relationships, rejects unsupported SQLite body types, recognizes only certified legacy archive frames, and budgets schema discovery before materialization. A fresh sealed scan of the exact committed tree remains required before beta publication.
 
 Standard scan `f4327f9d-f49b-497d-9927-2ef1b2f8664e` completed with zero reportable findings and complete coverage of signed revision `dd73cceae1d24674f470efc52eb10343ca2295af`. Its signed evidence commit `b541c6216cea0f3c3fdd37f6a872ea44025ec9bb` proved the intended scan-to-package chain. Remote CI then detected a newly published transitive dependency patch and a CodeQL bearer-token finding, so that bundle is historical evidence and cannot authorize the repaired candidate. The canonical `security/scan` bundle attached directly after the current source commit is the release-authoritative result.
 
@@ -64,17 +64,17 @@ The mixed-service one-million-message synthetic fixture passed on macOS 26.5 arm
 
 | measurement | result | gate |
 | --- | ---: | ---: |
-| fixture construction | 4.423 s | informational |
-| bounded startup | 6.772 s | informational |
-| `server_status` | 680 ms | under 1 s |
-| `list_conversations` | 28 ms | under 1 s |
-| initial `sync_messages` cursor | 772 ms | under 1 s |
-| complete cold index | 22.057 s | under 60 s |
-| warm substring search | 7 ms | under 2 s |
-| one-character substring search | 91 ms | under 2 s |
-| two authenticated HTTP clients | 28 ms | stable and under 2 s |
+| fixture construction | 5.887 s | informational |
+| bounded startup | 10.489 s | informational |
+| `server_status` | 9 ms | under 1 s |
+| `list_conversations` | 210 ms | under 1 s |
+| initial `sync_messages` cursor | 2 ms | under 1 s |
+| complete cold index | 31.081 s | under 60 s |
+| warm substring search | 27 ms | under 2 s |
+| one-character substring search | 75 ms | under 2 s |
+| two authenticated HTTP clients | 54 ms | stable and under 2 s |
 | index memory | 301,166,592 bytes | at or below 536,870,912 bytes |
-| process RSS delta | 339,623,936 bytes | informational |
+| process RSS delta | 235,585,536 bytes | informational |
 
 ## client and transport gates
 
@@ -84,7 +84,9 @@ Messages.app was not launched for the manual comparison because it was closed an
 
 The bounded live archive gate passed all seven tools with zero aggregate probe leakage. Exact attributed-body parity matched 375 of 375 sampled iMessage, SMS/MMS, and RCS rows. Cold complete search took 57.648 seconds; metadata calls stayed under one second. The fixed one-million-message fixture owns the 60-second index SLA, while the growing live archive is bounded by the 90-second cold-request ceiling. Only aggregate counts and timings were emitted.
 
-Prerelease release gate: blocked pending the fresh sealed scan, remote checks, release-environment setup, and manual Messages.app comparison.
+The stable workflow is implemented and tested but cannot produce its protected attestation until `2.0.0-rc.1` has been public and fully exercised for seven days. Stable release gate: blocked pending that future canary.
+
+Prerelease release gate: blocked pending the fresh sealed scan, remote checks, npm publisher setup, and manual Messages.app comparison.
 
 ## unsupported behavior
 

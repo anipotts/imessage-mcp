@@ -111,7 +111,7 @@ describe("native and release hardening", () => {
   });
 
   it("pins every workflow action to an immutable commit", () => {
-    for (const file of ["attest-security-evidence.yml", "ci.yml", "security.yml", "release.yml"]) {
+    for (const file of ["attest-canary.yml", "attest-security-evidence.yml", "ci.yml", "security.yml", "release.yml"]) {
       const workflow = readFileSync(new URL(`../.github/workflows/${file}`, import.meta.url), "utf8");
       const uses = [...workflow.matchAll(/^\s*- uses:\s+[^\s@]+@([^\s#]+)/gmu)].map((match) => match[1]);
       expect(uses.length).toBeGreaterThan(0);
@@ -124,20 +124,30 @@ describe("native and release hardening", () => {
     expect(attestation).toContain("SECURITY_SCAN_ALLOWED_SIGNER");
     expect(attestation).toContain("verify-commit \"$GITHUB_SHA\"");
     expect(attestation).toContain("scripts/security-evidence.ts create");
+    const canary = readFileSync(new URL("../.github/workflows/attest-canary.yml", import.meta.url), "utf8");
+    expect(canary).toContain("environment: canary-attestation");
+    expect(canary).toContain("fetch-depth: 0");
+    expect(canary).toContain("scripts/canary-evidence.ts create");
+    expect(canary).toContain("--workflow attest-security-evidence.yml");
+    expect(canary).toContain("audit signatures");
     const release = readFileSync(new URL("../.github/workflows/release.yml", import.meta.url), "utf8");
     expect(release).toContain("needs: [verify-release, release-secret-scan, release-codeql]");
     expect(release).toContain("--signer-workflow anipotts/imessage-mcp/.github/workflows/attest-security-evidence.yml");
     expect(release).toContain("--source-digest \"$GITHUB_SHA\"");
+    expect(release).toContain("--signer-workflow anipotts/imessage-mcp/.github/workflows/attest-canary.yml");
+    expect(release).toContain("scripts/canary-evidence.ts verify");
+    expect(release).toContain("candidate-attestations.json");
     expect(release).toContain("--ignore-scripts --access public --provenance");
     const verifyJob = release.slice(release.indexOf("  verify-release:"), release.indexOf("  release-secret-scan:"));
-    expect(verifyJob).toContain("fetch-depth: 2");
+    expect(verifyJob).toContain("fetch-depth: 0");
     expect(verifyJob.indexOf("npm run test:performance")).toBeLessThan(verifyJob.indexOf("retrieve and verify protected security evidence"));
     expect(verifyJob.slice(verifyJob.indexOf("retrieve and verify protected security evidence")))
       .not.toMatch(/npm run (?:verify|test:performance)/u);
     const npmJob = release.slice(release.indexOf("  publish-npm:"), release.indexOf("  verify-public-npm:"));
     expect(npmJob).toContain("attestations: read");
-    expect(npmJob.match(/gh attestation verify/gu)).toHaveLength(2);
+    expect(npmJob.match(/gh attestation verify/gu)).toHaveLength(3);
     expect(npmJob.indexOf("gh attestation verify")).toBeLessThan(npmJob.indexOf("npm publish"));
+    expect(npmJob.indexOf("attest-canary.yml")).toBeLessThan(npmJob.indexOf("--tag latest"));
     const registry = release.slice(release.indexOf("  publish-registry:"), release.indexOf("  publish-github-release:"));
     expect(registry).toContain("contents: read");
     expect(registry).toContain("id-token: write");
@@ -245,6 +255,203 @@ describe("native and release hardening", () => {
         cwd: directory,
         stdio: "ignore",
       })).toThrow();
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("binds stable promotion to the public rc package and metadata-only direct derivation", () => {
+    const directory = mkdtempSync(path.join(tmpdir(), "imessage-canary-evidence-"));
+    const runGit = (...args: string[]) => execFileSync("git", args, { cwd: directory, encoding: "utf8" }).trim();
+    const releaseFiles = [
+      ".claude-plugin/plugin.json",
+      ".mcp.json",
+      "README.md",
+      "VERIFICATION.md",
+      "npm-shrinkwrap.json",
+      "package.json",
+      "release-status.json",
+      "server.json",
+    ];
+    const writeVersionFiles = (root: string, version: string, status: Record<string, unknown>) => {
+      for (const file of releaseFiles) {
+        const target = path.join(root, file);
+        mkdirSync(path.dirname(target), { recursive: true });
+        const value = file === "package.json"
+          ? { name: "imessage-mcp", version }
+          : file === "release-status.json"
+            ? status
+            : file.endsWith(".json")
+              ? { version, marker: file }
+              : `${file} for ${version}\n`;
+        writeFileSync(target, typeof value === "string" ? value : `${JSON.stringify(value, null, 2)}\n`);
+      }
+    };
+    const buildPackage = (source: string, destination: string, runtime = "identical runtime\n") => {
+      const root = path.join(directory, `package-${path.basename(destination)}`);
+      for (const file of releaseFiles) {
+        const target = path.join(root, "package", file);
+        mkdirSync(path.dirname(target), { recursive: true });
+        writeFileSync(target, readFileSync(path.join(source, file)));
+      }
+      mkdirSync(path.join(root, "package", "dist"), { recursive: true });
+      writeFileSync(path.join(root, "package", "dist", "index.js"), runtime);
+      execFileSync("tar", ["-czf", destination, "-C", root, "package"]);
+    };
+    try {
+      runGit("init", "--quiet");
+      runGit("config", "core.hooksPath", "/dev/null");
+      runGit("config", "user.name", "Fixture");
+      runGit("config", "user.email", "fixture@example.test");
+      runGit("config", "commit.gpgsign", "false");
+      writeVersionFiles(directory, "2.0.0-rc.1", { schema_version: 4, subject_version: "2.0.0-rc.1" });
+      mkdirSync(path.join(directory, "dist"), { recursive: true });
+      writeFileSync(path.join(directory, "dist", "index.js"), "identical runtime\n");
+      runGit("add", ...releaseFiles, "dist/index.js");
+      runGit("commit", "--quiet", "-m", "release candidate source");
+      const scanDirectory = path.join(directory, "security", "scan");
+      mkdirSync(scanDirectory, { recursive: true });
+      for (const file of ["coverage.json", "findings.json", "scan-manifest.json"]) {
+        writeFileSync(path.join(scanDirectory, file), `${JSON.stringify({ candidate: file })}\n`);
+      }
+      runGit("add", "security/scan/coverage.json", "security/scan/findings.json", "security/scan/scan-manifest.json");
+      runGit("commit", "--quiet", "-m", "candidate evidence");
+      const candidateCommit = runGit("rev-parse", "HEAD");
+      runGit("tag", "v2.0.0-rc.1", candidateCommit);
+      const candidatePackage = path.join(directory, "candidate.tgz");
+      buildPackage(directory, candidatePackage);
+      const candidateDigest = createHash("sha256").update(readFileSync(candidatePackage)).digest("hex");
+      const started = "2026-08-01T00:00:00.000Z";
+      const completed = "2026-08-08T00:00:00.000Z";
+      const exercises = Object.fromEntries([
+        "all_privacy_modes", "all_service_families", "all_seven_tools", "claude_code",
+        "claude_desktop", "codex", "copied_database", "cursor", "http_proxy_simulation",
+        "live_database", "stdio",
+      ].map((key) => [key, true]));
+      const stableStatus = {
+        schema_version: 4,
+        subject_version: "2.0.0",
+        stable: {
+          ready: true,
+          subject_version: "2.0.0",
+          release_candidate: "2.0.0-rc.1",
+          candidate_commit: candidateCommit,
+          candidate_package_sha256: candidateDigest,
+          canary_started_at: started,
+          canary_completed_at: completed,
+          exercises,
+        },
+      };
+      writeVersionFiles(directory, "2.0.0", stableStatus);
+      runGit("add", ...releaseFiles);
+      runGit("commit", "--quiet", "-m", "stable metadata derivation");
+      const stableSource = runGit("rev-parse", "HEAD");
+      expect(runGit("rev-parse", `${stableSource}^`)).toBe(candidateCommit);
+      for (const file of ["coverage.json", "findings.json", "scan-manifest.json"]) {
+        writeFileSync(path.join(scanDirectory, file), `${JSON.stringify({ stable: file })}\n`);
+      }
+      runGit("add", "security/scan/coverage.json", "security/scan/findings.json", "security/scan/scan-manifest.json");
+      runGit("commit", "--quiet", "-m", "stable evidence");
+      const stableCommit = runGit("rev-parse", "HEAD");
+      const stablePackage = path.join(directory, "stable.tgz");
+      buildPackage(directory, stablePackage);
+      const metadata = path.join(directory, "candidate-npm.json");
+      const attestationUrl = "https://registry.npmjs.org/-/npm/v1/attestations/imessage-mcp@2.0.0-rc.1";
+      writeFileSync(metadata, `${JSON.stringify({
+        version: "2.0.0-rc.1",
+        dist: {
+          tarball: "https://registry.npmjs.org/imessage-mcp/-/imessage-mcp-2.0.0-rc.1.tgz",
+          attestations: {
+            url: attestationUrl,
+            provenance: { predicateType: "https://slsa.dev/provenance/v1" },
+          },
+        },
+        time: { "2.0.0-rc.1": started },
+      }, null, 2)}\n`);
+      const releaseRunId = 123456789;
+      const provenance = {
+        _type: "https://in-toto.io/Statement/v1",
+        subject: [{
+          name: "pkg:npm/imessage-mcp@2.0.0-rc.1",
+          digest: { sha512: createHash("sha512").update(readFileSync(candidatePackage)).digest("hex") },
+        }],
+        predicateType: "https://slsa.dev/provenance/v1",
+        predicate: {
+          buildDefinition: {
+            buildType: "https://slsa-framework.github.io/github-actions-buildtypes/workflow/v1",
+            externalParameters: { workflow: {
+              ref: "refs/tags/v2.0.0-rc.1",
+              repository: "https://github.com/anipotts/imessage-mcp",
+              path: ".github/workflows/release.yml",
+            } },
+            internalParameters: { github: { event_name: "push" } },
+            resolvedDependencies: [{
+              uri: "git+https://github.com/anipotts/imessage-mcp@refs/tags/v2.0.0-rc.1",
+              digest: { gitCommit: candidateCommit },
+            }],
+          },
+          runDetails: {
+            builder: { id: "https://github.com/actions/runner/github-hosted" },
+            metadata: {
+              invocationId: `https://github.com/anipotts/imessage-mcp/actions/runs/${releaseRunId}/attempts/1`,
+            },
+          },
+        },
+      };
+      const attestations = path.join(directory, "candidate-attestations.json");
+      writeFileSync(attestations, `${JSON.stringify({
+        attestations: [{
+          predicateType: "https://slsa.dev/provenance/v1",
+          bundle: { dsseEnvelope: { payload: Buffer.from(JSON.stringify(provenance)).toString("base64") } },
+        }],
+      }, null, 2)}\n`);
+      const releaseRun = path.join(directory, "candidate-release-run.json");
+      writeFileSync(releaseRun, `${JSON.stringify({
+        conclusion: "success",
+        databaseId: releaseRunId,
+        event: "push",
+        headBranch: "v2.0.0-rc.1",
+        headSha: candidateCommit,
+        url: `https://github.com/anipotts/imessage-mcp/actions/runs/${releaseRunId}`,
+        workflowName: "release 2.x",
+      }, null, 2)}\n`);
+      const evidence = path.join(directory, "canary-evidence.json");
+      const tsx = fileURLToPath(new URL("../node_modules/.bin/tsx", import.meta.url));
+      const script = fileURLToPath(new URL("../scripts/canary-evidence.ts", import.meta.url));
+      execFileSync(tsx, [
+        script, "create", stablePackage, stableCommit, candidatePackage, metadata, attestations, releaseRun, evidence,
+      ], {
+        cwd: directory,
+        stdio: "ignore",
+      });
+      execFileSync(tsx, [
+        script, "verify", stablePackage, stableCommit, candidatePackage, metadata, attestations, releaseRun, evidence,
+      ], {
+        cwd: directory,
+        stdio: "ignore",
+      });
+      const value = JSON.parse(readFileSync(evidence, "utf8")) as {
+        subject: { stable_source_commit: string };
+        release_candidate: { commit: string };
+        canary: { elapsed_seconds: number };
+        stable_derivation: { changed_files: string[]; other_package_files_identical: boolean };
+      };
+      expect(value.subject.stable_source_commit).toBe(stableSource);
+      expect(value.release_candidate.commit).toBe(candidateCommit);
+      expect(value.canary.elapsed_seconds).toBe(604_800);
+      expect(value.stable_derivation.changed_files).toEqual([...releaseFiles].sort());
+      expect(value.stable_derivation.other_package_files_identical).toBe(true);
+
+      const tamperedPackage = path.join(directory, "tampered.tgz");
+      buildPackage(directory, tamperedPackage, "changed runtime\n");
+      expect(() => execFileSync(
+        tsx,
+        [
+          script, "create", tamperedPackage, stableCommit, candidatePackage, metadata, attestations, releaseRun,
+          path.join(directory, "invalid.json"),
+        ],
+        { cwd: directory, stdio: "ignore" },
+      )).toThrow();
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
