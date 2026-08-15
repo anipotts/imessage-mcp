@@ -64,25 +64,25 @@ The mixed-service one-million-message synthetic fixture passed on macOS 26.5 arm
 
 | measurement | result | gate |
 | --- | ---: | ---: |
-| fixture construction | 5.887 s | informational |
-| bounded startup | 10.489 s | informational |
-| `server_status` | 9 ms | under 1 s |
-| `list_conversations` | 210 ms | under 1 s |
-| initial `sync_messages` cursor | 2 ms | under 1 s |
-| complete cold index | 31.081 s | under 60 s |
-| warm substring search | 27 ms | under 2 s |
-| one-character substring search | 75 ms | under 2 s |
-| two authenticated HTTP clients | 54 ms | stable and under 2 s |
-| index memory | 301,166,592 bytes | at or below 536,870,912 bytes |
-| process RSS delta | 235,585,536 bytes | informational |
+| fixture construction | 3.953 s | informational |
+| bounded startup | 7.371 s | informational |
+| `server_status` | 3 ms | under 1 s |
+| `list_conversations` | 11 ms | under 1 s |
+| initial `sync_messages` cursor | 1 ms | under 1 s |
+| complete cold index | 23.911 s | under 60 s |
+| warm substring search | 10 ms | under 2 s |
+| one-character substring search | 93 ms | under 2 s |
+| two authenticated HTTP clients | 32 ms | stable and under 2 s |
+| index memory | 355,192,832 bytes | at or below 536,870,912 bytes |
+| process RSS delta | 398,835,712 bytes | informational |
 
 ## client and transport gates
 
 Codex, Claude Desktop, Claude Code, and Cursor configuration shapes passed with isolated settings against the installed tarball. Stdio and authenticated stateless HTTP exercised all seven tools. A local reverse proxy verified the documented Tailscale Serve boundary, including forwarded TLS metadata plus allowed Host and Origin values. No Tailscale Serve route was created because endpoint mutation requires separate approval.
 
-Messages.app was not launched for the manual comparison because it was closed and opening the last selected conversation can change unread or receipt state. That comparison remains a human gate. Contacts permission was unavailable during the live check; the documented handle-only fallback remained operational.
+Messages.app was not launched for the manual comparison because it was closed and opening the last selected conversation can change unread or receipt state. That comparison remains a human gate. Unified Contacts was available during the latest live check, and aggregate contact resolution completed without identity leakage.
 
-The bounded live archive gate passed all seven tools with zero aggregate probe leakage. Exact attributed-body parity matched 375 of 375 sampled iMessage, SMS/MMS, and RCS rows. Cold complete search took 57.648 seconds; metadata calls stayed under one second. The fixed one-million-message fixture owns the 60-second index SLA, while the growing live archive is bounded by the 90-second cold-request ceiling. Only aggregate counts and timings were emitted.
+The bounded live archive gate passed all seven tools with zero aggregate probe leakage. Exact attributed-body parity matched 375 of 375 sampled iMessage, SMS/MMS, and RCS rows. Cold complete search took 61.981 seconds; `server_status` took 59 ms and `list_conversations` took 9 ms. The fixed one-million-message fixture owns the 60-second index SLA, while the growing live archive is bounded by the 90-second cold-request ceiling. Only aggregate counts and timings were emitted.
 
 The stable workflow is implemented and tested but cannot produce its protected attestation until `2.0.0-rc.1` has been public and fully exercised for seven days. Stable release gate: blocked pending that future canary.
 

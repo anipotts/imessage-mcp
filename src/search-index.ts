@@ -12,7 +12,6 @@ import { populatedMessageText } from "./decoder.js";
 import { ImessageMcpError } from "./errors.js";
 import { decodeReference, encodeReference } from "./references.js";
 import { assertMessageConversationIntegrity } from "./repositories/conversations.js";
-import { resolveUniqueMessageGuids } from "./repositories/message-integrity.js";
 import { columnSql, serviceFamilyCase, serviceFamilyPredicate, serviceSql } from "./schema-sql.js";
 import { validateSender } from "./sender.js";
 import type { DateBounds } from "./time.js";
@@ -715,7 +714,6 @@ export class MemorySearchIndex {
       const batchTarget = this.nextBatchTarget(request, cursor, targetRowid);
       const batch = this.sourceRows(request, cursor, batchTarget);
       if (batch.length === 0) break;
-      resolveUniqueMessageGuids(request, batch.map((row) => row.guid), targetRowid);
       const blobRows = batch.filter((row) => !populatedMessageText(row.text) && row.attributed_body);
       let decoded: Awaited<ReturnType<MessageTextDecoder["decode"]>> = [];
       try {
@@ -815,7 +813,17 @@ export class MemorySearchIndex {
           insertTrigram?.run(row.rowid, normalizedText);
         }
       });
-      transaction();
+      try {
+        transaction();
+      } catch (error) {
+        if ((error as { code?: string }).code === "SQLITE_CONSTRAINT_UNIQUE") {
+          throw new ImessageMcpError(
+            "UNSUPPORTED_SCHEMA",
+            "a message identifier does not identify exactly one frozen search row",
+          );
+        }
+        throw error;
+      }
       cursor = batch.at(-1)!.rowid;
       this.enforceMemoryLimit(db);
     }
