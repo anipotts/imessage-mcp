@@ -2,7 +2,7 @@ import { homedir, release } from "node:os";
 import path from "node:path";
 import type { PrivacyMode } from "./contracts.js";
 import { ImessageMcpError } from "./errors.js";
-import { loadReferenceKey } from "./secrets.js";
+import { loadDatabaseId, loadReferenceKey } from "./secrets.js";
 
 export type TransportKind = "stdio" | "http";
 
@@ -15,6 +15,7 @@ export interface RuntimeConfig {
   port: number;
   attachment_paths_enabled: boolean;
   reference_key: string | null;
+  database_id: string | null;
 }
 
 export const DEFAULT_DATABASE_PATH = path.join(homedir(), "Library", "Messages", "chat.db");
@@ -33,6 +34,7 @@ export function runtimeConfig(input: {
   port?: number;
   attachmentPaths?: boolean;
   referenceKey?: Buffer;
+  databaseId?: Buffer;
 }): RuntimeConfig {
   if (process.platform !== "darwin") {
     throw new ImessageMcpError("UNSUPPORTED_SCHEMA", "imessage-mcp 2.x requires macOS");
@@ -78,6 +80,14 @@ export function runtimeConfig(input: {
   if (attachmentEnvironment !== undefined && attachmentEnvironment !== "0" && attachmentEnvironment !== "1") {
     throw new ImessageMcpError("INVALID_INPUT", "IMESSAGE_ATTACHMENT_PATHS must be 0 or 1");
   }
+  const referenceKey = input.referenceKey ?? loadReferenceKey(false);
+  const databaseId = input.databaseId ?? loadDatabaseId(false);
+  if (referenceKey && databaseId && referenceKey.equals(databaseId)) {
+    throw new ImessageMcpError(
+      "INVALID_INPUT",
+      "opaque-reference key and database-lineage identity must be generated independently",
+    );
+  }
 
   return {
     database_path: databasePath,
@@ -87,6 +97,7 @@ export function runtimeConfig(input: {
     transport: input.transport,
     port,
     attachment_paths_enabled: input.attachmentPaths ?? attachmentEnvironment === "1",
-    reference_key: (input.referenceKey ?? loadReferenceKey(false))?.toString("base64") ?? null,
+    reference_key: referenceKey?.toString("base64") ?? null,
+    database_id: databaseId?.toString("base64") ?? null,
   };
 }

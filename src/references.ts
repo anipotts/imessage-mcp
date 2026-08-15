@@ -7,7 +7,7 @@ export const MAX_REFERENCE_LENGTH = 16_384;
 export const MAX_SYNC_CURSOR_LENGTH = 128_000;
 
 export interface ReferencePayload {
-  v: 1;
+  v: 2;
   kind: ReferenceKind;
   lineage: string;
   value: Record<string, unknown>;
@@ -20,7 +20,7 @@ function keyFor(referenceKey: Buffer, lineage: string): Buffer {
 export function encodeReference(referenceKey: Buffer, lineage: string, kind: ReferenceKind, value: Record<string, unknown>): string {
   const iv = randomBytes(12);
   const cipher = createCipheriv("aes-256-gcm", keyFor(referenceKey, lineage), iv);
-  const plaintext = Buffer.from(JSON.stringify({ v: 1, kind, lineage, value } satisfies ReferencePayload));
+  const plaintext = Buffer.from(JSON.stringify({ v: 2, kind, lineage, value } satisfies ReferencePayload));
   const encrypted = Buffer.concat([cipher.update(plaintext), cipher.final()]);
   const tag = cipher.getAuthTag();
   return `im2_${Buffer.concat([iv, tag, encrypted]).toString("base64url")}`;
@@ -65,7 +65,7 @@ export function decodeReference(
     throw new ImessageMcpError("DATABASE_CHANGED", "reference does not belong to this database lineage");
   }
   if (
-    payload.v !== 1 || payload.kind !== expectedKind || !payload.value ||
+    payload.v !== 2 || payload.kind !== expectedKind || !payload.value ||
     typeof payload.value !== "object" || Array.isArray(payload.value)
   ) {
     throw new ImessageMcpError("INVALID_INPUT", "opaque reference has the wrong kind or payload shape");

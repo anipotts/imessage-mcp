@@ -66,9 +66,16 @@ export class LocalToolRuntime {
         "configure IMESSAGE_REFERENCE_KEY or an operator-owned IMESSAGE_REFERENCE_KEY_FILE before starting the server",
       );
     }
+    if (!config.database_id) {
+      throw new ImessageMcpError(
+        "INVALID_INPUT",
+        "configure IMESSAGE_DATABASE_ID or an operator-owned IMESSAGE_DATABASE_ID_FILE before starting the server",
+      );
+    }
     this.database = new DatabaseContext(
       config.database_path,
       Buffer.from(config.reference_key, "base64"),
+      Buffer.from(config.database_id, "base64"),
       config.source_mode,
     );
     this.contacts = new UnifiedContactResolver(config.contacts_mode === "live");

@@ -7,17 +7,36 @@ import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { decodeReference, encodeReference } from "../src/references.js";
 import { successResult } from "../src/result.js";
+import { loadDatabaseId } from "../src/secrets.js";
 import { loadApiToken } from "../src/transport.js";
 import { isNumberedReleaseCandidate } from "../scripts/release-version.js";
 
 const originalToken = process.env.IMESSAGE_API_TOKEN;
 const originalFile = process.env.IMESSAGE_API_TOKEN_FILE;
+const originalDatabaseId = process.env.IMESSAGE_DATABASE_ID;
+const originalDatabaseIdFile = process.env.IMESSAGE_DATABASE_ID_FILE;
 
 afterEach(() => {
   if (originalToken === undefined) delete process.env.IMESSAGE_API_TOKEN;
   else process.env.IMESSAGE_API_TOKEN = originalToken;
   if (originalFile === undefined) delete process.env.IMESSAGE_API_TOKEN_FILE;
   else process.env.IMESSAGE_API_TOKEN_FILE = originalFile;
+  if (originalDatabaseId === undefined) delete process.env.IMESSAGE_DATABASE_ID;
+  else process.env.IMESSAGE_DATABASE_ID = originalDatabaseId;
+  if (originalDatabaseIdFile === undefined) delete process.env.IMESSAGE_DATABASE_ID_FILE;
+  else process.env.IMESSAGE_DATABASE_ID_FILE = originalDatabaseIdFile;
+});
+
+describe("database lineage identity boundary", () => {
+  it("requires a distinct, bounded operator-controlled identity source", () => {
+    delete process.env.IMESSAGE_DATABASE_ID;
+    delete process.env.IMESSAGE_DATABASE_ID_FILE;
+    expect(() => loadDatabaseId()).toThrow(/requires/u);
+    process.env.IMESSAGE_DATABASE_ID = "short";
+    expect(() => loadDatabaseId()).toThrow(/32/u);
+    process.env.IMESSAGE_DATABASE_ID_FILE = "/tmp/also-set";
+    expect(() => loadDatabaseId()).toThrow(/only one/u);
+  });
 });
 
 describe("HTTP token boundary", () => {

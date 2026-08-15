@@ -68,7 +68,8 @@ export async function doctor(config: RuntimeConfig, json: boolean): Promise<numb
   try {
     const database = new DatabaseContext(
       config.database_path,
-      config.reference_key ? Buffer.from(config.reference_key, "base64") : Buffer.alloc(32),
+      config.reference_key ? Buffer.from(config.reference_key, "base64") : Buffer.alloc(32, 0x5a),
+      config.database_id ? Buffer.from(config.database_id, "base64") : Buffer.alloc(32, 0x6b),
       config.source_mode,
     );
     try {
@@ -89,6 +90,13 @@ export async function doctor(config: RuntimeConfig, json: boolean): Promise<numb
     detail: config.reference_key
       ? "stable opaque-reference authentication is configured"
       : "configure IMESSAGE_REFERENCE_KEY or an operator-owned 0600 IMESSAGE_REFERENCE_KEY_FILE",
+  });
+  checks.push({
+    name: "database_id",
+    status: config.database_id ? "pass" : "fail",
+    detail: config.database_id
+      ? "operator-controlled database lineage is configured"
+      : "configure IMESSAGE_DATABASE_ID or an operator-owned 0600 IMESSAGE_DATABASE_ID_FILE",
   });
   if (config.transport === "http") {
     try {

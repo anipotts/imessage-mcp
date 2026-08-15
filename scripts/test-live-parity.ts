@@ -20,7 +20,8 @@ interface ParityRow {
 }
 
 const databasePath = path.join(homedir(), "Library", "Messages", "chat.db");
-const context = new DatabaseContext(databasePath, randomBytes(32), "live");
+const liveDatabaseId = randomBytes(48);
+const context = new DatabaseContext(databasePath, randomBytes(32), liveDatabaseId, "live");
 const decoder = new MessageTextDecoder();
 const MAX_SAMPLE = 500;
 const MAX_BATCH_ITEMS = 500;
@@ -71,6 +72,7 @@ async function exerciseLiveTools(): Promise<{
     port: 3000,
     attachment_paths_enabled: false,
     reference_key: referenceKey.toString("base64"),
+    database_id: liveDatabaseId.toString("base64"),
   };
   referenceKey.fill(0);
   const runtime = new LocalToolRuntime(config, randomBytes(32));

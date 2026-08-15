@@ -69,6 +69,7 @@ assert.match(readme, /read-only MCP for iMessage, SMS, MMS, and RCS history in A
 assert.match(readme, /Android-originated SMS, MMS, and RCS are available only when those conversations already appear/u);
 assert.match(readme, /Every 2\.x release is strictly read-only/u);
 assert.match(readme, /IMESSAGE_REFERENCE_KEY_FILE/u);
+assert.match(readme, /IMESSAGE_DATABASE_ID_FILE/u);
 const documentedVersions = [...readme.matchAll(/imessage-mcp@([0-9][0-9A-Za-z.-]*)/gu)].map((match) => match[1]);
 assert.ok(documentedVersions.length >= 5, "every install and persistent client example must use an exact package version");
 assert.deepEqual([...new Set(documentedVersions)], [version]);

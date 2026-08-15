@@ -68,6 +68,8 @@ function workerEnvironment(): Record<string, string> {
           "IMESSAGE_API_TOKEN_FILE",
           "IMESSAGE_REFERENCE_KEY",
           "IMESSAGE_REFERENCE_KEY_FILE",
+          "IMESSAGE_DATABASE_ID",
+          "IMESSAGE_DATABASE_ID_FILE",
         ].includes(entry[0]),
     ),
   );

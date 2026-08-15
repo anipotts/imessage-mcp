@@ -41,6 +41,11 @@
           "name": "IMESSAGE_REFERENCE_KEY_FILE",
           "description": "Operator-owned 0600 regular file containing at least 32 random bytes for stable authenticated opaque references.",
           "isRequired": true
+        },
+        {
+          "name": "IMESSAGE_DATABASE_ID_FILE",
+          "description": "Operator-owned 0600 regular file containing a unique random identity for this database lineage and its faithful copies.",
+          "isRequired": true
         }
       ],
       "runtimeHint": "node"

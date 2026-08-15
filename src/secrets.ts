@@ -73,3 +73,12 @@ export function loadReferenceKey(required = true): Buffer | null {
     required,
   });
 }
+
+export function loadDatabaseId(required = true): Buffer | null {
+  return operatorSecret({
+    directName: "IMESSAGE_DATABASE_ID",
+    fileName: "IMESSAGE_DATABASE_ID_FILE",
+    label: "database-lineage identity",
+    required,
+  });
+}

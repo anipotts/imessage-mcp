@@ -60,7 +60,11 @@ async function main(): Promise<void> {
     assert.equal(execFileSync(binary, ["--version"], { cwd: install, encoding: "utf8" }).trim(), packageVersionValue);
     execFileSync(binary, ["doctor", "--database", fixture.databasePath, "--contacts", "none", "--json"], {
       cwd: install,
-      env: { ...process.env, IMESSAGE_REFERENCE_KEY: "synthetic-reference-key-".padEnd(48, "x") },
+      env: {
+        ...process.env,
+        IMESSAGE_REFERENCE_KEY: "synthetic-reference-key-".padEnd(48, "x"),
+        IMESSAGE_DATABASE_ID: "synthetic-database-lineage-".padEnd(48, "x"),
+      },
       stdio: "ignore",
     });
     await runStdio(binary, [], fixture);
@@ -70,7 +74,10 @@ async function main(): Promise<void> {
         imessage: {
           command: binary,
           args: ["--database", fixture.databasePath, "--contacts", "none"],
-          env: { IMESSAGE_REFERENCE_KEY_FILE: "/operator-owned/path/to/imessage-reference-key" },
+          env: {
+            IMESSAGE_REFERENCE_KEY_FILE: "/operator-owned/path/to/imessage-reference-key",
+            IMESSAGE_DATABASE_ID_FILE: "/operator-owned/path/to/imessage-database-id",
+          },
         },
       },
     };

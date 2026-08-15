@@ -62,6 +62,7 @@ async function main(): Promise<void> {
       databasePath: fixture.databasePath,
       contacts: "none",
       referenceKey: Buffer.alloc(32, 0x5a),
+      databaseId: Buffer.alloc(32, 0x6b),
     }),
     Buffer.alloc(32, 9),
   );

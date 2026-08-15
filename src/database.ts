@@ -183,40 +183,15 @@ function watermark(db: Database.Database, capabilities: SchemaCapabilities): Wat
   };
 }
 
-const LINEAGE_ANCHORS = [
-  ["message", "guid"],
-  ["chat", "guid"],
-  ["handle", "id"],
-] as const;
-
 function computeLineage(
-  db: Database.Database,
-  capabilities: SchemaCapabilities,
   referenceKey: Buffer,
+  databaseId: Buffer,
 ): string {
   const hmac = createHmac("sha256", referenceKey)
-    .update("imessage-mcp:v2:database-lineage:v2\0");
-  let anchors = 0;
-  for (const [table, column] of LINEAGE_ANCHORS) {
-    if (!(capabilities.tables[table] ?? []).includes(column)) continue;
-    const rows = db.prepare(
-      `SELECT ROWID AS rowid,
-              LENGTH(CAST(${quotedIdentifier(column)} AS BLOB)) AS bytes,
-              HEX(SUBSTR(CAST(${quotedIdentifier(column)} AS BLOB), 1, 4096)) AS prefix
-       FROM ${quotedIdentifier(table)}
-       WHERE ${quotedIdentifier(column)} IS NOT NULL
-       ORDER BY ROWID
-       LIMIT 1`,
-    ).all() as Array<{ rowid: number; bytes: number; prefix: string }>;
-    hmac.update(table).update("\0").update(column).update("\0");
-    for (const row of rows) {
-      hmac.update(String(row.rowid)).update(":")
-        .update(String(row.bytes)).update(":")
-        .update(row.prefix).update("\0");
-      anchors += 1;
-    }
-  }
-  hmac.update(`anchors:${anchors}`);
+    .update("imessage-mcp:v2:database-lineage:v3\0")
+    .update(String(databaseId.length))
+    .update("\0")
+    .update(databaseId);
   return hmac.digest("hex");
 }
 
@@ -232,6 +207,7 @@ export class DatabaseRequest {
   constructor(
     source: string | Database.Database,
     referenceKey: Buffer,
+    databaseId: Buffer,
     knownCapabilities?: SchemaCapabilities,
     observedDataVersion?: number,
     knownWatermark?: Watermark,
@@ -248,7 +224,7 @@ export class DatabaseRequest {
       if (this.capabilities.required_core !== "available") {
         throw new ImessageMcpError("UNSUPPORTED_SCHEMA", "Messages database is missing required Mac chat.db tables or columns");
       }
-      this.lineage = computeLineage(this.db, this.capabilities, this.referenceKey);
+      this.lineage = computeLineage(this.referenceKey, databaseId);
       this.asOf = knownWatermark
         ? { ...knownWatermark, data_version: observedDataVersion ?? knownWatermark.data_version }
         : watermark(this.db, this.capabilities);
@@ -283,6 +259,7 @@ export class DatabaseContext {
   readonly lineage: string;
   readonly referenceKey: Buffer;
   readonly sourceMode: "live" | "copy";
+  private readonly databaseId: Buffer;
   private readonly fileIdentity: { device: bigint; inode: bigint };
   private readonly schemaVersion: number;
   private readonly observer: Database.Database;
@@ -290,11 +267,26 @@ export class DatabaseContext {
   private cachedWatermark: Watermark;
   private closed = false;
 
-  constructor(databasePath: string, referenceKey: Buffer, sourceMode: "live" | "copy" = "copy") {
-    if (referenceKey.length < 32) {
-      throw new ImessageMcpError("INVALID_INPUT", "opaque-reference key must contain at least 32 bytes");
+  constructor(
+    databasePath: string,
+    referenceKey: Buffer,
+    databaseId: Buffer,
+    sourceMode: "live" | "copy" = "copy",
+  ) {
+    if (referenceKey.length < 32 || referenceKey.length > 4096) {
+      throw new ImessageMcpError("INVALID_INPUT", "opaque-reference key must contain between 32 and 4096 bytes");
+    }
+    if (databaseId.length < 32 || databaseId.length > 4096) {
+      throw new ImessageMcpError("INVALID_INPUT", "database-lineage identity must contain between 32 and 4096 bytes");
+    }
+    if (referenceKey.equals(databaseId)) {
+      throw new ImessageMcpError(
+        "INVALID_INPUT",
+        "opaque-reference key and database-lineage identity must be generated independently",
+      );
     }
     this.referenceKey = Buffer.from(referenceKey);
+    this.databaseId = Buffer.from(databaseId);
     this.sourceMode = sourceMode;
     try {
       this.canonicalPath = realpathSync(databasePath);
@@ -316,7 +308,7 @@ export class DatabaseContext {
     let request: DatabaseRequest;
     try {
       const dataVersion = this.observedDataVersion();
-      request = new DatabaseRequest(this.queryConnection, this.referenceKey, undefined, dataVersion);
+      request = new DatabaseRequest(this.queryConnection, this.referenceKey, this.databaseId, undefined, dataVersion);
       this.assertFileIdentity();
       this.assertSchemaVersion();
       if (this.observedDataVersion() !== dataVersion) {
@@ -347,6 +339,7 @@ export class DatabaseContext {
     const request = new DatabaseRequest(
       this.queryConnection,
       this.referenceKey,
+      this.databaseId,
       this.capabilities,
       dataVersion,
       knownWatermark,

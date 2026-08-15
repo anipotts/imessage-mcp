@@ -36,13 +36,15 @@ The supported inputs are a live Mac `chat.db` and a faithful copy of that same M
 npm install -g imessage-mcp@2.0.0-beta.1
 umask 077
 openssl rand -base64 32 > "$HOME/.imessage-mcp-reference-key"
+openssl rand -base64 32 > "$HOME/.imessage-mcp-database-id"
 export IMESSAGE_REFERENCE_KEY_FILE="$HOME/.imessage-mcp-reference-key"
+export IMESSAGE_DATABASE_ID_FILE="$HOME/.imessage-mcp-database-id"
 imessage-mcp doctor
 ```
 
 This exact version installs the 2.0 prerelease. Upgrade only by explicitly selecting a newer exact version. The stable setup will remain version-pinned so an existing Full Disk Access client never begins executing a different package only because an npm dist-tag moved.
 
-The default transport is stdio. It reads `~/Library/Messages/chat.db` and uses unified Contacts when the live Contacts permission is already available. The reference-key file is mandatory, must be an operator-owned `0600` regular file, and is never written by the server.
+The default transport is stdio. It reads `~/Library/Messages/chat.db` and uses unified Contacts when the live Contacts permission is already available. Both files are mandatory, must be independently generated operator-owned `0600` regular files, and are never written by the server.
 
 The server never opens System Settings, requests a permission through UI automation, changes Messages settings, or writes a database pragma. `doctor` reports remediation only.
 
@@ -70,7 +72,8 @@ Set a stricter ceiling at startup:
       "args": ["-y", "imessage-mcp@2.0.0-beta.1"],
       "env": {
         "IMESSAGE_PRIVACY": "redacted",
-        "IMESSAGE_REFERENCE_KEY_FILE": "/Users/you/.imessage-mcp-reference-key"
+        "IMESSAGE_REFERENCE_KEY_FILE": "/Users/you/.imessage-mcp-reference-key",
+        "IMESSAGE_DATABASE_ID_FILE": "/Users/you/.imessage-mcp-database-id"
       }
     }
   }
@@ -101,6 +104,7 @@ Add the server through Codex MCP settings or the CLI:
 
 ```sh
 codex mcp add --env IMESSAGE_REFERENCE_KEY_FILE="$HOME/.imessage-mcp-reference-key" \
+  --env IMESSAGE_DATABASE_ID_FILE="$HOME/.imessage-mcp-database-id" \
   imessage -- npx -y imessage-mcp@2.0.0-beta.1
 ```
 
@@ -117,7 +121,8 @@ Add this entry to Claude Desktop's MCP configuration:
       "command": "npx",
       "args": ["-y", "imessage-mcp@2.0.0-beta.1"],
       "env": {
-        "IMESSAGE_REFERENCE_KEY_FILE": "/Users/you/.imessage-mcp-reference-key"
+        "IMESSAGE_REFERENCE_KEY_FILE": "/Users/you/.imessage-mcp-reference-key",
+        "IMESSAGE_DATABASE_ID_FILE": "/Users/you/.imessage-mcp-database-id"
       }
     }
   }
@@ -130,6 +135,7 @@ Grant Full Disk Access to Claude Desktop, restart it, and run `server_status`.
 
 ```sh
 claude mcp add imessage -e IMESSAGE_REFERENCE_KEY_FILE="$HOME/.imessage-mcp-reference-key" \
+  -e IMESSAGE_DATABASE_ID_FILE="$HOME/.imessage-mcp-database-id" \
   -- npx -y imessage-mcp@2.0.0-beta.1
 ```
 
@@ -157,9 +163,9 @@ Copied databases use handles and reject pairing with this Mac's live Contacts, w
 
 The canonical default path is certified as `live` whether it is selected implicitly or supplied explicitly with `--database`. Any other path is treated as a `copy`. A copied source is an immutable snapshot for `sync_messages`: the first call returns its latest cursor, unchanged follow-up calls stay empty, and any byte or database-watermark change returns `DATABASE_CHANGED`. Replace or update a copy only between server runs, then start with a fresh cursor.
 
-Database-scoped references survive server restarts and faithful copies when they use the same reference key. The authenticated lineage also binds stable message, chat, and handle anchors, so an unrelated archive is rejected even if an operator accidentally reuses a key. Create one unique key per database lineage anyway, and copy that key only with certified faithful database copies. Losing or rotating it invalidates existing references and cursors without changing Messages data.
+Database-scoped references survive server restarts and faithful copies only when they use both the same reference key and the same operator-assigned database identity. Generate a unique database identity for each live database or unrelated archive. Copy that identity only with certified faithful copies. If a reference key is accidentally reused with a different database identity, the resulting lineages and opaque references still differ. Losing or rotating either value invalidates existing references and cursors without changing Messages data.
 
-`IMESSAGE_REFERENCE_KEY_FILE` is preferred. Direct input through `IMESSAGE_REFERENCE_KEY` is available for process supervisors that already protect environment values. Set exactly one source. Each paginated traversal is frozen at its first database watermark, so new activity requires a fresh query or `sync_messages`.
+`IMESSAGE_REFERENCE_KEY_FILE` and `IMESSAGE_DATABASE_ID_FILE` are preferred. Direct inputs through `IMESSAGE_REFERENCE_KEY` and `IMESSAGE_DATABASE_ID` are available for process supervisors that already protect environment values. Set exactly one source for each value. The server never exposes the database identity. Each paginated traversal is frozen at its first database watermark, so new activity requires a fresh query or `sync_messages`.
 
 Live sync is supported only while Messages is the sole writer of the live Apple database. Cursors authenticate structural relationships separately from exact body/lifecycle and receipt state, so one change class cannot authorize another. They keep compact exact content state for a one-hour safety window around recent messages, exceeding Apple's documented 15-minute edit and two-minute unsend windows, and fully hash older content. Receipt state is normalized to each cursor's exact checkpoint before comparison. If an older row changes without its matching monotonic edit, retraction, or receipt evidence, `sync_messages` returns `DATABASE_CHANGED` and requires a fresh cursor. Direct writes by SQLite tools, migration utilities, or third-party software are outside the live-sync boundary and require a server restart plus a fresh cursor. See [Apple's edit and unsend limits](https://support.apple.com/en-gb/guide/messages/ichtd68328c6/mac).
 

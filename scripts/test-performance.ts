@@ -214,6 +214,7 @@ async function verifyHttpConcurrency(databasePath: string): Promise<number> {
       ...process.env,
       IMESSAGE_API_TOKEN: token,
       IMESSAGE_REFERENCE_KEY: "synthetic-performance-reference-key-".padEnd(48, "x"),
+      IMESSAGE_DATABASE_ID: "synthetic-performance-database-id-".padEnd(48, "x"),
       IMESSAGE_PRIVACY: "redacted",
     },
     stdio: ["ignore", "ignore", "pipe"],
@@ -264,6 +265,7 @@ async function main(): Promise<void> {
         port: 3000,
         attachment_paths_enabled: false,
         reference_key: Buffer.alloc(32, 0x5a).toString("base64"),
+        database_id: Buffer.alloc(32, 0x6b).toString("base64"),
       }, Buffer.alloc(32, 7), undefined, 1, true);
       try {
         await preparedRuntime.prepare();

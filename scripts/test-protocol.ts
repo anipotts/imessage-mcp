@@ -22,6 +22,7 @@ const TOOL_NAMES = [
 ];
 
 const TEST_REFERENCE_KEY = "synthetic-reference-key-".padEnd(48, "x");
+const TEST_DATABASE_ID = "synthetic-database-lineage-".padEnd(48, "x");
 
 function testEnvironment(extra: Record<string, string> = {}): Record<string, string> {
   return {
@@ -29,6 +30,7 @@ function testEnvironment(extra: Record<string, string> = {}): Record<string, str
       Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined),
     ),
     IMESSAGE_REFERENCE_KEY: TEST_REFERENCE_KEY,
+    IMESSAGE_DATABASE_ID: TEST_DATABASE_ID,
     ...extra,
   };
 }

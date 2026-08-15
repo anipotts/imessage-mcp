@@ -26,6 +26,8 @@ import {
 } from "./fixture.js";
 
 const REFERENCE_KEY = Buffer.alloc(32, 0x5a);
+const DATABASE_ID = Buffer.alloc(32, 0x6b);
+const OTHER_DATABASE_ID = Buffer.alloc(32, 0x7c);
 
 function markMessagesRecentlyMutable(databasePath: string, rowids: number[]): number {
   const base = appleNanoseconds(new Date(Date.now() - 2 * 60 * 1000).toISOString());
@@ -87,8 +89,9 @@ describe("2.0 data and query core", () => {
       databasePath: fixture.databasePath,
       contacts: "none",
       referenceKey: REFERENCE_KEY,
+      databaseId: DATABASE_ID,
     });
-    context = new DatabaseContext(config.database_path, REFERENCE_KEY);
+    context = new DatabaseContext(config.database_path, REFERENCE_KEY, DATABASE_ID);
     contacts = new UnifiedContactResolver(false);
     decoder = new MessageTextDecoder();
   });
@@ -111,6 +114,7 @@ describe("2.0 data and query core", () => {
       databasePath: DEFAULT_DATABASE_PATH,
       contacts: "none",
       referenceKey: REFERENCE_KEY,
+      databaseId: DATABASE_ID,
     });
     expect(explicit.source_mode).toBe("live");
     expect(() => runtimeConfig({
@@ -118,6 +122,7 @@ describe("2.0 data and query core", () => {
       databasePath: path.join(fixture.directory, "copied-chat.db"),
       contacts: "live",
       referenceKey: REFERENCE_KEY,
+      databaseId: DATABASE_ID,
     })).toThrowError(expect.objectContaining({ reason: "INVALID_INPUT" }));
   });
 
@@ -130,6 +135,7 @@ describe("2.0 data and query core", () => {
         databasePath: fixture.databasePath,
         contacts: "none",
         referenceKey: REFERENCE_KEY,
+        databaseId: DATABASE_ID,
       }).attachment_paths_enabled).toBe(true);
       process.env.IMESSAGE_ATTACHMENT_PATHS = "yes";
       expect(() => runtimeConfig({
@@ -137,11 +143,22 @@ describe("2.0 data and query core", () => {
         databasePath: fixture.databasePath,
         contacts: "none",
         referenceKey: REFERENCE_KEY,
+        databaseId: DATABASE_ID,
       })).toThrowError(expect.objectContaining({ reason: "INVALID_INPUT" }));
     } finally {
       if (previous === undefined) delete process.env.IMESSAGE_ATTACHMENT_PATHS;
       else process.env.IMESSAGE_ATTACHMENT_PATHS = previous;
     }
+  });
+
+  it("requires independent reference and database identity values", () => {
+    expect(() => runtimeConfig({
+      transport: "stdio",
+      databasePath: fixture.databasePath,
+      contacts: "none",
+      referenceKey: REFERENCE_KEY,
+      databaseId: REFERENCE_KEY,
+    })).toThrowError(expect.objectContaining({ reason: "INVALID_INPUT" }));
   });
 
   it("retains ambiguous unified contacts instead of guessing", () => {
@@ -182,6 +199,7 @@ describe("2.0 data and query core", () => {
         databasePath: fixture.databasePath,
         contacts: "none",
         referenceKey: REFERENCE_KEY,
+        databaseId: DATABASE_ID,
       }),
       Buffer.alloc(32, 7),
     );
@@ -203,6 +221,7 @@ describe("2.0 data and query core", () => {
         databasePath: fixture.databasePath,
         contacts: "none",
         referenceKey: REFERENCE_KEY,
+        databaseId: DATABASE_ID,
       }),
       Buffer.alloc(32, 7),
     );
@@ -221,12 +240,12 @@ describe("2.0 data and query core", () => {
     }
   });
 
-  it("preserves references across faithful copies and separates unrelated lineages", () => {
+  it("preserves references across faithful copies and separates operator-assigned lineages", () => {
     const source = createFixture();
     const copy = path.join(source.directory, "faithful-copy.db");
     copyFileSync(source.databasePath, copy);
-    const sourceContext = new DatabaseContext(source.databasePath, REFERENCE_KEY);
-    const copyContext = new DatabaseContext(copy, REFERENCE_KEY);
+    const sourceContext = new DatabaseContext(source.databasePath, REFERENCE_KEY, DATABASE_ID);
+    const copyContext = new DatabaseContext(copy, REFERENCE_KEY, DATABASE_ID);
     let sourceLineage = "";
     try {
       sourceLineage = sourceContext.lineage;
@@ -235,10 +254,7 @@ describe("2.0 data and query core", () => {
       sourceContext.close();
       copyContext.close();
     }
-    const changed = new Database(copy);
-    changed.prepare("UPDATE message SET guid='different-archive-message' WHERE ROWID=1").run();
-    changed.close();
-    const unrelated = new DatabaseContext(copy, REFERENCE_KEY);
+    const unrelated = new DatabaseContext(copy, REFERENCE_KEY, OTHER_DATABASE_ID);
     try {
       expect(unrelated.lineage).not.toBe(sourceLineage);
     } finally {
@@ -247,14 +263,20 @@ describe("2.0 data and query core", () => {
     }
   });
 
-  it("fails closed when a live database's lineage anchors change", () => {
+  it("keeps the operator-assigned lineage stable as live history grows", () => {
     const isolated = createFixture();
-    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY);
+    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID);
     try {
       const changed = new Database(isolated.databasePath);
-      changed.prepare("UPDATE message SET guid='replaced-archive-anchor' WHERE ROWID=1").run();
+      const date = appleNanoseconds("2026-08-10T12:00:00Z");
+      changed.prepare(`INSERT INTO message(ROWID,guid,text,handle_id,date,is_from_me,service)
+                       VALUES (21,'lineage-growth','new history',1,?,0,'iMessage')`).run(date);
+      changed.prepare("INSERT INTO chat_message_join(chat_id,message_id,message_date,index_state) VALUES (1,21,?,0)")
+        .run(date);
       changed.close();
-      expect(() => isolatedContext.request()).toThrowError(expect.objectContaining({ reason: "DATABASE_CHANGED" }));
+      const request = isolatedContext.request();
+      expect(request.lineage).toBe(isolatedContext.lineage);
+      request.close();
     } finally {
       isolatedContext.close();
       isolated.cleanup();
@@ -268,7 +290,7 @@ describe("2.0 data and query core", () => {
     const original = path.join(isolated.directory, "original.db");
     copyFileSync(isolated.databasePath, alternate);
     symlinkSync(isolated.databasePath, link);
-    const linkedContext = new DatabaseContext(link, REFERENCE_KEY);
+    const linkedContext = new DatabaseContext(link, REFERENCE_KEY, DATABASE_ID);
     try {
       unlinkSync(link);
       symlinkSync(alternate, link);
@@ -310,7 +332,7 @@ describe("2.0 data and query core", () => {
     db.prepare("UPDATE message SET date=? WHERE ROWID=4").run(moved);
     db.prepare("UPDATE chat_message_join SET message_date=? WHERE message_id=4").run(moved);
     db.close();
-    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY);
+    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID);
     try {
       const listed = listConversations({
         context: isolatedContext,
@@ -354,7 +376,7 @@ describe("2.0 data and query core", () => {
     }
     db.close();
 
-    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY);
+    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID);
     const isolatedContacts = new UnifiedContactResolver(false);
     const index = new MemorySearchIndex(isolatedContext, new MessageTextDecoder(), isolatedContacts);
     const bounds = compileDateBounds({ date_from: "2026-03-08", date_to: "2026-03-08", timezone: "UTC" });
@@ -425,7 +447,7 @@ describe("2.0 data and query core", () => {
       "INSERT INTO chat_message_join(chat_id,message_id,message_date,index_state) SELECT 2,1,date,0 FROM message WHERE ROWID=1",
     ).run();
     db.close();
-    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY);
+    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID);
     const isolatedContacts = new UnifiedContactResolver(false);
     const index = new MemorySearchIndex(isolatedContext, new MessageTextDecoder(), isolatedContacts);
     try {
@@ -496,7 +518,7 @@ describe("2.0 data and query core", () => {
       "INSERT INTO chat_message_join(chat_id,message_id,message_date,index_state) SELECT 3,1,date,0 FROM message WHERE ROWID=1",
     ).run();
     db.close();
-    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY);
+    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID);
     const isolatedContacts = new UnifiedContactResolver(false);
     const isolatedDecoder = new MessageTextDecoder();
     const index = new MemorySearchIndex(isolatedContext, isolatedDecoder, isolatedContacts);
@@ -547,7 +569,7 @@ describe("2.0 data and query core", () => {
     db.prepare("UPDATE chat SET style=43, display_name=NULL, group_id=NULL WHERE ROWID=4").run();
     db.prepare("DELETE FROM chat_handle_join WHERE chat_id=4 AND handle_id=2").run();
     db.close();
-    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY);
+    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID);
     try {
       const listed = listConversations({
         context: isolatedContext,
@@ -574,6 +596,7 @@ describe("2.0 data and query core", () => {
         databasePath: isolated.databasePath,
         contacts: "none",
         referenceKey: REFERENCE_KEY,
+        databaseId: DATABASE_ID,
       }),
       Buffer.alloc(32, 9),
     );
@@ -598,7 +621,7 @@ describe("2.0 data and query core", () => {
     const db = new Database(isolated.databasePath);
     db.prepare("UPDATE message SET is_system_message=1, item_type=0 WHERE ROWID=8").run();
     db.close();
-    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY);
+    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID);
     try {
       const listed = listConversations({
         context: isolatedContext,
@@ -620,7 +643,7 @@ describe("2.0 data and query core", () => {
     const db = new Database(isolated.databasePath);
     db.prepare("UPDATE message SET is_system_message=1, item_type=0, group_title='New title' WHERE ROWID=8").run();
     db.close();
-    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY);
+    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID);
     const base = {
       context: isolatedContext,
       contacts: new UnifiedContactResolver(false),
@@ -656,7 +679,7 @@ describe("2.0 data and query core", () => {
       }
     })();
     db.close();
-    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY);
+    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID);
     try {
       expect(() => listConversations({
         context: isolatedContext,
@@ -715,7 +738,7 @@ describe("2.0 data and query core", () => {
     const db = new Database(isolated.databasePath);
     db.prepare("UPDATE message SET text=NULL, attributedBody=? WHERE ROWID=1").run(Buffer.from("malformed body"));
     db.close();
-    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY);
+    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID);
     const input = {
       context: isolatedContext,
       contacts: new UnifiedContactResolver(false),
@@ -745,7 +768,7 @@ describe("2.0 data and query core", () => {
     const db = new Database(isolated.databasePath);
     db.prepare("UPDATE message SET message_summary_info=? WHERE ROWID=10").run(Buffer.from("malformed edits"));
     db.close();
-    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY);
+    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID);
     const input = {
       context: isolatedContext,
       contacts: new UnifiedContactResolver(false),
@@ -778,7 +801,7 @@ describe("2.0 data and query core", () => {
     db.prepare("INSERT INTO handle(ROWID,id) VALUES (99,?)").run("x".repeat(4_097));
     db.prepare("UPDATE message SET handle_id=99 WHERE ROWID=13").run();
     db.close();
-    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY);
+    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID);
     try {
       await expect(getConversationEvents({
         context: isolatedContext,
@@ -802,7 +825,7 @@ describe("2.0 data and query core", () => {
     const db = new Database(isolated.databasePath);
     db.prepare("UPDATE message SET handle_id=99 WHERE ROWID=15").run();
     db.close();
-    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY);
+    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID);
     const input = {
       context: isolatedContext,
       contacts: new UnifiedContactResolver(false),
@@ -834,7 +857,7 @@ describe("2.0 data and query core", () => {
     const db = new Database(isolated.databasePath);
     db.prepare("UPDATE message SET handle_id=99 WHERE ROWID=1").run();
     db.close();
-    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY);
+    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID);
     const input = {
       context: isolatedContext,
       contacts: new UnifiedContactResolver(false),
@@ -872,7 +895,7 @@ describe("2.0 data and query core", () => {
                 VALUES (21,'m1','duplicate guid',1,?,0,'iMessage')`).run(date);
     db.prepare("INSERT INTO chat_message_join(chat_id,message_id,message_date,index_state) VALUES (1,21,?,0)").run(date);
     db.close();
-    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY);
+    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID);
     try {
       await expect(getConversationEvents({
         context: isolatedContext,
@@ -1116,7 +1139,7 @@ describe("2.0 data and query core", () => {
     db.prepare("UPDATE message SET text=NULL, attributedBody=? WHERE ROWID=1").run(Buffer.from("malformed search body"));
     db.prepare("UPDATE chat SET display_name='Partial Search Match' WHERE ROWID IN (1, 2)").run();
     db.close();
-    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY);
+    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID);
     const index = new MemorySearchIndex(isolatedContext, new MessageTextDecoder(), new UnifiedContactResolver(false));
     const input = {
       query: "Partial Search Match",
@@ -1147,7 +1170,7 @@ describe("2.0 data and query core", () => {
     const db = new Database(isolated.databasePath);
     db.prepare("UPDATE message SET handle_id=99 WHERE ROWID=1").run();
     db.close();
-    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY);
+    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID);
     const index = new MemorySearchIndex(isolatedContext, new MessageTextDecoder(), new UnifiedContactResolver(false));
     const input = {
       query: "hello literal",
@@ -1186,7 +1209,7 @@ describe("2.0 data and query core", () => {
                 VALUES (21,'m1','duplicate searchable guid',1,?,0,'iMessage')`).run(date);
     db.prepare("INSERT INTO chat_message_join(chat_id,message_id,message_date,index_state) VALUES (1,21,?,0)").run(date);
     db.close();
-    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY);
+    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID);
     const index = new MemorySearchIndex(isolatedContext, new MessageTextDecoder(), new UnifiedContactResolver(false));
     try {
       await expect(index.search({
@@ -1213,7 +1236,7 @@ describe("2.0 data and query core", () => {
       .run(Buffer.alloc(1024 * 1024 + 1, 0x61));
     db.prepare("UPDATE chat SET display_name='Oversized Search Match' WHERE ROWID IN (1, 2)").run();
     db.close();
-    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY);
+    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID);
     const index = new MemorySearchIndex(isolatedContext, new MessageTextDecoder(), new UnifiedContactResolver(false));
     const input = {
       query: "Oversized Search Match",
@@ -1248,7 +1271,7 @@ describe("2.0 data and query core", () => {
     ).run();
     db.prepare("INSERT INTO message_attachment_join(message_id,attachment_id) VALUES (7,2)").run();
     db.close();
-    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY);
+    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID);
     const index = new MemorySearchIndex(isolatedContext, new MessageTextDecoder(), new UnifiedContactResolver(false));
     const bounds = compileDateBounds({ timezone: "UTC" });
     try {
@@ -1299,7 +1322,7 @@ describe("2.0 data and query core", () => {
     db.prepare("UPDATE message SET text=? WHERE ROWID=1")
       .run(`${"x".repeat(300_000)} marker 👨‍👩‍👧‍👦 tail`);
     db.close();
-    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY);
+    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID);
     const index = new MemorySearchIndex(isolatedContext, new MessageTextDecoder(), new UnifiedContactResolver(false));
     try {
       const result = await index.search({
@@ -1328,7 +1351,7 @@ describe("2.0 data and query core", () => {
     const db = new Database(isolated.databasePath);
     db.prepare("UPDATE message SET text=? WHERE ROWID=1").run(`marker ${largeGrapheme.repeat(40)}`);
     db.close();
-    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY);
+    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID);
     const index = new MemorySearchIndex(isolatedContext, new MessageTextDecoder(), new UnifiedContactResolver(false));
     try {
       const result = await index.search({
@@ -1354,7 +1377,7 @@ describe("2.0 data and query core", () => {
 
   it("uses stable keyset pages and rejects a cursor after any database change", async () => {
     const isolated = createFixture();
-    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY);
+    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID);
     const isolatedContacts = new UnifiedContactResolver(false);
     const isolatedDecoder = new MessageTextDecoder();
     try {
@@ -1445,7 +1468,7 @@ describe("2.0 data and query core", () => {
     })();
     db.close();
 
-    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY);
+    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID);
     const isolatedContacts = new UnifiedContactResolver(false);
     const isolatedDecoder = new MessageTextDecoder();
     const index = new MemorySearchIndex(isolatedContext, isolatedDecoder, isolatedContacts);
@@ -1518,7 +1541,7 @@ describe("2.0 data and query core", () => {
 
   it("freezes search pages, then refreshes complete results for a fresh query", async () => {
     const isolated = createFixture();
-    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY);
+    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID);
     const index = new MemorySearchIndex(isolatedContext, new MessageTextDecoder(), new UnifiedContactResolver(false));
     try {
       const bounds = compileDateBounds({ timezone: "UTC" });
@@ -1571,7 +1594,7 @@ describe("2.0 data and query core", () => {
 
   it("rebuilds search after an append combined with a backdated edit", async () => {
     const isolated = createFixture();
-    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY);
+    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID);
     const index = new MemorySearchIndex(isolatedContext, new MessageTextDecoder(), new UnifiedContactResolver(false));
     const bounds = compileDateBounds({ timezone: "UTC" });
     try {
@@ -1643,7 +1666,7 @@ describe("2.0 data and query core", () => {
     const db = new Database(isolated.databasePath);
     db.prepare("UPDATE message SET text=? WHERE ROWID=1").run("x".repeat(3 * 1024 * 1024 + 1));
     db.close();
-    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY);
+    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID);
     try {
       await expect(getConversationEvents({
         context: isolatedContext,
@@ -1712,7 +1735,7 @@ describe("2.0 data and query core", () => {
     db.prepare("INSERT INTO handle(ROWID,id) VALUES (99,'alice@example.test')").run();
     db.prepare("INSERT INTO chat_handle_join(chat_id,handle_id) VALUES (2,99)").run();
     db.close();
-    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY);
+    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID);
     try {
       const listed = listConversations({
         context: isolatedContext,
@@ -1747,7 +1770,7 @@ describe("2.0 data and query core", () => {
     db.prepare("INSERT INTO message(ROWID,guid,text,date,is_from_me,service) VALUES (21,'group-reply','reply',?,1,'RCS')").run(date);
     db.prepare("INSERT INTO chat_message_join(chat_id,message_id,message_date,index_state) VALUES (4,21,?,0)").run(date);
     db.close();
-    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY);
+    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID);
     try {
       const result = analyze({
         context: isolatedContext,
@@ -1767,7 +1790,7 @@ describe("2.0 data and query core", () => {
 describe("capability-aware schemas", () => {
   it("keeps all read paths available when optional tables and columns are absent", async () => {
     const fixture = createMinimalSchemaFixture();
-    const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY);
+    const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, DATABASE_ID);
     const contacts = new UnifiedContactResolver(false);
     const decoder = new MessageTextDecoder();
     const index = new MemorySearchIndex(context, decoder, contacts);
@@ -1844,7 +1867,7 @@ describe("stateless sync", () => {
     db.prepare("UPDATE message SET attributedBody=? WHERE ROWID=1")
       .run(Buffer.alloc(2 * 1024 * 1024, 0x61));
     db.close();
-    const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, "live");
+    const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, DATABASE_ID, "live");
     try {
       const first = await syncMessages({
         context,
@@ -1864,7 +1887,7 @@ describe("stateless sync", () => {
 
   it("never loads oversized changed blobs and reports them only in partial mode", async () => {
     const fixture = createFixture();
-    const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, "live");
+    const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, DATABASE_ID, "live");
     const contacts = new UnifiedContactResolver(false);
     const decoder = new MessageTextDecoder();
     try {
@@ -1916,7 +1939,7 @@ describe("stateless sync", () => {
       .run(recent, recent);
     db.prepare("UPDATE chat_message_join SET message_date=? WHERE message_id=10").run(recent);
     db.close();
-    const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, "live");
+    const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, DATABASE_ID, "live");
     const contacts = new UnifiedContactResolver(false);
     const decoder = new MessageTextDecoder();
     try {
@@ -1947,7 +1970,7 @@ describe("stateless sync", () => {
     const fixture = createFixture();
     try {
       const recent = markMessagesRecentlyMutable(fixture.databasePath, [10, 12]);
-      const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, "live");
+      const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, DATABASE_ID, "live");
       const contacts = new UnifiedContactResolver(false);
       const decoder = new MessageTextDecoder();
       const first = await syncMessages({ context, contacts, decoder, limit: 50, allowPartial: false, privacy: "full" });
@@ -2016,7 +2039,7 @@ describe("stateless sync", () => {
 
   it("pages a bounded change set without omission or duplication", async () => {
     const fixture = createFixture();
-    const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, "live");
+    const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, DATABASE_ID, "live");
     const contacts = new UnifiedContactResolver(false);
     const decoder = new MessageTextDecoder();
     try {
@@ -2053,7 +2076,7 @@ describe("stateless sync", () => {
 
   it("does not emit orphan message rows that are absent from visible conversations", async () => {
     const fixture = createFixture();
-    const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, "live");
+    const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, DATABASE_ID, "live");
     const contacts = new UnifiedContactResolver(false);
     const decoder = new MessageTextDecoder();
     try {
@@ -2081,7 +2104,7 @@ describe("stateless sync", () => {
 
   it("fails closed when a reaction change has no parent identifier", async () => {
     const fixture = createFixture();
-    const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, "live");
+    const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, DATABASE_ID, "live");
     const contacts = new UnifiedContactResolver(false);
     const decoder = new MessageTextDecoder();
     try {
@@ -2129,7 +2152,7 @@ describe("stateless sync", () => {
 
   it("never attributes an unresolved incoming sync sender to Me", async () => {
     const fixture = createFixture();
-    const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, "live");
+    const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, DATABASE_ID, "live");
     const contacts = new UnifiedContactResolver(false);
     const decoder = new MessageTextDecoder();
     try {
@@ -2183,7 +2206,7 @@ describe("stateless sync", () => {
     setup.prepare("INSERT INTO chat_message_join(chat_id,message_id,message_date,index_state) VALUES (3,21,?,0)")
       .run(duplicateDate);
     setup.close();
-    const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, "live");
+    const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, DATABASE_ID, "live");
     const contacts = new UnifiedContactResolver(false);
     const decoder = new MessageTextDecoder();
     try {
@@ -2212,7 +2235,7 @@ describe("stateless sync", () => {
   it("accepts its own bounded sync cursor when recent exact state exceeds normal reference size", async () => {
     const fixture = createFixture();
     appendRecentMessages(fixture.databasePath, 600);
-    const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, "live");
+    const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, DATABASE_ID, "live");
     const contacts = new UnifiedContactResolver(false);
     const decoder = new MessageTextDecoder();
     try {
@@ -2238,7 +2261,7 @@ describe("stateless sync", () => {
   it("emits reusable bounded cursors while a large live change set is paginated", async () => {
     const fixture = createFixture();
     appendRecentMessages(fixture.databasePath, 1_500);
-    const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, "live");
+    const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, DATABASE_ID, "live");
     const contacts = new UnifiedContactResolver(false);
     const decoder = new MessageTextDecoder();
     try {
@@ -2284,7 +2307,7 @@ describe("stateless sync", () => {
 
   it("invalidates live sync when chat_lookup changes canonical conversation membership", async () => {
     const fixture = createFixture();
-    const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, "live");
+    const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, DATABASE_ID, "live");
     const contacts = new UnifiedContactResolver(false);
     const decoder = new MessageTextDecoder();
     try {
@@ -2320,7 +2343,7 @@ describe("stateless sync", () => {
       const db = new Database(fixture.databasePath);
       db.prepare("UPDATE message SET text=?, attributedBody=NULL WHERE ROWID=1").run(Buffer.from("concealed"));
       db.close();
-      const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY);
+      const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, DATABASE_ID);
       const input = {
         context,
         contacts: new UnifiedContactResolver(false),
@@ -2354,7 +2377,7 @@ describe("stateless sync", () => {
     const searchDb = new Database(searchFixture.databasePath);
     searchDb.prepare("UPDATE message SET text=?, attributedBody=NULL WHERE ROWID=1").run(Buffer.from("concealed"));
     searchDb.close();
-    const searchContext = new DatabaseContext(searchFixture.databasePath, REFERENCE_KEY);
+    const searchContext = new DatabaseContext(searchFixture.databasePath, REFERENCE_KEY, DATABASE_ID);
     const index = new MemorySearchIndex(searchContext, new MessageTextDecoder(), new UnifiedContactResolver(false));
     try {
       await expect(index.search({
@@ -2374,7 +2397,7 @@ describe("stateless sync", () => {
     }
 
     const syncFixture = createFixture();
-    const syncContext = new DatabaseContext(syncFixture.databasePath, REFERENCE_KEY, "live");
+    const syncContext = new DatabaseContext(syncFixture.databasePath, REFERENCE_KEY, DATABASE_ID, "live");
     const contacts = new UnifiedContactResolver(false);
     const decoder = new MessageTextDecoder();
     try {
@@ -2410,7 +2433,7 @@ describe("stateless sync", () => {
       (_, index) => `column_${index} TEXT`,
     ).join(", ")})`);
     db.close();
-    expect(() => new DatabaseContext(fixture.databasePath, REFERENCE_KEY))
+    expect(() => new DatabaseContext(fixture.databasePath, REFERENCE_KEY, DATABASE_ID))
       .toThrowError(expect.objectContaining({ reason: "QUERY_BUDGET_EXCEEDED" }));
     fixture.cleanup();
   });
@@ -2418,7 +2441,7 @@ describe("stateless sync", () => {
   it("fails closed when the live edit-integrity window exceeds its cursor budget", async () => {
     const fixture = createFixture();
     appendRecentMessages(fixture.databasePath, 2_049);
-    const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, "live");
+    const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, DATABASE_ID, "live");
     const contacts = new UnifiedContactResolver(false);
     const decoder = new MessageTextDecoder();
     try {
@@ -2438,7 +2461,7 @@ describe("stateless sync", () => {
 
   it("fails closed for an append combined with an unclassifiable backdated lifecycle mutation", async () => {
     const fixture = createFixture();
-    const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, "live");
+    const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, DATABASE_ID, "live");
     const contacts = new UnifiedContactResolver(false);
     const decoder = new MessageTextDecoder();
     try {
@@ -2469,7 +2492,7 @@ describe("stateless sync", () => {
   it("rejects a count-preserving relationship mutation even when a valid edit advances", async () => {
     const fixture = createFixture();
     const recent = markMessagesRecentlyMutable(fixture.databasePath, [10]);
-    const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, "live");
+    const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, DATABASE_ID, "live");
     const contacts = new UnifiedContactResolver(false);
     const decoder = new MessageTextDecoder();
     try {
@@ -2497,7 +2520,7 @@ describe("stateless sync", () => {
   it("does not let one valid edit authorize another recent message body mutation", async () => {
     const fixture = createFixture();
     const recent = markMessagesRecentlyMutable(fixture.databasePath, [10, 12]);
-    const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, "live");
+    const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, DATABASE_ID, "live");
     const contacts = new UnifiedContactResolver(false);
     const decoder = new MessageTextDecoder();
     try {
@@ -2524,7 +2547,7 @@ describe("stateless sync", () => {
 
   it("does not let a receipt advance authorize an unrelated body mutation", async () => {
     const fixture = createFixture();
-    const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, "live");
+    const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, DATABASE_ID, "live");
     const contacts = new UnifiedContactResolver(false);
     const decoder = new MessageTextDecoder();
     try {
@@ -2551,7 +2574,7 @@ describe("stateless sync", () => {
 
   it("does not let one receipt advance authorize another receipt mutation", async () => {
     const fixture = createFixture();
-    const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, "live");
+    const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, DATABASE_ID, "live");
     const contacts = new UnifiedContactResolver(false);
     const decoder = new MessageTextDecoder();
     try {
@@ -2579,7 +2602,7 @@ describe("stateless sync", () => {
 
   it("treats copied databases as immutable after a sync checkpoint", async () => {
     const fixture = createFixture();
-    const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, "copy");
+    const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, DATABASE_ID, "copy");
     const contacts = new UnifiedContactResolver(false);
     const decoder = new MessageTextDecoder();
     try {
@@ -2605,7 +2628,7 @@ describe("stateless sync", () => {
 
   it("rejects a copied database changed after its startup fingerprint", async () => {
     const fixture = createFixture();
-    const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, "copy");
+    const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, DATABASE_ID, "copy");
     const contacts = new UnifiedContactResolver(false);
     const decoder = new MessageTextDecoder();
     try {
@@ -2629,7 +2652,7 @@ describe("stateless sync", () => {
 
   it("invalidates warmed conversation integrity when the database changes", async () => {
     const fixture = createFixture();
-    const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, "live");
+    const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, DATABASE_ID, "live");
     const contacts = new UnifiedContactResolver(false);
     const decoder = new MessageTextDecoder();
     const catalog = new ConversationCatalog(context);
