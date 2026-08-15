@@ -2,8 +2,7 @@ name: security
 
 on:
   push:
-    branches: [main, "codex/**"]
-    tags: ["v2.*"]
+    branches: [main]
   pull_request:
     branches: [main]
   schedule:
@@ -12,6 +11,10 @@ on:
 
 permissions:
   contents: read
+
+concurrency:
+  group: security-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   package-audit:
