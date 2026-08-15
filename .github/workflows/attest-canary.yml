@@ -68,7 +68,7 @@ jobs:
           CANDIDATE_COMMIT=$(node -p "require('./release-status.json').stable.candidate_commit")
           test "$(git rev-parse "refs/tags/v${CANDIDATE_VERSION}^{commit}")" = "$CANDIDATE_COMMIT"
           npm view "imessage-mcp@${CANDIDATE_VERSION}" --json | node -e \
-            "let s=''; process.stdin.on('data',c=>{s+=c;if(Buffer.byteLength(s)>1048576)process.exit(1)}).on('end',()=>{const m=JSON.parse(s); process.stdout.write(JSON.stringify({version:m.version,gitHead:m.gitHead,dist:{tarball:m.dist?.tarball,attestations:m.dist?.attestations},time:m.time},null,2)+'\\n')})" \
+            "let s=''; process.stdin.on('data',c=>{s+=c;if(Buffer.byteLength(s)>1048576)process.exit(1)}).on('end',()=>{const m=JSON.parse(s); process.stdout.write(JSON.stringify({version:m.version,gitHead:m.gitHead,dist:{tarball:m.dist?.tarball,attestations:m.dist?.attestations}},null,2)+'\\n')})" \
             > evidence/candidate-npm.json
           CANDIDATE_URL=$(node -e \
             "const m=require('./evidence/candidate-npm.json'),v=process.argv[1],c=process.argv[2]; if(m.version!==v||(m.gitHead!==undefined&&m.gitHead!==c)||m.dist?.tarball!==\`https://registry.npmjs.org/imessage-mcp/-/imessage-mcp-\${v}.tgz\`||m.dist?.attestations?.url!==\`https://registry.npmjs.org/-/npm/v1/attestations/imessage-mcp@\${v}\`) process.exit(1); process.stdout.write(m.dist.tarball)" \

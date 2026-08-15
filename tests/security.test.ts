@@ -234,7 +234,7 @@ describe("native and release hardening", () => {
         schemaVersion: "1.0",
         scan: {
           id: scanId,
-          producer: { name: "codex-security-plugin", version: "0.1.18" },
+          producer: { name: "codex-security-plugin", version: "0.1.19" },
           status: "completed",
           startedAt: "2026-08-11T00:00:00.000Z",
           completedAt: "2026-08-11T00:01:00.000Z",
@@ -307,12 +307,48 @@ describe("native and release hardening", () => {
         const target = path.join(root, file);
         mkdirSync(path.dirname(target), { recursive: true });
         const value = file === "package.json"
-          ? { name: "imessage-mcp", version }
-          : file === "release-status.json"
-            ? status
-            : file.endsWith(".json")
-              ? { version, marker: file }
-              : `${file} for ${version}\n`;
+          ? {
+              name: "imessage-mcp",
+              version,
+              scripts: { prepublishOnly: "npm run verify" },
+              dependencies: { example: "1.0.0" },
+            }
+          : file === "npm-shrinkwrap.json"
+            ? {
+                name: "imessage-mcp",
+                version,
+                lockfileVersion: 3,
+                packages: {
+                  "": { name: "imessage-mcp", version, dependencies: { example: "1.0.0" } },
+                  "node_modules/example": {
+                    version: "1.0.0",
+                    resolved: "https://registry.npmjs.org/example/-/example-1.0.0.tgz",
+                    integrity: "sha512-fixture",
+                  },
+                },
+              }
+            : file === ".claude-plugin/plugin.json"
+              ? { name: "imessage-mcp", version, marker: file }
+              : file === ".mcp.json"
+                ? {
+                    mcpServers: {
+                      imessage: {
+                        command: "npx",
+                        args: ["-y", `imessage-mcp@${version}`],
+                        env: { IMESSAGE_DATABASE_ID_FILE: "/fixture/database-id" },
+                      },
+                    },
+                  }
+                : file === "server.json"
+                  ? {
+                      version,
+                      packages: [{ identifier: "imessage-mcp", version, transport: { type: "stdio" } }],
+                    }
+                  : file === "release-status.json"
+                    ? status
+                    : file === "README.md"
+                      ? `README.md for imessage-mcp@${version}\n`
+                      : `VERIFICATION.md for ${version}\n`;
         writeFileSync(target, typeof value === "string" ? value : `${JSON.stringify(value, null, 2)}\n`);
       }
     };
@@ -395,7 +431,6 @@ describe("native and release hardening", () => {
             provenance: { predicateType: "https://slsa.dev/provenance/v1" },
           },
         },
-        time: { "2.0.0-rc.1": started },
       }, null, 2)}\n`);
       const releaseRunId = 123456789;
       const provenance = {
@@ -431,7 +466,12 @@ describe("native and release hardening", () => {
       writeFileSync(attestations, `${JSON.stringify({
         attestations: [{
           predicateType: "https://slsa.dev/provenance/v1",
-          bundle: { dsseEnvelope: { payload: Buffer.from(JSON.stringify(provenance)).toString("base64") } },
+          bundle: {
+            verificationMaterial: {
+              tlogEntries: [{ integratedTime: Math.floor(Date.parse(started) / 1_000) }],
+            },
+            dsseEnvelope: { payload: Buffer.from(JSON.stringify(provenance)).toString("base64") },
+          },
         }],
       }, null, 2)}\n`);
       const releaseRun = path.join(directory, "candidate-release-run.json");
@@ -460,13 +500,20 @@ describe("native and release hardening", () => {
         stdio: "ignore",
       });
       const value = JSON.parse(readFileSync(evidence, "utf8")) as {
+        schema_version: number;
         subject: { stable_source_commit: string };
-        release_candidate: { commit: string };
-        canary: { elapsed_seconds: number };
+        release_candidate: {
+          commit: string;
+          provenance: { transparency_log_integrated_at: string };
+        };
+        canary: { started_at: string; elapsed_seconds: number };
         stable_derivation: { changed_files: string[]; other_package_files_identical: boolean };
       };
+      expect(value.schema_version).toBe(2);
       expect(value.subject.stable_source_commit).toBe(stableSource);
       expect(value.release_candidate.commit).toBe(candidateCommit);
+      expect(value.release_candidate.provenance.transparency_log_integrated_at).toBe(started);
+      expect(value.canary.started_at).toBe(started);
       expect(value.canary.elapsed_seconds).toBe(604_800);
       expect(value.stable_derivation.changed_files).toEqual([...releaseFiles].sort());
       expect(value.stable_derivation.other_package_files_identical).toBe(true);
@@ -481,8 +528,59 @@ describe("native and release hardening", () => {
         ],
         { cwd: directory, stdio: "ignore" },
       )).toThrow();
+
+      const packageJsonFile = path.join(directory, "package.json");
+      const stablePackageJson = JSON.parse(readFileSync(packageJsonFile, "utf8")) as Record<string, unknown>;
+      stablePackageJson.scripts = { prepublishOnly: "node changed-install-hook.js" };
+      writeFileSync(packageJsonFile, `${JSON.stringify(stablePackageJson, null, 2)}\n`);
+      const tamperedLifecycle = path.join(directory, "tampered-lifecycle.tgz");
+      buildPackage(directory, tamperedLifecycle);
+      expect(() => execFileSync(
+        tsx,
+        [
+          script, "create", tamperedLifecycle, stableCommit, candidatePackage, metadata, attestations, releaseRun,
+          path.join(directory, "invalid-lifecycle.json"),
+        ],
+        { cwd: directory, stdio: "ignore" },
+      )).toThrow();
+
+      writeVersionFiles(directory, "2.0.0", stableStatus);
+      const shrinkwrapFile = path.join(directory, "npm-shrinkwrap.json");
+      const shrinkwrap = JSON.parse(readFileSync(shrinkwrapFile, "utf8")) as {
+        packages: Record<string, Record<string, unknown>>;
+      };
+      shrinkwrap.packages["node_modules/example"].integrity = "sha512-changed";
+      writeFileSync(shrinkwrapFile, `${JSON.stringify(shrinkwrap, null, 2)}\n`);
+      const tamperedDependency = path.join(directory, "tampered-dependency.tgz");
+      buildPackage(directory, tamperedDependency);
+      expect(() => execFileSync(
+        tsx,
+        [
+          script, "create", tamperedDependency, stableCommit, candidatePackage, metadata, attestations, releaseRun,
+          path.join(directory, "invalid-dependency.json"),
+        ],
+        { cwd: directory, stdio: "ignore" },
+      )).toThrow();
+
+      writeVersionFiles(directory, "2.0.0", stableStatus);
+      const mcpFile = path.join(directory, ".mcp.json");
+      const mcp = JSON.parse(readFileSync(mcpFile, "utf8")) as {
+        mcpServers: { imessage: { command: string } };
+      };
+      mcp.mcpServers.imessage.command = "changed-runner";
+      writeFileSync(mcpFile, `${JSON.stringify(mcp, null, 2)}\n`);
+      const tamperedClient = path.join(directory, "tampered-client.tgz");
+      buildPackage(directory, tamperedClient);
+      expect(() => execFileSync(
+        tsx,
+        [
+          script, "create", tamperedClient, stableCommit, candidatePackage, metadata, attestations, releaseRun,
+          path.join(directory, "invalid-client.json"),
+        ],
+        { cwd: directory, stdio: "ignore" },
+      )).toThrow();
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
-  });
+  }, 20_000);
 });

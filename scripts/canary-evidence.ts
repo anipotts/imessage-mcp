@@ -67,7 +67,6 @@ interface NpmCandidateMetadata {
       provenance: { predicateType: string };
     };
   };
-  time: Record<string, string>;
 }
 
 interface ReleaseWorkflowRun {
@@ -81,7 +80,7 @@ interface ReleaseWorkflowRun {
 }
 
 interface CanaryEvidence {
-  schema_version: 1;
+  schema_version: 2;
   repository: "anipotts/imessage-mcp";
   subject: {
     stable_evidence_commit: string;
@@ -98,7 +97,6 @@ interface CanaryEvidence {
     tree: string;
     package_sha256: string;
     registry_tarball: string;
-    published_at: string;
     provenance: {
       attestation_url: string;
       workflow_path: ".github/workflows/release.yml";
@@ -106,9 +104,11 @@ interface CanaryEvidence {
       invocation_id: string;
       release_workflow_run_id: number;
       npm_git_head: string | null;
+      transparency_log_integrated_at: string;
     };
   };
   canary: {
+    started_at: string;
     completed_at: string;
     elapsed_seconds: number;
     exercises: Record<string, true>;
@@ -207,6 +207,7 @@ function exactTimestamp(value: string | null, label: string): number {
   assert.ok(typeof value === "string", `${label} is required`);
   const milliseconds = Date.parse(value);
   assert.ok(Number.isFinite(milliseconds), `${label} must be an ISO timestamp`);
+  assert.equal(new Date(milliseconds).toISOString(), value, `${label} must be a canonical ISO timestamp`);
   return milliseconds;
 }
 
@@ -220,8 +221,6 @@ function readMetadata(file: string): NpmCandidateMetadata {
     value.dist.attestations.provenance?.predicateType === "https://slsa.dev/provenance/v1",
     "npm candidate metadata must include SLSA provenance",
   );
-  assert.ok(value.time && typeof value.time === "object" && !Array.isArray(value.time),
-    "npm candidate metadata must include registry publication times");
   return value;
 }
 
@@ -237,7 +236,10 @@ function candidateProvenance(input: {
   metadata: NpmCandidateMetadata;
   attestationsFile: string;
   releaseRunFile: string;
-}): CanaryEvidence["release_candidate"]["provenance"] {
+}): {
+  provenance: CanaryEvidence["release_candidate"]["provenance"];
+  integratedMilliseconds: number;
+} {
   assert.equal(
     input.metadata.dist.attestations.url,
     `https://registry.npmjs.org/-/npm/v1/attestations/imessage-mcp@${input.version}`,
@@ -251,6 +253,29 @@ function candidateProvenance(input: {
   );
   assert.equal(matches.length, 1, "npm provenance bundle must contain one SLSA statement");
   const bundle = record(record(matches[0], "npm provenance attestation").bundle, "npm provenance bundle body");
+  const verification = record(bundle.verificationMaterial, "npm provenance verification material");
+  assert.ok(Array.isArray(verification.tlogEntries) && verification.tlogEntries.length === 1,
+    "npm provenance bundle must contain exactly one transparency-log entry");
+  const tlogEntry = record(verification.tlogEntries[0], "npm provenance transparency-log entry");
+  const rawIntegratedTime = tlogEntry.integratedTime;
+  assert.ok(
+    (typeof rawIntegratedTime === "number" && Number.isSafeInteger(rawIntegratedTime)) ||
+    (typeof rawIntegratedTime === "string" && /^[1-9]\d*$/u.test(rawIntegratedTime)),
+    "npm provenance transparency-log integration time is invalid",
+  );
+  const integratedSeconds = typeof rawIntegratedTime === "number"
+    ? rawIntegratedTime
+    : Number(rawIntegratedTime);
+  assert.ok(Number.isSafeInteger(integratedSeconds) && integratedSeconds > 0,
+    "npm provenance transparency-log integration time is invalid");
+  const integratedMilliseconds = integratedSeconds * 1_000;
+  assert.ok(
+    Number.isSafeInteger(integratedMilliseconds) &&
+    integratedMilliseconds >= Date.UTC(2020, 0, 1) &&
+    integratedMilliseconds <= Date.now(),
+    "npm provenance transparency-log integration time is outside the accepted range",
+  );
+  const integratedAt = new Date(integratedMilliseconds).toISOString();
   const envelope = record(bundle.dsseEnvelope, "npm provenance DSSE envelope");
   assert.ok(typeof envelope.payload === "string" && envelope.payload.length <= 1024 * 1024,
     "npm provenance payload is malformed");
@@ -321,16 +346,117 @@ function candidateProvenance(input: {
     assert.equal(input.metadata.gitHead, input.commit, "npm gitHead conflicts with the provenance source commit");
   }
   return {
-    attestation_url: input.metadata.dist.attestations.url,
-    workflow_path: ".github/workflows/release.yml",
-    workflow_ref: expectedRef,
-    invocation_id: invocation,
-    release_workflow_run_id: releaseRun.databaseId,
-    npm_git_head: input.metadata.gitHead ?? null,
+    provenance: {
+      attestation_url: input.metadata.dist.attestations.url,
+      workflow_path: ".github/workflows/release.yml",
+      workflow_ref: expectedRef,
+      invocation_id: invocation,
+      release_workflow_run_id: releaseRun.databaseId,
+      npm_git_head: input.metadata.gitHead ?? null,
+      transparency_log_integrated_at: integratedAt,
+    },
+    integratedMilliseconds,
   };
 }
 
-function stableDerivation(candidateCommit: string, stableSource: string): string[] {
+function jsonBytes(value: Buffer, label: string): Record<string, unknown> {
+  const text = value.toString("utf8");
+  assert.ok(Buffer.from(text, "utf8").equals(value), `${label} must be valid UTF-8`);
+  return record(JSON.parse(text), label);
+}
+
+function versionedText(value: Buffer, label: string, version: string): string {
+  const text = value.toString("utf8");
+  assert.ok(Buffer.from(text, "utf8").equals(value), `${label} must be valid UTF-8`);
+  assert.ok(text.includes(version), `${label} must name version ${version}`);
+  return text;
+}
+
+function withoutKeys(value: Record<string, unknown>, keys: string[]): Record<string, unknown> {
+  const copy = structuredClone(value);
+  for (const key of keys) delete copy[key];
+  return copy;
+}
+
+function assertReviewedDerivation(
+  file: typeof STABLE_DERIVATION_FILES[number],
+  candidateBytes: Buffer,
+  stableBytes: Buffer,
+  candidateVersion: string,
+  stableVersion: string,
+): void {
+  const label = `${file} stable derivation`;
+  if (file === "README.md") {
+    const candidate = versionedText(candidateBytes, label, candidateVersion);
+    const stable = versionedText(stableBytes, label, stableVersion);
+    assert.equal(stable, candidate.replaceAll(candidateVersion, stableVersion),
+      "README.md may change only exact release-candidate version strings");
+    return;
+  }
+  if (file === "VERIFICATION.md") {
+    versionedText(candidateBytes, label, candidateVersion);
+    versionedText(stableBytes, label, stableVersion);
+    return;
+  }
+
+  const candidate = jsonBytes(candidateBytes, `${label} candidate`);
+  const stable = jsonBytes(stableBytes, `${label} stable`);
+  if (file === "release-status.json") {
+    assert.equal(candidate.schema_version, 4);
+    assert.equal(stable.schema_version, 4);
+    assert.equal(candidate.subject_version, candidateVersion);
+    assert.equal(stable.subject_version, stableVersion);
+    assert.deepEqual(
+      withoutKeys(stable, ["subject_version", "prerelease_ready", "stable"]),
+      withoutKeys(candidate, ["subject_version", "prerelease_ready", "stable"]),
+      "release-status.json may change only version and canary state",
+    );
+    return;
+  }
+
+  const expected = structuredClone(candidate);
+  if (file === ".mcp.json") {
+    const servers = record(expected.mcpServers, ".mcp.json servers");
+    const server = record(servers.imessage, ".mcp.json imessage server");
+    assert.ok(Array.isArray(server.args) && server.args.every((entry) => typeof entry === "string"),
+      ".mcp.json imessage args must be a string array");
+    const args = server.args as string[];
+    assert.ok(args.length > 0);
+    assert.equal(args.at(-1), `imessage-mcp@${candidateVersion}`,
+      ".mcp.json must pin the release-candidate package exactly");
+    args[args.length - 1] = `imessage-mcp@${stableVersion}`;
+    assert.deepEqual(stable, expected, ".mcp.json may change only its exact package version argument");
+    return;
+  }
+
+  assert.equal(candidate.version, candidateVersion, `${file} must name the release-candidate version`);
+  assert.equal(stable.version, stableVersion, `${file} must name the stable version`);
+  expected.version = stableVersion;
+
+  if (file === "npm-shrinkwrap.json") {
+    const packages = record(expected.packages, "npm-shrinkwrap.json packages");
+    const root = record(packages[""], "npm-shrinkwrap.json root package");
+    assert.equal(root.version, candidateVersion,
+      "npm-shrinkwrap.json root package must name the release-candidate version");
+    root.version = stableVersion;
+  } else if (file === "server.json") {
+    assert.ok(Array.isArray(expected.packages) && expected.packages.length === 1,
+      "server.json must contain exactly one package");
+    const packageEntry = record(expected.packages[0], "server.json package");
+    assert.equal(packageEntry.identifier, "imessage-mcp");
+    assert.equal(packageEntry.version, candidateVersion);
+    packageEntry.version = stableVersion;
+  }
+
+  assert.deepEqual(stable, expected, `${file} may change only its reviewed version fields`);
+}
+
+function stableDerivation(
+  candidateCommit: string,
+  stableSource: string,
+  candidateVersion: string,
+  stableVersion: string,
+): string[] {
   assert.equal(git("rev-parse", `${stableSource}^`), candidateCommit,
     "stable source must be the direct child of the canaried release-candidate evidence commit");
   const changed = git("diff", "--name-status", "--no-renames", candidateCommit, stableSource)
@@ -344,10 +470,24 @@ function stableDerivation(candidateCommit: string, stableSource: string): string
     .sort();
   assert.deepEqual(changed, [...STABLE_DERIVATION_FILES].sort(),
     "stable derivation must modify exactly the reviewed version and verification metadata");
+  for (const file of STABLE_DERIVATION_FILES) {
+    assertReviewedDerivation(
+      file,
+      gitBytes("show", `${candidateCommit}:${file}`),
+      gitBytes("show", `${stableSource}:${file}`),
+      candidateVersion,
+      stableVersion,
+    );
+  }
   return changed;
 }
 
-function comparePackages(candidatePackage: string, stablePackage: string): string[] {
+function comparePackages(
+  candidatePackage: string,
+  stablePackage: string,
+  candidateVersion: string,
+  stableVersion: string,
+): string[] {
   const candidatePaths = packagePaths(candidatePackage);
   const stablePaths = packagePaths(stablePackage);
   assert.deepEqual(stablePaths, candidatePaths, "stable and release-candidate packages must contain identical paths");
@@ -361,7 +501,17 @@ function comparePackages(candidatePackage: string, stablePackage: string): strin
     assert.ok(comparedBytes <= 64 * 1024 * 1024, "package comparison exceeds its total byte limit");
     const same = candidate.equals(stable);
     if (!same) differences.push(entry);
-    if (!allowed.has(entry)) assert.equal(same, true, `${entry} changed after the release-candidate canary`);
+    if (!allowed.has(entry)) {
+      assert.equal(same, true, `${entry} changed after the release-candidate canary`);
+    } else {
+      assertReviewedDerivation(
+        entry.slice("package/".length) as typeof STABLE_DERIVATION_FILES[number],
+        candidate,
+        stable,
+        candidateVersion,
+        stableVersion,
+      );
+    }
   }
   assert.deepEqual(differences.sort(), [...allowed].sort(),
     "stable package must differ only in, and must update all, reviewed release metadata files");
@@ -413,7 +563,7 @@ function expectedEvidence(
   assert.equal(metadata.dist.tarball,
     `https://registry.npmjs.org/imessage-mcp/-/imessage-mcp-${candidateVersion}.tgz`,
     "candidate tarball must come from the public npm registry");
-  const provenance = candidateProvenance({
+  const verifiedProvenance = candidateProvenance({
     version: candidateVersion,
     commit: candidateCommit,
     packageFile: candidatePackage,
@@ -421,12 +571,11 @@ function expectedEvidence(
     attestationsFile: npmAttestationsFile,
     releaseRunFile,
   });
-  const publishedAt = metadata.time[candidateVersion];
-  const publishedMilliseconds = exactTimestamp(publishedAt ?? null, "npm candidate publication time");
+  const startedFromProvenance = verifiedProvenance.integratedMilliseconds;
   const startedMilliseconds = exactTimestamp(status.stable.canary_started_at, "canary start time");
   const completedMilliseconds = exactTimestamp(status.stable.canary_completed_at, "canary completion time");
-  assert.equal(startedMilliseconds, publishedMilliseconds,
-    "canary start must equal the immutable npm release-candidate publication time");
+  assert.equal(startedMilliseconds, startedFromProvenance,
+    "canary start must equal the verified npm provenance transparency-log integration time");
   assert.ok(completedMilliseconds - startedMilliseconds >= SEVEN_DAYS_MS,
     "release-candidate canary must run for at least seven full days");
   assert.ok(completedMilliseconds <= Date.now(), "canary completion cannot be in the future");
@@ -439,12 +588,22 @@ function expectedEvidence(
     [...EXERCISE_KEYS].sort().map((key) => [key, true] as const),
   ) as Record<string, true>;
 
-  const changedFiles = stableDerivation(candidateCommit, stableShape.source);
-  const packageDifferences = comparePackages(candidatePackage, stablePackage);
+  const changedFiles = stableDerivation(
+    candidateCommit,
+    stableShape.source,
+    candidateVersion,
+    stablePackageJson.version,
+  );
+  const packageDifferences = comparePackages(
+    candidatePackage,
+    stablePackage,
+    candidateVersion,
+    stablePackageJson.version,
+  );
   assert.equal(commitFile<{ version: string }>(stableShape.source, "package.json").version, stablePackageJson.version);
 
   return {
-    schema_version: 1,
+    schema_version: 2,
     repository: "anipotts/imessage-mcp",
     subject: {
       stable_evidence_commit: stableCommit,
@@ -461,10 +620,10 @@ function expectedEvidence(
       tree: candidateShape.evidenceTree,
       package_sha256: candidateDigest,
       registry_tarball: metadata.dist.tarball,
-      published_at: new Date(publishedMilliseconds).toISOString(),
-      provenance,
+      provenance: verifiedProvenance.provenance,
     },
     canary: {
+      started_at: new Date(startedMilliseconds).toISOString(),
       completed_at: new Date(completedMilliseconds).toISOString(),
       elapsed_seconds: Math.floor((completedMilliseconds - startedMilliseconds) / 1_000),
       exercises,
