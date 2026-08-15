@@ -80,6 +80,7 @@ jobs:
     name: publish github release
     needs: verify-public-tarball
     runs-on: ubuntu-latest
+    environment: github-release
     permissions:
       contents: write
 
