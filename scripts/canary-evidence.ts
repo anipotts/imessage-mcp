@@ -5,6 +5,7 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { basename } from "node:path";
 import { lstatSync, readFileSync, writeFileSync } from "node:fs";
+import { isNumberedReleaseCandidate } from "./release-version.js";
 
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1_000;
 const MAX_GIT_BYTES = 128 * 1024 * 1024;
@@ -237,9 +238,9 @@ function candidateProvenance(input: {
   attestationsFile: string;
   releaseRunFile: string;
 }): CanaryEvidence["release_candidate"]["provenance"] {
-  assert.match(
+  assert.equal(
     input.metadata.dist.attestations.url,
-    new RegExp(`^https://registry\\.npmjs\\.org/-/npm/v1/attestations/imessage-mcp@${input.version.replaceAll(".", "\\.")}$`, "u"),
+    `https://registry.npmjs.org/-/npm/v1/attestations/imessage-mcp@${input.version}`,
     "candidate attestation bundle must come from the public npm registry",
   );
   assertBoundedRegularFile(input.attestationsFile, 4 * 1024 * 1024, "npm provenance bundle");
@@ -311,8 +312,10 @@ function candidateProvenance(input: {
   });
   assert.equal(releaseRun.url,
     `https://github.com/anipotts/imessage-mcp/actions/runs/${releaseRun.databaseId}`);
-  assert.match(invocation,
-    new RegExp(`^https://github\\.com/anipotts/imessage-mcp/actions/runs/${releaseRun.databaseId}/attempts/[1-9]\\d*$`, "u"),
+  const invocationPrefix =
+    `https://github.com/anipotts/imessage-mcp/actions/runs/${releaseRun.databaseId}/attempts/`;
+  assert.ok(invocation.startsWith(invocationPrefix) &&
+    /^[1-9]\d*$/u.test(invocation.slice(invocationPrefix.length)),
     "npm provenance and successful GitHub release run must identify the same workflow invocation");
   if (input.metadata.gitHead !== undefined) {
     assert.equal(input.metadata.gitHead, input.commit, "npm gitHead conflicts with the provenance source commit");
@@ -388,9 +391,8 @@ function expectedEvidence(
   const candidateCommit = status.stable.candidate_commit;
   const candidateDigest = status.stable.candidate_package_sha256;
   assert.ok(typeof candidateVersion === "string");
-  assert.match(
-    candidateVersion,
-    new RegExp(`^${stablePackageJson.version.replaceAll(".", "\\.")}-rc\\.[1-9]\\d*$`, "u"),
+  assert.ok(
+    isNumberedReleaseCandidate(stablePackageJson.version, candidateVersion),
     "stable release must derive from a numbered release candidate",
   );
   assert.ok(typeof candidateCommit === "string" && /^[a-f0-9]{40}$/u.test(candidateCommit),

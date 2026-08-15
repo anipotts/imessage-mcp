@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { decodeReference, encodeReference } from "../src/references.js";
 import { successResult } from "../src/result.js";
 import { loadApiToken } from "../src/transport.js";
+import { isNumberedReleaseCandidate } from "../scripts/release-version.js";
 
 const originalToken = process.env.IMESSAGE_API_TOKEN;
 const originalFile = process.env.IMESSAGE_API_TOKEN_FILE;
@@ -104,6 +105,15 @@ describe("bounded results", () => {
 });
 
 describe("native and release hardening", () => {
+  it("validates numbered release candidates without computed regular expressions", () => {
+    expect(isNumberedReleaseCandidate("2.0.0", "2.0.0-rc.1")).toBe(true);
+    expect(isNumberedReleaseCandidate("2.0.0", "2.0.0-rc.24")).toBe(true);
+    expect(isNumberedReleaseCandidate("2.0.0", "2.0.0-rc.0")).toBe(false);
+    expect(isNumberedReleaseCandidate("2.0.0", "2.0.0-rc.1|.*")).toBe(false);
+    expect(isNumberedReleaseCandidate("2.0.0", "20x0x0-rc.1")).toBe(false);
+    expect(isNumberedReleaseCandidate("2.0.0.*", "2.0.0.*-rc.1")).toBe(false);
+  });
+
   it("never invokes legacy NSUnarchiver", () => {
     const helper = readFileSync(new URL("../native/message-text-decoder.js", import.meta.url), "utf8");
     expect(helper).not.toContain("NSUnarchiver");

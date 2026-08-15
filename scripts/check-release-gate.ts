@@ -2,6 +2,7 @@
 
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { isNumberedReleaseCandidate } from "./release-version.js";
 
 interface ReleaseStatus {
   schema_version: number;
@@ -40,7 +41,7 @@ assert.match(expected, /^\d+\.\d+\.\d+$/u, "stable release version must not be a
 assert.equal(status.stable.ready, true, "stable publication remains blocked until its canary state is ready");
 assert.equal(status.stable.subject_version, expected, "stable state must name the exact requested version");
 assert.ok(typeof status.stable.release_candidate === "string");
-assert.match(status.stable.release_candidate, new RegExp(`^${expected.replaceAll(".", "\\.")}-rc\\.[1-9]\\d*$`, "u"),
+assert.ok(isNumberedReleaseCandidate(expected, status.stable.release_candidate),
   "stable release must derive from a numbered release candidate");
 assert.ok(typeof status.stable.candidate_commit === "string" && /^[a-f0-9]{40}$/u.test(status.stable.candidate_commit),
   "stable state must bind the exact release-candidate commit");
