@@ -385,7 +385,7 @@ async function runHttp(fixture: Fixture): Promise<void> {
       authorization: `Bearer ${token}`,
       "content-type": "application/json",
     }, "{}");
-    assert.equal(saturated, 429);
+    assert.equal(saturated, 400);
     slowA.request.destroy();
     slowB.request.destroy();
     await Promise.all([slowA.status, slowB.status]);
@@ -409,7 +409,20 @@ async function runHttp(fixture: Fixture): Promise<void> {
     }, "{}");
     assert.equal(afterBodyDeadline, 400);
 
+    const rejectedPartial = slowPost(port, {
+      authorization: `Bearer ${token}`,
+      "content-type": "text/plain",
+    });
+    assert.equal(await rejectedPartial.status, 400);
+    await wait(100);
+    assert.equal(rejectedPartial.request.destroyed, true);
+
     const headerless = await openHeaderlessConnections(port, 32);
+    const duringHeaderPressure = await rawPostStatus(port, {
+      authorization: `Bearer ${token}`,
+      "content-type": "application/json",
+    }, "{}");
+    assert.equal(duringHeaderPressure, 400);
     await wait(2_500);
     assert.equal(headerless.every((socket) => socket.destroyed), true);
     const afterHeaderDeadline = await rawPostStatus(port, {

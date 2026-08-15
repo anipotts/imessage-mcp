@@ -18,6 +18,7 @@ const RATE_LIMIT = 60;
 const RATE_WINDOW_MS = 60_000;
 const MAX_ACTIVE_HTTP_REQUESTS = 2;
 const MAX_HTTP_CONNECTIONS = 32;
+const MAX_PENDING_HTTP_HEADERS = 8;
 const MAX_TOKEN_BYTES = 4096;
 const HEADER_READ_TIMEOUT_MS = 2_000;
 const BODY_READ_TIMEOUT_MS = 5_000;
@@ -257,18 +258,32 @@ export async function startHttp(runtime: ToolRuntime): Promise<void> {
     }
     if (!validateRequestAuthority(req, res, allowedHosts, allowedOrigins)) return;
     if (!limiter.allow()) {
-      json(res, 429, { error: "rate_limited" }, { "retry-after": "60" });
+      rejectAndClose(req, res, 429, { error: "rate_limited" }, { "retry-after": "60" });
       return;
     }
     let url: URL;
     try {
       url = new URL(req.url ?? "/", `http://${firstHeader(req.headers.host) ?? "localhost"}`);
     } catch {
-      json(res, 400, { error: "invalid_request" });
+      rejectAndClose(req, res, 400, { error: "invalid_request" });
       return;
     }
     if (url.pathname !== "/mcp" || req.method !== "POST") {
-      json(res, req.method === "POST" ? 404 : 405, { error: "use POST /mcp" }, { allow: "POST" });
+      rejectAndClose(req, res, req.method === "POST" ? 404 : 405, { error: "use POST /mcp" }, { allow: "POST" });
+      return;
+    }
+
+    let parsedBody: unknown;
+    try {
+      parsedBody = await readJsonBody(req);
+      if (Array.isArray(parsedBody)) {
+        throw new ImessageMcpError("INVALID_INPUT", "JSON-RPC batch requests are not supported");
+      }
+    } catch (error) {
+      const reason = error instanceof ImessageMcpError ? error.reason : "INVALID_INPUT";
+      const status = reason === "QUERY_BUDGET_EXCEEDED" ? 413 : 400;
+      process.stderr.write(JSON.stringify({ transport: "http", status: "error", reason }) + "\n");
+      if (!res.headersSent) rejectAndClose(req, res, status, { error: { reason } });
       return;
     }
 
@@ -280,10 +295,6 @@ export async function startHttp(runtime: ToolRuntime): Promise<void> {
       return;
     }
     try {
-      const parsedBody = await readJsonBody(req);
-      if (Array.isArray(parsedBody)) {
-        throw new ImessageMcpError("INVALID_INPUT", "JSON-RPC batch requests are not supported");
-      }
       const webRequest = toWebRequest(req, parsedBody);
       const authInfo: AuthInfo = {
         token: "redacted",
@@ -297,10 +308,7 @@ export async function startHttp(runtime: ToolRuntime): Promise<void> {
       const reason = error instanceof ImessageMcpError ? error.reason : "INVALID_INPUT";
       const status = reason === "QUERY_BUDGET_EXCEEDED" ? 413 : 400;
       process.stderr.write(JSON.stringify({ transport: "http", status: "error", reason }) + "\n");
-      if (!res.headersSent) {
-        if (reason === "QUERY_BUDGET_EXCEEDED") rejectAndClose(req, res, status, { error: { reason } });
-        else json(res, status, { error: { reason } });
-      }
+      if (!res.headersSent) rejectAndClose(req, res, status, { error: { reason } });
     } finally {
       release();
     }
@@ -311,12 +319,25 @@ export async function startHttp(runtime: ToolRuntime): Promise<void> {
   server.keepAliveTimeout = 5_000;
   server.timeout = 95_000;
   server.maxHeadersCount = 64;
-  server.maxConnections = MAX_HTTP_CONNECTIONS;
+  server.maxConnections = MAX_HTTP_CONNECTIONS + MAX_PENDING_HTTP_HEADERS;
   server.maxRequestsPerSocket = 100;
   server.on("connection", (socket) => {
+    const evictOldestIncomplete = (): boolean => {
+      const oldest = headerDeadlines.keys().next().value as Socket | undefined;
+      if (!oldest) return false;
+      const deadline = headerDeadlines.get(oldest);
+      if (deadline) clearTimeout(deadline);
+      headerDeadlines.delete(oldest);
+      sockets.delete(oldest);
+      oldest.destroy();
+      return true;
+    };
+    if (headerDeadlines.size >= MAX_PENDING_HTTP_HEADERS) evictOldestIncomplete();
     if (sockets.size >= MAX_HTTP_CONNECTIONS) {
-      socket.destroy();
-      return;
+      if (!evictOldestIncomplete()) {
+        socket.destroy();
+        return;
+      }
     }
     sockets.add(socket);
     const deadline = setTimeout(() => {
