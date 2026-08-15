@@ -694,7 +694,10 @@ describe("2.0 data and query core", () => {
     const retracted = result.events.find((event) => event.event_type === "retraction");
     expect(retracted).not.toHaveProperty("text");
     expect(retracted?.retraction?.state).toBe("retracted");
-    expect(result.events.find((event) => event.text === "thread reply")?.reply_to_ref).toMatch(/^im2_/u);
+    const replyReference = result.events.find((event) => event.text === "thread reply")?.reply_to_ref;
+    expect(replyReference).toMatch(/^im2_/u);
+    expect(resolveMessageReference(context.referenceKey, context.lineage, replyReference ?? ""))
+      .toEqual({ rowid: 1, guid: "m1" });
     expect(result.events.find((event) => event.text === "receipt target")?.receipt?.state).toBe("read");
     expect(result.events.find((event) => event.text === "green sms")?.edit).toMatchObject({
       state: "unavailable",
@@ -794,10 +797,80 @@ describe("2.0 data and query core", () => {
     }
   });
 
-  it("fails closed when an incoming reaction actor has no stable identity", async () => {
+  it("fails closed for a dangling incoming reaction actor and omits it only in partial mode", async () => {
     const isolated = createFixture();
     const db = new Database(isolated.databasePath);
-    db.prepare("UPDATE message SET handle_id=NULL WHERE ROWID=13").run();
+    db.prepare("UPDATE message SET handle_id=99 WHERE ROWID=15").run();
+    db.close();
+    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY);
+    const input = {
+      context: isolatedContext,
+      contacts: new UnifiedContactResolver(false),
+      decoder: new MessageTextDecoder(),
+      chatIds: [1, 2],
+      limit: 50,
+      bounds: compileDateBounds({ timezone: "UTC" }),
+      privacy: "full" as const,
+      includeAttachmentPaths: false,
+    };
+    try {
+      await expect(getConversationEvents({ ...input, allowPartial: false }))
+        .rejects.toMatchObject({ reason: "UNSUPPORTED_SCHEMA" });
+      const partial = await getConversationEvents({ ...input, allowPartial: true });
+      const parent = partial.events.find((event) => event.text?.startsWith("hello literal"));
+      expect(parent).toMatchObject({ reactions: [], row_status: "partial" });
+      expect(partial.warnings).toContainEqual(expect.objectContaining({
+        code: "UNSUPPORTED_SCHEMA",
+        skipped_count: 1,
+      }));
+    } finally {
+      isolatedContext.close();
+      isolated.cleanup();
+    }
+  });
+
+  it("never attributes an unresolved incoming timeline sender to Me", async () => {
+    const isolated = createFixture();
+    const db = new Database(isolated.databasePath);
+    db.prepare("UPDATE message SET handle_id=99 WHERE ROWID=1").run();
+    db.close();
+    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY);
+    const input = {
+      context: isolatedContext,
+      contacts: new UnifiedContactResolver(false),
+      decoder: new MessageTextDecoder(),
+      chatIds: [1, 2],
+      limit: 50,
+      bounds: compileDateBounds({ timezone: "UTC" }),
+      privacy: "full" as const,
+      includeAttachmentPaths: false,
+    };
+    try {
+      await expect(getConversationEvents({ ...input, allowPartial: false }))
+        .rejects.toMatchObject({ reason: "UNSUPPORTED_SCHEMA" });
+      const partial = await getConversationEvents({ ...input, allowPartial: true });
+      expect(partial.events.find((event) => event.text?.startsWith("hello literal"))).toMatchObject({
+        direction: "incoming",
+        sender: { name: null, handle: null },
+        row_status: "partial",
+      });
+      expect(partial.warnings).toContainEqual(expect.objectContaining({
+        code: "UNSUPPORTED_SCHEMA",
+        skipped_count: 1,
+      }));
+    } finally {
+      isolatedContext.close();
+      isolated.cleanup();
+    }
+  });
+
+  it("rejects duplicate message GUIDs before emitting timeline references", async () => {
+    const isolated = createFixture();
+    const db = new Database(isolated.databasePath);
+    const date = appleNanoseconds("2026-03-10T07:00:00Z");
+    db.prepare(`INSERT INTO message(ROWID,guid,text,handle_id,date,is_from_me,service)
+                VALUES (21,'m1','duplicate guid',1,?,0,'iMessage')`).run(date);
+    db.prepare("INSERT INTO chat_message_join(chat_id,message_id,message_date,index_state) VALUES (1,21,?,0)").run(date);
     db.close();
     const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY);
     try {
@@ -1062,6 +1135,70 @@ describe("2.0 data and query core", () => {
       ]);
       expect(result.hits.filter((hit) => hit.row_status === "partial")).toHaveLength(1);
       expect(result.hits.every((hit) => hit.row_status === "complete" || hit.row_status === "partial")).toBe(true);
+    } finally {
+      index.close();
+      isolatedContext.close();
+      isolated.cleanup();
+    }
+  });
+
+  it("never attributes an unresolved incoming search sender to Me", async () => {
+    const isolated = createFixture();
+    const db = new Database(isolated.databasePath);
+    db.prepare("UPDATE message SET handle_id=99 WHERE ROWID=1").run();
+    db.close();
+    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY);
+    const index = new MemorySearchIndex(isolatedContext, new MessageTextDecoder(), new UnifiedContactResolver(false));
+    const input = {
+      query: "hello literal",
+      mode: "substring" as const,
+      scopes: ["text" as const],
+      order: "newest" as const,
+      bounds: compileDateBounds({ timezone: "UTC" }),
+      limit: 50,
+      privacy: "full" as const,
+    };
+    try {
+      await expect(index.search({ ...input, allowPartial: false }))
+        .rejects.toMatchObject({ reason: "UNSUPPORTED_SCHEMA" });
+      const partial = await index.search({ ...input, allowPartial: true });
+      expect(partial.hits).toHaveLength(1);
+      expect(partial.hits[0]).toMatchObject({
+        sender: { name: null, handle: null },
+        row_status: "partial",
+      });
+      expect(partial.warnings).toContainEqual(expect.objectContaining({
+        code: "UNSUPPORTED_SCHEMA",
+        skipped_count: 1,
+      }));
+    } finally {
+      index.close();
+      isolatedContext.close();
+      isolated.cleanup();
+    }
+  });
+
+  it("rejects duplicate message GUIDs before indexing search references", async () => {
+    const isolated = createFixture();
+    const db = new Database(isolated.databasePath);
+    const date = appleNanoseconds("2026-03-10T07:00:00Z");
+    db.prepare(`INSERT INTO message(ROWID,guid,text,handle_id,date,is_from_me,service)
+                VALUES (21,'m1','duplicate searchable guid',1,?,0,'iMessage')`).run(date);
+    db.prepare("INSERT INTO chat_message_join(chat_id,message_id,message_date,index_state) VALUES (1,21,?,0)").run(date);
+    db.close();
+    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY);
+    const index = new MemorySearchIndex(isolatedContext, new MessageTextDecoder(), new UnifiedContactResolver(false));
+    try {
+      await expect(index.search({
+        query: "duplicate searchable guid",
+        mode: "substring",
+        scopes: ["text"],
+        order: "newest",
+        bounds: compileDateBounds({ timezone: "UTC" }),
+        limit: 50,
+        allowPartial: false,
+        privacy: "full",
+      })).rejects.toMatchObject({ reason: "UNSUPPORTED_SCHEMA" });
     } finally {
       index.close();
       isolatedContext.close();
@@ -1962,6 +2099,108 @@ describe("stateless sync", () => {
         cursor: first.cursor,
         limit: 50,
         allowPartial: false,
+        privacy: "full",
+      })).rejects.toMatchObject({ reason: "UNSUPPORTED_SCHEMA" });
+      const partial = await syncMessages({
+        context,
+        contacts,
+        decoder,
+        cursor: first.cursor,
+        limit: 50,
+        allowPartial: true,
+        privacy: "full",
+      });
+      expect(partial.changes).toContainEqual(expect.objectContaining({
+        change_type: "reaction_added",
+        sender: { name: null, handle: "+15550000001" },
+        row_status: "partial",
+      }));
+      expect(partial.changes.find((change) => change.change_type === "reaction_added"))
+        .not.toHaveProperty("parent_message_ref");
+      expect(partial.warnings).toContainEqual(expect.objectContaining({
+        code: "UNSUPPORTED_SCHEMA",
+        skipped_count: 1,
+      }));
+    } finally {
+      context.close();
+      fixture.cleanup();
+    }
+  });
+
+  it("never attributes an unresolved incoming sync sender to Me", async () => {
+    const fixture = createFixture();
+    const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, "live");
+    const contacts = new UnifiedContactResolver(false);
+    const decoder = new MessageTextDecoder();
+    try {
+      const first = await syncMessages({ context, contacts, decoder, limit: 50, allowPartial: false, privacy: "full" });
+      const db = new Database(fixture.databasePath);
+      const date = appleNanoseconds("2026-08-10T12:00:00Z");
+      db.prepare(`INSERT INTO message(ROWID,guid,text,handle_id,date,is_from_me,service)
+                  VALUES (21,'unresolved-sender','unresolved incoming',99,?,0,'iMessage')`).run(date);
+      db.prepare("INSERT INTO chat_message_join(chat_id,message_id,message_date,index_state) VALUES (1,21,?,0)").run(date);
+      db.close();
+      await expect(syncMessages({
+        context,
+        contacts,
+        decoder,
+        cursor: first.cursor,
+        limit: 50,
+        allowPartial: false,
+        privacy: "full",
+      })).rejects.toMatchObject({ reason: "UNSUPPORTED_SCHEMA" });
+      const partial = await syncMessages({
+        context,
+        contacts,
+        decoder,
+        cursor: first.cursor,
+        limit: 50,
+        allowPartial: true,
+        privacy: "full",
+      });
+      expect(partial.changes).toContainEqual(expect.objectContaining({
+        change_type: "message_created",
+        direction: "incoming",
+        sender: { name: null, handle: null },
+        row_status: "partial",
+      }));
+      expect(partial.warnings).toContainEqual(expect.objectContaining({
+        code: "UNSUPPORTED_SCHEMA",
+        skipped_count: 1,
+      }));
+    } finally {
+      context.close();
+      fixture.cleanup();
+    }
+  });
+
+  it("rejects an ambiguous reaction parent GUID before emitting a sync reference", async () => {
+    const fixture = createFixture();
+    const duplicateDate = appleNanoseconds("2026-08-10T11:59:00Z");
+    const setup = new Database(fixture.databasePath);
+    setup.prepare(`INSERT INTO message(ROWID,guid,text,handle_id,date,is_from_me,service)
+                   VALUES (21,'m1','duplicate parent',1,?,0,'iMessage')`).run(duplicateDate);
+    setup.prepare("INSERT INTO chat_message_join(chat_id,message_id,message_date,index_state) VALUES (3,21,?,0)")
+      .run(duplicateDate);
+    setup.close();
+    const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, "live");
+    const contacts = new UnifiedContactResolver(false);
+    const decoder = new MessageTextDecoder();
+    try {
+      const first = await syncMessages({ context, contacts, decoder, limit: 50, allowPartial: false, privacy: "full" });
+      const db = new Database(fixture.databasePath);
+      const date = appleNanoseconds("2026-08-10T12:00:00Z");
+      db.prepare(`INSERT INTO message(ROWID,guid,handle_id,date,is_from_me,associated_message_guid,associated_message_type,service)
+                  VALUES (22,'ambiguous-parent-reaction',1,?,0,'m1',2001,'iMessage')`).run(date);
+      db.prepare("INSERT INTO chat_message_join(chat_id,message_id,message_date,index_state) VALUES (1,22,?,0)").run(date);
+      db.close();
+      await expect(syncMessages({
+        context,
+        contacts,
+        decoder,
+        cursor: first.cursor,
+        limit: 50,
+        allowPartial: true,
         privacy: "full",
       })).rejects.toMatchObject({ reason: "UNSUPPORTED_SCHEMA" });
     } finally {

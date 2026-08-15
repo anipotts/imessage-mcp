@@ -10,6 +10,7 @@ import type { MessageTextDecoder } from "../decoder.js";
 import { populatedMessageText } from "../decoder.js";
 import { ImessageMcpError } from "../errors.js";
 import { decodeReference, encodeReference, MAX_SYNC_CURSOR_LENGTH } from "../references.js";
+import { validateSender } from "../sender.js";
 import { columnSql, serviceFamilyCase, serviceSql } from "../schema-sql.js";
 import {
   appleTimestampBoundary,
@@ -23,6 +24,7 @@ import {
   sqliteIntegerToken,
 } from "../time.js";
 import { normalizeReactionParent } from "./messages.js";
+import { resolveUniqueMessageGuids } from "./message-integrity.js";
 import { assertMessageConversationIntegrity, type ConversationCatalog } from "./conversations.js";
 
 export type ChangeType =
@@ -82,6 +84,7 @@ interface RawChange extends Record<string, unknown> {
   body_unsupported: number;
   is_from_me: number;
   handle: string | null;
+  handle_id: number | null;
   service: string | null;
   chat_ids_json: string;
   associated_message_guid: string | null;
@@ -810,6 +813,7 @@ function baseRows(input: {
          0 AS body_unsupported,
          m.is_from_me,
          h.id AS handle,
+         m.handle_id,
          relations.service AS service,
          COALESCE(relations.chat_ids_json, '[]') AS chat_ids_json,
          ${associatedGuid} AS associated_message_guid,
@@ -1030,12 +1034,45 @@ function hydrateBodies(request: DatabaseRequest, rows: RawChange[], allowPartial
 
 async function materialize(
   rows: RawChange[],
-  referenceKey: Buffer,
-  lineage: string,
+  request: DatabaseRequest,
+  maxMessageId: number,
   contacts: UnifiedContactResolver,
   decoder: MessageTextDecoder,
   allowPartial: boolean,
 ): Promise<{ changes: SyncChange[]; warnings: Warning[] }> {
+  const isReaction = (row: RawChange): boolean =>
+    row.change_type === "reaction_added" || row.change_type === "reaction_removed";
+  const ownReferences = rows.filter((row) => !isReaction(row));
+  resolveUniqueMessageGuids(
+    request,
+    ownReferences.map((row) => row.guid),
+    maxMessageId,
+  );
+  const parentByRowid = new Map<number, string>();
+  for (const row of rows.filter(isReaction)) {
+    const parent = row.associated_message_guid ? normalizeReactionParent(row.associated_message_guid) : "";
+    if (parent) parentByRowid.set(row.rowid, parent);
+  }
+  const parentRows = resolveUniqueMessageGuids(
+    request,
+    [...parentByRowid.values()],
+    maxMessageId,
+  );
+  const senders = new Map<number, ReturnType<typeof validateSender>>();
+  let relationshipFailures = 0;
+  for (const row of rows) {
+    const sender = validateSender(row, contacts);
+    senders.set(row.rowid, sender);
+    if (row.change_type !== "group_event" && !sender.complete) relationshipFailures += 1;
+    if (isReaction(row) && !parentRows.has(parentByRowid.get(row.rowid) ?? "")) relationshipFailures += 1;
+  }
+  if (relationshipFailures > 0 && !allowPartial) {
+    throw new ImessageMcpError(
+      "UNSUPPORTED_SCHEMA",
+      "a changed sender or reaction parent could not be resolved uniquely",
+      { skipped_count: relationshipFailures },
+    );
+  }
   const bodyRows = rows.filter((row) =>
     (row.change_type === "message_created" || row.change_type === "message_edited") &&
     !sqliteIntegerIsPositive(row.date_retracted) &&
@@ -1051,10 +1088,10 @@ async function materialize(
     decoded = bodyRows.map(() => ({ status: "unsupported" as const }));
   }
   const decodedById = new Map(bodyRows.map((row, index) => [row.rowid, decoded[index]]));
-  let skipped = 0;
+  let skippedBodies = 0;
   const changes = rows.map((row): SyncChange => {
     const chatIds = parseChatIds(row.chat_ids_json);
-    const handle = row.is_from_me ? null : row.handle;
+    const sender = senders.get(row.rowid) as ReturnType<typeof validateSender>;
     const native = populatedMessageText(row.text);
     const decodedBody = decodedById.get(row.rowid);
     const isRetracted = sqliteIntegerIsPositive(row.date_retracted) || row.change_type === "message_retracted";
@@ -1067,29 +1104,31 @@ async function materialize(
       (row.change_type === "message_created" || row.change_type === "message_edited"),
     );
     if (partial) {
-      skipped += 1;
+      skippedBodies += 1;
       if (!allowPartial) throw new ImessageMcpError("DECODE_FAILED", "a changed message body could not be decoded");
     }
-    const isReaction = row.change_type === "reaction_added" || row.change_type === "reaction_removed";
-    const parent = isReaction && row.associated_message_guid ? normalizeReactionParent(row.associated_message_guid) : null;
-    if (isReaction && !parent) {
-      throw new ImessageMcpError("UNSUPPORTED_SCHEMA", "a reaction change is missing its parent message identifier");
-    }
+    const reaction = isReaction(row);
+    const parent = reaction ? parentByRowid.get(row.rowid) : undefined;
+    const parentRowid = parent ? parentRows.get(parent) : undefined;
+    const relationshipPartial = (row.change_type !== "group_event" && !sender.complete) ||
+      (reaction && !parentRowid);
     const reactionType = row.change_type === "reaction_removed"
       ? row.associated_message_type - 1000
       : row.associated_message_type;
     return {
       change_type: row.change_type,
       changed_at: appleTimestampToIso(row.change_time),
-      ...(isReaction
-        ? { parent_message_ref: encodeReference(referenceKey, lineage, "message", { guid: parent }) }
-        : { message_ref: encodeReference(referenceKey, lineage, "message", { rowid: row.rowid, guid: row.guid }) }),
+      ...(reaction && parent && parentRowid
+        ? { parent_message_ref: encodeReference(request.referenceKey, request.lineage, "message", { rowid: parentRowid, guid: parent }) }
+        : !reaction
+          ? { message_ref: encodeReference(request.referenceKey, request.lineage, "message", { rowid: row.rowid, guid: row.guid }) }
+          : {}),
       ...(chatIds.length
-        ? { conversation_ref: encodeReference(referenceKey, lineage, "conversation", { chat_ids: chatIds }) }
+        ? { conversation_ref: encodeReference(request.referenceKey, request.lineage, "conversation", { chat_ids: chatIds }) }
         : {}),
       service_family: serviceFamily(row.service),
-      direction: row.change_type === "group_event" ? "system" : row.is_from_me ? "outgoing" : "incoming",
-      sender: { name: handle ? contacts.nameForHandle(handle) : "Me", handle },
+      direction: row.change_type === "group_event" ? "system" : sender.direction,
+      sender: sender.identity,
       ...(text ? { text } : {}),
       current_state: row.change_type === "receipt_changed"
         ? {
@@ -1098,7 +1137,7 @@ async function materialize(
             read_at: appleTimestampToIso(row.date_read),
             delivered_at: appleTimestampToIso(row.date_delivered),
           }
-        : isReaction
+        : reaction
           ? {
               reaction_type: reactionType,
               emoji: row.associated_message_emoji,
@@ -1109,14 +1148,21 @@ async function materialize(
             : row.change_type === "group_event"
               ? { item_type: row.item_type, action_code: row.group_action_type, title: row.group_title }
               : {},
-      row_status: partial ? "partial" : "complete",
+      row_status: partial || relationshipPartial ? "partial" : "complete",
     };
   });
-  if (skipped > 0) {
+  if (skippedBodies > 0) {
     warnings.push({
       code: "DECODE_FAILED",
       message: "some changed message bodies could not be decoded",
-      skipped_count: skipped,
+      skipped_count: skippedBodies,
+    });
+  }
+  if (relationshipFailures > 0) {
+    warnings.push({
+      code: "UNSUPPORTED_SCHEMA",
+      message: "some changed sender or reaction relationships could not be resolved uniquely",
+      skipped_count: relationshipFailures,
     });
   }
   return { changes, warnings };
@@ -1278,8 +1324,8 @@ export async function syncMessages(input: {
         }
       : await materialize(
           page,
-          request.referenceKey,
-          request.lineage,
+          request,
+          (state.target as Watermark).max_message_id,
           input.contacts,
           input.decoder,
           input.allowPartial,

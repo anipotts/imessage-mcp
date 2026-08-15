@@ -10,6 +10,7 @@ import type { DecodeResult, EditMetadataResult, MessageTextDecoder } from "../de
 import { populatedMessageText } from "../decoder.js";
 import { ImessageMcpError } from "../errors.js";
 import { decodeReference, encodeReference } from "../references.js";
+import { validateSender } from "../sender.js";
 import { columnSql, serviceFamilyCase, serviceFamilyPredicate, serviceSql } from "../schema-sql.js";
 import type { DateBounds } from "../time.js";
 import {
@@ -22,6 +23,7 @@ import {
   sqliteIntegerIsPositive,
   sqliteIntegerToken,
 } from "../time.js";
+import { resolveUniqueMessageGuids } from "./message-integrity.js";
 
 export type TimelineEventType = "message" | "retraction" | "participant_joined" | "participant_left" | "group_renamed" | "system_change";
 
@@ -65,6 +67,7 @@ interface MessageRow extends Record<string, unknown> {
   summary_info: Buffer | null;
   summary_info_type: string;
   handle: string | null;
+  handle_id: number | null;
   is_from_me: number;
   date: string;
   service: string | null;
@@ -143,11 +146,15 @@ function reactionName(code: number, emoji: string | null): string {
 
 function loadReactions(
   request: DatabaseRequest,
+  contacts: UnifiedContactResolver,
   chatIds: number[],
   maxMessageId: number,
   parentGuids: string[],
-): Map<string, ReactionRow[]> {
-  if (request.capabilities.reactions !== "available" || parentGuids.length === 0) return new Map();
+  allowPartial: boolean,
+): { byParent: Map<string, ReactionRow[]>; partialParents: Set<string>; skipped: number } {
+  if (request.capabilities.reactions !== "available" || parentGuids.length === 0) {
+    return { byParent: new Map(), partialParents: new Set(), skipped: 0 };
+  }
   const emoji = columnSql(request, "message", "m", "associated_message_emoji", "NULL");
   const parentExpression = `CASE
     WHEN m.associated_message_guid LIKE 'bp:%' THEN SUBSTR(m.associated_message_guid, 4)
@@ -191,17 +198,25 @@ function loadReactions(
     )
     .all(...bindings) as ReactionRow[];
   const stateByKey = new Map<string, ReactionRow>();
+  const partialParents = new Set<string>();
+  let skipped = 0;
   for (const row of rows) {
     const parent = normalizeReactionParent(row.parent_guid);
     const removal = row.type_code >= 3000;
     const baseCode = removal ? row.type_code - 1000 : row.type_code;
-    if (!row.is_from_me && row.handle === null && row.handle_id === null) {
-      throw new ImessageMcpError(
-        "UNSUPPORTED_SCHEMA",
-        "a reaction actor could not be identified well enough to fold current reaction state",
-      );
+    const sender = validateSender(row, contacts);
+    if (!sender.complete) {
+      if (!allowPartial) {
+        throw new ImessageMcpError(
+          "UNSUPPORTED_SCHEMA",
+          "a reaction actor could not be identified well enough to fold current reaction state",
+        );
+      }
+      partialParents.add(parent);
+      skipped += 1;
+      continue;
     }
-    const actor = row.is_from_me ? "me" : row.handle ?? `handle:${String(row.handle_id ?? row.rowid)}`;
+    const actor = sender.direction === "outgoing" ? "me" : sender.identity.handle as string;
     const key = `${parent}\0${actor}\0${baseCode}\0${row.emoji ?? ""}`;
     if (removal) stateByKey.delete(key);
     else stateByKey.set(key, { ...row, parent_guid: parent, type_code: baseCode });
@@ -212,7 +227,7 @@ function loadReactions(
     current.push(row);
     byParent.set(row.parent_guid, current);
   }
-  return byParent;
+  return { byParent, partialParents, skipped };
 }
 
 function loadAttachments(
@@ -306,6 +321,7 @@ function baseSelect(request: DatabaseRequest): string {
     columns.includes("message_summary_info") ? "m.message_summary_info AS summary_info" : "NULL AS summary_info",
     columns.includes("message_summary_info") ? "TYPEOF(m.message_summary_info) AS summary_info_type" : "'null' AS summary_info_type",
     "h.id AS handle",
+    "m.handle_id",
     "m.is_from_me",
     `CAST(${appleTimestampSortSql("m.date")} AS TEXT) AS date`,
     `${serviceSql(request, "m", "scoped")} AS service`,
@@ -335,6 +351,7 @@ function aggregateSelect(request: DatabaseRequest): string {
     "NULL AS attributed_body",
     "NULL AS summary_info",
     "NULL AS handle",
+    "NULL AS handle_id",
     "m.is_from_me",
     `CAST(${appleTimestampSortSql("m.date")} AS TEXT) AS date`,
     `${serviceFamilyCase(serviceSql(request, "m", "scoped"))} AS service`,
@@ -608,6 +625,24 @@ async function materialize(input: {
   allowPartial: boolean;
   includeAttachmentPaths: boolean;
 }): Promise<{ events: TimelineEvent[]; warnings: Warning[] }> {
+  const userRows = input.rows.filter((row) => row.item_type === 0 && row.is_system_message === 0);
+  resolveUniqueMessageGuids(
+    input.request,
+    userRows.map((row) => row.guid),
+    input.frozen.max_message_id,
+  );
+  const senderById = new Map<number, ReturnType<typeof validateSender>>();
+  let unresolvedSenders = 0;
+  for (const row of userRows) {
+    const sender = validateSender(row, input.contacts);
+    senderById.set(row.rowid, sender);
+    if (!sender.complete) unresolvedSenders += 1;
+  }
+  if (unresolvedSenders > 0 && !input.allowPartial) {
+    throw new ImessageMcpError("UNSUPPORTED_SCHEMA", "an incoming message sender could not be resolved", {
+      skipped_count: unresolvedSenders,
+    });
+  }
   const unsupportedStorage = input.rows.filter((row) =>
     (row.text_type !== "text" && row.text_type !== "null") ||
     (row.attributed_body_type !== "blob" && row.attributed_body_type !== "null") ||
@@ -666,10 +701,30 @@ async function materialize(input: {
   }
   const reactions = loadReactions(
     input.request,
+    input.contacts,
     input.chatIds,
     input.frozen.max_message_id,
     input.rows.map((row) => row.guid),
+    input.allowPartial,
   );
+  const replyGuids = userRows
+    .map((row) => row.reply_to_guid)
+    .filter((guid): guid is string => Boolean(guid));
+  const replyRows = resolveUniqueMessageGuids(input.request, replyGuids, input.frozen.max_message_id);
+  const missingReplies = replyGuids.filter((guid) => !replyRows.has(guid));
+  if (missingReplies.length > 0 && !input.allowPartial) {
+    throw new ImessageMcpError("UNSUPPORTED_SCHEMA", "a reply parent could not be resolved uniquely", {
+      skipped_count: missingReplies.length,
+    });
+  }
+  const relationshipFailures = unresolvedSenders + reactions.skipped + missingReplies.length;
+  if (relationshipFailures > 0) {
+    warnings.push({
+      code: "UNSUPPORTED_SCHEMA",
+      message: "some sender, reaction, or reply relationships could not be resolved uniquely",
+      skipped_count: relationshipFailures,
+    });
+  }
   const attachments = loadAttachments(input.request, input.rows.map((row) => row.rowid), input.includeAttachmentPaths);
   const events: TimelineEvent[] = [];
 
@@ -705,13 +760,13 @@ async function materialize(input: {
       : nativeText || decode?.status === "decoded"
       ? "decoded"
       : decode?.status ?? "absent";
-    const senderHandle = row.is_from_me ? null : row.handle;
-    const currentReactions = (reactions.get(row.guid) ?? []).map((reaction) => {
-      const handle = reaction.is_from_me ? null : reaction.handle;
+    const sender = senderById.get(row.rowid) as ReturnType<typeof validateSender>;
+    const currentReactions = (reactions.byParent.get(row.guid) ?? []).map((reaction) => {
+      const actor = validateSender(reaction, input.contacts);
       return {
         type: reactionName(reaction.type_code, reaction.emoji),
         ...(reaction.emoji ? { emoji: reaction.emoji } : {}),
-        sender: { name: handle ? input.contacts.nameForHandle(handle) : "Me", handle },
+        sender: actor.identity,
       };
     });
     const editResult = editMetadataById.get(row.rowid);
@@ -730,13 +785,16 @@ async function materialize(input: {
           : { state: input.request.capabilities.edits, count: 0, timestamps: [] };
     const bodyPartial = Boolean(storageUnsupported || (row.attributed_body && !retracted && !nativeText && decode?.status !== "decoded"));
     const editPartial = Boolean(sqliteIntegerIsPositive(row.date_edited) && row.summary_info && editResult?.status !== "decoded");
+    const relationshipPartial = !sender.complete || reactions.partialParents.has(row.guid) ||
+      Boolean(row.reply_to_guid && !replyRows.has(row.reply_to_guid));
+    const replyRowid = row.reply_to_guid ? replyRows.get(row.reply_to_guid) : undefined;
     const event: TimelineEvent = {
       event_type: retracted ? "retraction" : "message",
       message_ref: encodeReference(input.request.referenceKey, input.request.lineage, "message", { rowid: row.rowid, guid: row.guid }),
       timestamp,
       service_family: service,
-      direction: row.is_from_me ? "outgoing" : "incoming",
-      sender: { name: senderHandle ? input.contacts.nameForHandle(senderHandle) : "Me", handle: senderHandle },
+      direction: sender.direction,
+      sender: sender.identity,
       ...(text !== undefined ? { text } : {}),
       text_status: textStatus,
       ...(retracted ? { retraction: { state: "retracted" as const, at: appleTimestampToIso(row.date_retracted) } } : {}),
@@ -744,10 +802,12 @@ async function materialize(input: {
       reactions: currentReactions,
       receipt: receiptFor(row, input.request),
       attachments: retracted ? [] : attachments.get(row.rowid) ?? [],
-      ...(row.reply_to_guid
-        ? { reply_to_ref: encodeReference(input.request.referenceKey, input.request.lineage, "message", { guid: row.reply_to_guid }) }
+      ...(row.reply_to_guid && replyRowid
+        ? { reply_to_ref: encodeReference(input.request.referenceKey, input.request.lineage, "message", { rowid: replyRowid, guid: row.reply_to_guid }) }
         : {}),
-      ...(bodyPartial || editPartial ? { row_status: "partial" as const } : { row_status: "complete" as const }),
+      ...(bodyPartial || editPartial || relationshipPartial
+        ? { row_status: "partial" as const }
+        : { row_status: "complete" as const }),
     };
     if (event.row_status === "partial" && !input.allowPartial) {
       throw new ImessageMcpError("DECODE_FAILED", "a selected message body could not be decoded");
@@ -817,8 +877,12 @@ export async function getConversationEvents(input: {
       if (!row || row.guid !== around.guid) aroundId = undefined;
     }
     if (!aroundId && typeof around?.guid === "string") {
-      const row = request.db.prepare("SELECT ROWID AS rowid FROM message WHERE guid = ?").get(around.guid) as { rowid: number } | undefined;
-      aroundId = row?.rowid;
+      const matches = request.db.prepare("SELECT ROWID AS rowid FROM message WHERE guid = ? LIMIT 2")
+        .all(around.guid) as Array<{ rowid: number }>;
+      if (matches.length > 1) {
+        throw new ImessageMcpError("UNSUPPORTED_SCHEMA", "around_message GUID does not identify exactly one message");
+      }
+      aroundId = matches[0]?.rowid;
     }
     if (input.aroundMessage && !aroundId) {
       throw new ImessageMcpError("INVALID_INPUT", "around_message reference was not found");

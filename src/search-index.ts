@@ -12,7 +12,9 @@ import { populatedMessageText } from "./decoder.js";
 import { ImessageMcpError } from "./errors.js";
 import { decodeReference, encodeReference } from "./references.js";
 import { assertMessageConversationIntegrity } from "./repositories/conversations.js";
+import { resolveUniqueMessageGuids } from "./repositories/message-integrity.js";
 import { columnSql, serviceFamilyCase, serviceFamilyPredicate, serviceSql } from "./schema-sql.js";
+import { validateSender } from "./sender.js";
 import type { DateBounds } from "./time.js";
 import {
   appleTimestampBoundary,
@@ -51,6 +53,7 @@ interface SourceRow {
   is_from_me: number;
   service: string | null;
   handle: string | null;
+  handle_id: number | null;
   chat_ids_json: string;
   chat_names_json: string;
   participant_handles_json: string;
@@ -254,7 +257,8 @@ function queryHash(input: Record<string, unknown>): string {
 export class MemorySearchIndex {
   private index: Database.Database | null = null;
   private indexedWatermark: Watermark | null = null;
-  private skipped = 0;
+  private skippedBodies = 0;
+  private skippedSenders = 0;
   private complete = false;
   private trigram = false;
   private building: Promise<void> | null = null;
@@ -294,7 +298,7 @@ export class MemorySearchIndex {
     db.exec(`
       CREATE TABLE message_text (
         rowid INTEGER PRIMARY KEY,
-        guid TEXT NOT NULL,
+        guid TEXT NOT NULL UNIQUE,
         text TEXT NOT NULL,
         normalized_text TEXT NOT NULL,
         conversation_text TEXT NOT NULL,
@@ -307,6 +311,7 @@ export class MemorySearchIndex {
         is_from_me INTEGER NOT NULL,
         service TEXT,
         handle TEXT,
+        handle_id INTEGER,
         chat_ids TEXT NOT NULL,
         filenames TEXT NOT NULL,
         row_status TEXT NOT NULL CHECK (row_status IN ('complete', 'partial'))
@@ -629,10 +634,11 @@ export class MemorySearchIndex {
 	           selected.text_type,
 	           selected.attributed_body,
            selected.body_unsupported,
-           selected.date,
-           selected.is_from_me,
-           chat_relations.service,
-           h.id AS handle,
+	           selected.date,
+	           selected.is_from_me,
+	           chat_relations.service,
+	           h.id AS handle,
+	           selected.handle_id,
            chat_relations.chat_ids_json,
            chat_relations.chat_names_json,
            chat_relations.participant_handles_json,
@@ -692,8 +698,8 @@ export class MemorySearchIndex {
       `INSERT INTO message_text(
          rowid, guid, text, normalized_text, conversation_text, normalized_conversation,
          normalized_conversation_values, attachment_text, normalized_attachments,
-         normalized_attachment_values, date, is_from_me, service, handle, chat_ids, filenames, row_status
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         normalized_attachment_values, date, is_from_me, service, handle, handle_id, chat_ids, filenames, row_status
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     const insertFts = updateIndexes
       ? db.prepare(
@@ -709,6 +715,7 @@ export class MemorySearchIndex {
       const batchTarget = this.nextBatchTarget(request, cursor, targetRowid);
       const batch = this.sourceRows(request, cursor, batchTarget);
       if (batch.length === 0) break;
+      resolveUniqueMessageGuids(request, batch.map((row) => row.guid), targetRowid);
       const blobRows = batch.filter((row) => !populatedMessageText(row.text) && row.attributed_body);
       let decoded: Awaited<ReturnType<MessageTextDecoder["decode"]>> = [];
       try {
@@ -732,17 +739,27 @@ export class MemorySearchIndex {
           const native = populatedMessageText(row.text);
           const result = decodedById.get(row.rowid);
           const text = native ?? (result?.status === "decoded" ? result.text : "");
-          const partial = Boolean(unsupportedText || (!native && (
+          const bodyPartial = Boolean(unsupportedText || (!native && (
             row.body_unsupported || (row.attributed_body && result?.status !== "decoded")
           )));
-          if (partial) {
-            this.skipped += 1;
+          if (bodyPartial) {
+            this.skippedBodies += 1;
             if (!allowPartial) {
               throw new ImessageMcpError(
                 unsupportedText ? "UNSUPPORTED_SCHEMA" : "DECODE_FAILED",
                 unsupportedText
                   ? "search index encountered an unsupported SQLite text storage class"
                   : "search index encountered an undecodable message body",
+              );
+            }
+          }
+          const sender = validateSender(row, this.contacts);
+          if (!sender.complete) {
+            this.skippedSenders += 1;
+            if (!allowPartial) {
+              throw new ImessageMcpError(
+                "UNSUPPORTED_SCHEMA",
+                "search index encountered an incoming message without a resolvable sender",
               );
             }
           }
@@ -788,10 +805,11 @@ export class MemorySearchIndex {
             sqliteIntegerBinding(appleTimestampSortToken(row.date, "search message timestamp")),
             row.is_from_me,
             row.service,
-            row.handle,
+            sender.identity.handle,
+            row.handle_id,
             JSON.stringify(chatIdArray(row.chat_ids_json)),
             JSON.stringify(filenames),
-            partial ? "partial" : "complete",
+            bodyPartial || !sender.complete ? "partial" : "complete",
           );
           insertFts?.run(row.rowid, normalizedText, normalizedConversation, normalizedAttachments);
           insertTrigram?.run(row.rowid, normalizedText);
@@ -837,7 +855,8 @@ export class MemorySearchIndex {
         });
       }
       db = this.createIndex();
-      this.skipped = 0;
+      this.skippedBodies = 0;
+      this.skippedSenders = 0;
       await this.populate(request, db, 0, request.asOf.max_message_id, allowPartial, false);
       this.finalizeIndex(db);
       this.enforceMemoryLimit(db);
@@ -845,7 +864,7 @@ export class MemorySearchIndex {
       this.index = db;
       db = null;
       this.indexedWatermark = request.asOf;
-      this.complete = this.skipped === 0;
+      this.complete = this.skippedBodies === 0 && this.skippedSenders === 0;
       previous?.close();
     } catch (error) {
       if ((error as { code?: string }).code === "SQLITE_FULL") {
@@ -890,7 +909,7 @@ export class MemorySearchIndex {
         await this.populate(request, this.index, indexed.max_message_id, request.asOf.max_message_id, allowPartial, true);
       }
       this.indexedWatermark = request.asOf;
-      this.complete = this.complete && this.skipped === 0;
+      this.complete = this.complete && this.skippedBodies === 0 && this.skippedSenders === 0;
     } finally {
       if (request.db.open) request.close();
     }
@@ -1083,7 +1102,11 @@ export class MemorySearchIndex {
       ) {
         matchedScopes.push("attachment_filenames");
       }
-      const handle = Number(row.is_from_me) ? null : typeof row.handle === "string" ? row.handle : null;
+      const sender = validateSender({
+        is_from_me: row.is_from_me,
+        handle_id: row.handle_id,
+        handle: row.handle,
+      }, this.contacts);
       const chatIds = chatIdArray(String(row.chat_ids));
       const filenames = stringArray(String(row.filenames), MAX_INDEX_RELATIONS_PER_MESSAGE, "indexed filename");
       return {
@@ -1091,7 +1114,7 @@ export class MemorySearchIndex {
         conversation_ref: encodeReference(this.context.referenceKey, this.context.lineage, "conversation", { chat_ids: chatIds }),
         timestamp: appleTimestampToIso(row.date_token),
         service_family: serviceFamily(row.service),
-        sender: { name: handle ? this.contacts.nameForHandle(handle) : "Me", handle },
+        sender: sender.identity,
         ...(text && matchedScopes.includes("text")
           ? { snippet: graphemeSnippet(text, snippetNeedle(normalizedText, input.query, input.mode)) }
           : {}),
@@ -1111,9 +1134,21 @@ export class MemorySearchIndex {
           after_rank: Number(last.relevance),
         })
       : null;
-    const warnings = this.skipped
-      ? [{ code: "DECODE_FAILED", message: "unsupported or undecodable message bodies were marked partial in search", skipped_count: this.skipped }]
-      : [];
+    const warnings: Warning[] = [];
+    if (this.skippedBodies > 0) {
+      warnings.push({
+        code: "DECODE_FAILED",
+        message: "unsupported or undecodable message bodies were marked partial in search",
+        skipped_count: this.skippedBodies,
+      });
+    }
+    if (this.skippedSenders > 0) {
+      warnings.push({
+        code: "UNSUPPORTED_SCHEMA",
+        message: "incoming messages without resolvable senders were marked partial in search",
+        skipped_count: this.skippedSenders,
+      });
+    }
     return { hits, total, nextCursor, hasMore, asOf: watermarkToken(frozen), warnings };
   }
 
