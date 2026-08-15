@@ -5,7 +5,7 @@ import type { CallToolResult } from "@modelcontextprotocol/server";
 import type { RuntimeConfig } from "./config.js";
 import type { PrivacyMode, ServiceFamily } from "./contracts.js";
 import { looksLikeHandle, normalizeHandle, UnifiedContactResolver, type ContactResolution } from "./contacts.js";
-import { DatabaseContext, watermarkToken } from "./database.js";
+import { DatabaseContext, watermarkToken, type DatabaseRequest } from "./database.js";
 import { MessageTextDecoder } from "./decoder.js";
 import { ImessageMcpError } from "./errors.js";
 import { effectivePrivacy } from "./privacy.js";
@@ -19,7 +19,7 @@ import {
   type ConversationFilters,
 } from "./repositories/conversations.js";
 import { getConversationEvents, type TimelineEventType } from "./repositories/messages.js";
-import { syncMessages } from "./repositories/sync.js";
+import { prepareCopiedDatabaseSync, syncMessages } from "./repositories/sync.js";
 import { serviceFamilyCase } from "./schema-sql.js";
 import { MemorySearchIndex } from "./search-index.js";
 import { compileDateBounds } from "./time.js";
@@ -51,6 +51,7 @@ export class LocalToolRuntime {
   readonly decoder: MessageTextDecoder;
   readonly search: MemorySearchIndex;
   readonly conversationCatalog: ConversationCatalog;
+  private detectedServicesCache: { watermark: string; values: ServiceFamily[] } | null = null;
 
   constructor(
     readonly config: RuntimeConfig,
@@ -80,6 +81,39 @@ export class LocalToolRuntime {
   close(): void {
     this.search.close();
     this.database.close();
+  }
+
+  async prepare(): Promise<void> {
+    await prepareCopiedDatabaseSync(this.database);
+    const request = this.database.request();
+    try {
+      this.detectedServices(request);
+    } finally {
+      request.close();
+    }
+  }
+
+  private detectedServices(request: DatabaseRequest): ServiceFamily[] {
+    const currentWatermark = watermarkToken(request.asOf);
+    if (this.detectedServicesCache?.watermark === currentWatermark) {
+      return [...this.detectedServicesCache.values];
+    }
+    const messageColumns = request.capabilities.tables.message ?? [];
+    const chatColumns = request.capabilities.tables.chat ?? [];
+    const sources: string[] = [];
+    if (messageColumns.includes("service")) {
+      sources.push(`SELECT ${serviceFamilyCase("service")} AS family FROM message WHERE service IS NOT NULL`);
+    }
+    if (chatColumns.includes("service_name")) {
+      sources.push(`SELECT ${serviceFamilyCase("service_name")} AS family FROM chat WHERE service_name IS NOT NULL`);
+    }
+    const values = sources.length
+      ? (request.db.prepare(
+          `SELECT family FROM (${sources.join(" UNION ALL ")}) GROUP BY family ORDER BY family LIMIT 4`,
+        ).all() as Array<{ family: ServiceFamily }>).map((row) => row.family)
+      : [];
+    this.detectedServicesCache = { watermark: currentWatermark, values };
+    return [...values];
   }
 
   async call(tool: string, params: ToolParams): Promise<CallToolResult> {
@@ -261,20 +295,7 @@ export class LocalToolRuntime {
   private serverStatus(privacy: PrivacyMode): CallToolResult {
     const request = this.database.request();
     try {
-      const messageColumns = request.capabilities.tables.message ?? [];
-      const chatColumns = request.capabilities.tables.chat ?? [];
-      const sources: string[] = [];
-      if (messageColumns.includes("service")) {
-        sources.push(`SELECT ${serviceFamilyCase("service")} AS family FROM message WHERE service IS NOT NULL`);
-      }
-      if (chatColumns.includes("service_name")) {
-        sources.push(`SELECT ${serviceFamilyCase("service_name")} AS family FROM chat WHERE service_name IS NOT NULL`);
-      }
-      const detectedServices = sources.length
-        ? (request.db.prepare(
-            `SELECT family FROM (${sources.join(" UNION ALL ")}) GROUP BY family ORDER BY family LIMIT 4`,
-          ).all() as Array<{ family: ServiceFamily }>).map((row) => row.family)
-        : [];
+      const detectedServices = this.detectedServices(request);
       return successResult({
         tool: "server_status",
         privacy,
@@ -443,6 +464,7 @@ export class LocalToolRuntime {
       limit: Number(params.limit ?? 50),
       allowPartial: Boolean(params.allow_partial),
       privacy,
+      catalog: this.conversationCatalog,
     });
     return successResult({
       tool: "sync_messages",

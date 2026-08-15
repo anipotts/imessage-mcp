@@ -32,6 +32,7 @@ try {
     data.decoder_owner,
     data.warm_conversation_catalog,
   );
+  await runtime.prepare();
   port.postMessage({ type: "ready" });
 } catch (error) {
   const normalized = asImessageMcpError(error);

@@ -23,7 +23,7 @@ import {
   sqliteIntegerToken,
 } from "../time.js";
 import { normalizeReactionParent } from "./messages.js";
-import { assertMessageConversationIntegrity } from "./conversations.js";
+import { assertMessageConversationIntegrity, type ConversationCatalog } from "./conversations.js";
 
 export type ChangeType =
   | "message_created"
@@ -122,6 +122,13 @@ interface FingerprintedFile {
   changed?: bigint;
 }
 
+interface PreparedCopyFingerprint {
+  fingerprint: string;
+  watermark: Watermark;
+}
+
+const preparedCopyFingerprints = new WeakMap<DatabaseContext, Promise<PreparedCopyFingerprint>>();
+
 async function fingerprintFile(
   hash: ReturnType<typeof createHmac>,
   filePath: string,
@@ -201,6 +208,51 @@ async function copiedDatabaseFingerprint(context: DatabaseContext): Promise<stri
   ];
   await assertFingerprintFilesStable(files);
   return hash.digest("hex");
+}
+
+async function createPreparedCopyFingerprint(context: DatabaseContext): Promise<PreparedCopyFingerprint> {
+  const request = context.request();
+  try {
+    const fingerprint = await copiedDatabaseFingerprint(context);
+    context.assertObservedDataVersion(request.asOf.data_version);
+    return { fingerprint, watermark: request.asOf };
+  } finally {
+    request.close();
+  }
+}
+
+export async function prepareCopiedDatabaseSync(context: DatabaseContext): Promise<void> {
+  if (context.sourceMode !== "copy") return;
+  let preparation = preparedCopyFingerprints.get(context);
+  if (!preparation) {
+    preparation = createPreparedCopyFingerprint(context);
+    preparedCopyFingerprints.set(context, preparation);
+  }
+  try {
+    await preparation;
+  } catch (error) {
+    if (preparedCopyFingerprints.get(context) === preparation) {
+      preparedCopyFingerprints.delete(context);
+    }
+    throw error;
+  }
+}
+
+async function initialCopiedDatabaseFingerprint(
+  context: DatabaseContext,
+  current: Watermark,
+): Promise<string> {
+  const preparation = preparedCopyFingerprints.get(context);
+  if (!preparation) {
+    const fingerprint = await copiedDatabaseFingerprint(context);
+    context.assertObservedDataVersion(current.data_version);
+    return fingerprint;
+  }
+  preparedCopyFingerprints.delete(context);
+  const prepared = await preparation;
+  assertFrozenTraversal(prepared.watermark, current);
+  context.assertObservedDataVersion(current.data_version);
+  return prepared.fingerprint;
 }
 
 function syncSourceBudget(request: DatabaseRequest, maxMessageId: number): void {
@@ -1091,15 +1143,16 @@ export async function syncMessages(input: {
   limit: number;
   allowPartial: boolean;
   privacy: PrivacyMode;
+  catalog?: ConversationCatalog;
 }): Promise<{ changes: SyncChange[]; cursor: string; hasMore: boolean; asOf: string; warnings: Warning[] }> {
   const request = input.context.request();
   try {
-    assertMessageConversationIntegrity(request);
+    if (input.catalog) input.catalog.assertIntegrity(request);
+    else assertMessageConversationIntegrity(request);
     if (!input.cursor) {
       const copyFingerprint = input.context.sourceMode === "copy"
-        ? await copiedDatabaseFingerprint(input.context)
+        ? await initialCopiedDatabaseFingerprint(input.context, request.asOf)
         : undefined;
-      if (copyFingerprint) input.context.assertObservedDataVersion(request.asOf.data_version);
       const integrity = input.context.sourceMode === "live"
         ? syncIntegrity(request, request.asOf.max_message_id)
         : undefined;

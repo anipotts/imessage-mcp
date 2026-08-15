@@ -254,7 +254,8 @@ async function main(): Promise<void> {
   let runtime: LocalToolRuntime | null = null;
   try {
     const fixture_ms = createPerformanceDatabase(databasePath, messageCount);
-    const startup = await timed(() => new LocalToolRuntime({
+    const startup = await timed(async () => {
+      const preparedRuntime = new LocalToolRuntime({
         database_path: databasePath,
         source_mode: "copy",
         contacts_mode: "none",
@@ -263,7 +264,15 @@ async function main(): Promise<void> {
         port: 3000,
         attachment_paths_enabled: false,
         reference_key: Buffer.alloc(32, 0x5a).toString("base64"),
-      }, Buffer.alloc(32, 7), undefined, 1, true));
+      }, Buffer.alloc(32, 7), undefined, 1, true);
+      try {
+        await preparedRuntime.prepare();
+        return preparedRuntime;
+      } catch (error) {
+        preparedRuntime.close();
+        throw error;
+      }
+    });
     runtime = startup.value;
 
     const status = await timed(() => runtime!.call("server_status", { privacy_mode: "aggregate" }));

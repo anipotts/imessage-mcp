@@ -12,9 +12,9 @@ import { MemorySearchIndex } from "../src/search-index.js";
 import { LocalToolRuntime } from "../src/tool-local.js";
 import { APPLE_EPOCH_UNIX_SECONDS, appleTimestampToIso, compileDateBounds } from "../src/time.js";
 import { analyze } from "../src/repositories/analytics.js";
-import { listConversations, resolveConversationReference } from "../src/repositories/conversations.js";
+import { ConversationCatalog, listConversations, resolveConversationReference } from "../src/repositories/conversations.js";
 import { getConversationEvents, resolveMessageReference } from "../src/repositories/messages.js";
-import { syncMessages } from "../src/repositories/sync.js";
+import { prepareCopiedDatabaseSync, syncMessages } from "../src/repositories/sync.js";
 import {
   appleNanoseconds,
   createFixture,
@@ -2358,6 +2358,58 @@ describe("stateless sync", () => {
         allowPartial: false,
         privacy: "full",
       })).rejects.toMatchObject({ reason: "DATABASE_CHANGED" });
+    } finally {
+      context.close();
+      fixture.cleanup();
+    }
+  });
+
+  it("rejects a copied database changed after its startup fingerprint", async () => {
+    const fixture = createFixture();
+    const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, "copy");
+    const contacts = new UnifiedContactResolver(false);
+    const decoder = new MessageTextDecoder();
+    try {
+      await prepareCopiedDatabaseSync(context);
+      const db = new Database(fixture.databasePath);
+      db.prepare("UPDATE message SET text='changed after startup preparation' WHERE ROWID=10").run();
+      db.close();
+      await expect(syncMessages({
+        context,
+        contacts,
+        decoder,
+        limit: 50,
+        allowPartial: false,
+        privacy: "full",
+      })).rejects.toMatchObject({ reason: "DATABASE_CHANGED" });
+    } finally {
+      context.close();
+      fixture.cleanup();
+    }
+  });
+
+  it("invalidates warmed conversation integrity when the database changes", async () => {
+    const fixture = createFixture();
+    const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, "live");
+    const contacts = new UnifiedContactResolver(false);
+    const decoder = new MessageTextDecoder();
+    const catalog = new ConversationCatalog(context);
+    try {
+      catalog.warm();
+      const db = new Database(fixture.databasePath);
+      db.prepare(`INSERT INTO chat_message_join(chat_id,message_id,message_date,index_state)
+                  SELECT 99,message_id,message_date,index_state
+                  FROM chat_message_join WHERE message_id=1 LIMIT 1`).run();
+      db.close();
+      await expect(syncMessages({
+        context,
+        contacts,
+        decoder,
+        limit: 50,
+        allowPartial: false,
+        privacy: "full",
+        catalog,
+      })).rejects.toMatchObject({ reason: "UNSUPPORTED_SCHEMA" });
     } finally {
       context.close();
       fixture.cleanup();

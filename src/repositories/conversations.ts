@@ -488,6 +488,14 @@ export class ConversationCatalog {
     }
   }
 
+  assertIntegrity(request: DatabaseRequest, maxMessageId = request.asOf.max_message_id): void {
+    if (
+      maxMessageId === request.asOf.max_message_id &&
+      this.cacheKey === watermarkToken(request.asOf)
+    ) return;
+    assertMessageConversationIntegrity(request, maxMessageId);
+  }
+
   rows(request: DatabaseRequest, filters: ConversationFilters, frozen: Watermark): RawConversation[] {
     if (
       filters.bounds.from_unix_seconds !== undefined ||
