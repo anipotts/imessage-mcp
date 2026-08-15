@@ -272,6 +272,29 @@ function slowPost(
   return { request, status };
 }
 
+function declaredOversizedPost(
+  port: number,
+  headers: Record<string, string>,
+): { request: ReturnType<typeof httpRequest>; status: Promise<number> } {
+  let settle!: (status: number) => void;
+  const status = new Promise<number>((resolve) => {
+    settle = resolve;
+  });
+  const request = httpRequest({
+    host: "127.0.0.1",
+    port,
+    path: "/mcp",
+    method: "POST",
+    headers: { ...headers, "content-length": String(256 * 1024 + 1) },
+  }, (response) => {
+    response.resume();
+    response.once("end", () => settle(response.statusCode ?? 0));
+  });
+  request.once("error", () => settle(0));
+  request.flushHeaders();
+  return { request, status };
+}
+
 async function wait(milliseconds: number): Promise<void> {
   await new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
 }
@@ -367,12 +390,13 @@ async function runHttp(fixture: Fixture): Promise<void> {
       body: "[]",
     });
     assert.equal(batch.status, 400);
-    const oversized = await fetch(url, {
-      method: "POST",
-      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-      body: JSON.stringify({ value: "x".repeat(256 * 1024) }),
+    const oversized = declaredOversizedPost(port, {
+      authorization: `Bearer ${token}`,
+      "content-type": "application/json",
     });
-    assert.equal(oversized.status, 413);
+    assert.equal(await oversized.status, 413);
+    await wait(100);
+    assert.equal(oversized.request.destroyed, true);
 
     const slowA = slowPost(port, {
       authorization: `Bearer ${token}`,
