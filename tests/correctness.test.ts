@@ -1,11 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { copyFileSync, renameSync, symlinkSync, unlinkSync } from "node:fs";
+import { copyFileSync, linkSync, renameSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+import { userInfo } from "node:os";
 import path from "node:path";
 import Database from "better-sqlite3";
-import { DEFAULT_DATABASE_PATH, runtimeConfig } from "../src/config.js";
+import { DEFAULT_DATABASE_PATH, resolveDefaultDatabasePath, runtimeConfig } from "../src/config.js";
 import { serviceFamily } from "../src/contracts.js";
 import { UnifiedContactResolver } from "../src/contacts.js";
-import { DatabaseContext } from "../src/database.js";
+import { assertCopiedDatabaseSourceBoundary, DatabaseContext } from "../src/database.js";
 import { MessageTextDecoder } from "../src/decoder.js";
 import { MAX_REFERENCE_LENGTH, MAX_SYNC_CURSOR_LENGTH } from "../src/references.js";
 import { MemorySearchIndex } from "../src/search-index.js";
@@ -124,6 +125,18 @@ describe("2.0 data and query core", () => {
       referenceKey: REFERENCE_KEY,
       databaseId: DATABASE_ID,
     })).toThrowError(expect.objectContaining({ reason: "INVALID_INPUT" }));
+  });
+
+  it("derives the live Messages path from the OS account instead of HOME", () => {
+    const previousHome = process.env.HOME;
+    process.env.HOME = fixture.directory;
+    try {
+      expect(resolveDefaultDatabasePath()).toBe(path.join(userInfo().homedir, "Library", "Messages", "chat.db"));
+      expect(resolveDefaultDatabasePath()).not.toBe(path.join(fixture.directory, "Library", "Messages", "chat.db"));
+    } finally {
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+    }
   });
 
   it("honors and validates the attachment-path startup environment", () => {
@@ -303,6 +316,95 @@ describe("2.0 data and query core", () => {
     } finally {
       linkedContext.close();
       isolated.cleanup();
+    }
+  });
+
+  it("rejects copied database aliases to a synthetic live database before opening SQLite", () => {
+    const live = createFixture();
+    const copied = createFixture();
+    const directLink = path.join(copied.directory, "live-link.db");
+    const linkedParent = path.join(copied.directory, "live-parent");
+    const hardLink = path.join(copied.directory, "live-hardlink.db");
+    symlinkSync(live.databasePath, directLink);
+    symlinkSync(live.directory, linkedParent, "dir");
+    linkSync(live.databasePath, hardLink);
+    try {
+      for (const selectedPath of [
+        live.databasePath,
+        directLink,
+        path.join(linkedParent, "chat.db"),
+        hardLink,
+      ]) {
+        expect(() => assertCopiedDatabaseSourceBoundary(selectedPath, live.databasePath))
+          .toThrowError(expect.objectContaining({ reason: "INVALID_INPUT" }));
+      }
+    } finally {
+      live.cleanup();
+      copied.cleanup();
+    }
+  });
+
+  it("keeps ordinary copies and symlinks to non-live copies supported", () => {
+    const live = createFixture();
+    const copied = createFixture();
+    const copiedLink = path.join(copied.directory, "copied-link.db");
+    symlinkSync(copied.databasePath, copiedLink);
+    try {
+      for (const selectedPath of [copied.databasePath, copiedLink]) {
+        expect(() => assertCopiedDatabaseSourceBoundary(selectedPath, live.databasePath)).not.toThrow();
+      }
+      const copiedContext = new DatabaseContext(copiedLink, REFERENCE_KEY, DATABASE_ID, "copy");
+      copiedContext.close();
+    } finally {
+      live.cleanup();
+      copied.cleanup();
+    }
+  });
+
+  it("rejects copied WAL aliases to a synthetic live WAL before opening SQLite", () => {
+    const live = createFixture();
+    const copied = createFixture();
+    const liveWal = `${live.databasePath}-wal`;
+    const copiedWal = `${copied.databasePath}-wal`;
+    try {
+      symlinkSync(liveWal, copiedWal);
+      expect(() => assertCopiedDatabaseSourceBoundary(copied.databasePath, live.databasePath))
+        .toThrowError(expect.objectContaining({ reason: "INVALID_INPUT" }));
+
+      unlinkSync(copiedWal);
+      writeFileSync(liveWal, "synthetic live WAL identity");
+      symlinkSync(liveWal, copiedWal);
+      expect(() => assertCopiedDatabaseSourceBoundary(copied.databasePath, live.databasePath))
+        .toThrowError(expect.objectContaining({ reason: "INVALID_INPUT" }));
+
+      unlinkSync(copiedWal);
+      linkSync(liveWal, copiedWal);
+      expect(() => assertCopiedDatabaseSourceBoundary(copied.databasePath, live.databasePath))
+        .toThrowError(expect.objectContaining({ reason: "INVALID_INPUT" }));
+
+      unlinkSync(copiedWal);
+      writeFileSync(copiedWal, "synthetic copied WAL identity");
+      expect(() => assertCopiedDatabaseSourceBoundary(copied.databasePath, live.databasePath)).not.toThrow();
+    } finally {
+      live.cleanup();
+      copied.cleanup();
+    }
+  });
+
+  it("preserves database-unavailable errors for missing and dangling copied paths", () => {
+    const live = createFixture();
+    const copied = createFixture();
+    const missing = path.join(copied.directory, "missing.db");
+    const dangling = path.join(copied.directory, "dangling.db");
+    symlinkSync(missing, dangling);
+    try {
+      for (const selectedPath of [missing, dangling]) {
+        expect(() => assertCopiedDatabaseSourceBoundary(selectedPath, live.databasePath))
+          .toThrowError(expect.objectContaining({ reason: "DATABASE_UNAVAILABLE" }));
+      }
+    } finally {
+      live.cleanup();
+      copied.cleanup();
     }
   });
 

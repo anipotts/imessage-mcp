@@ -9,7 +9,7 @@ Last updated: 2026-08-26
 | release | state | evidence boundary |
 | --- | --- | --- |
 | `1.3.1` | published and verified | npm `latest`, GitHub release, and MCP Registry agree on `1.3.1`; the public tarball reproduced the attributed-body and contact fixes before issues #5 and #6 closed |
-| `2.0.0-beta.1` | source gates passed, not yet published | local and remote candidate gates, trusted publishing, and the bounded Messages.app comparison are green; publication remains fail-closed until a direct-child sealed scan bundle is attested |
+| `2.0.0-beta.1` | repaired source candidate, not yet published | local candidate gates, trusted publishing, and the bounded Messages.app comparison are green; exact-revision remote checks and a fresh direct-child sealed scan remain fail-closed publication gates |
 | `2.0.0-rc.1` | not started | requires every beta gate and public prerelease verification |
 | `2.0.0` | blocked by design gate | requires a seven-day release-candidate canary; it cannot be promoted on the beta implementation day |
 
@@ -18,16 +18,16 @@ Last updated: 2026-08-26
 | surface | result |
 | --- | --- |
 | host | macOS 26.5 arm64 |
-| supported Node matrix | Node 22.23.1, 24.19.0, and 26.7.0 each passed the full local `npm run verify` gate |
+| supported Node matrix | Node 22.22.3, 24.19.0, and 26.7.0 each passed the full local `npm run verify` gate |
 | TypeScript | green with `tsc --noEmit` |
-| fixture suite | 104 tests green, including lifecycle freshness, inode replacement, source budgets, privacy, decoder safety, immutable workflows, seven-tool semantics, and stable-package tamper rejection |
+| fixture suite | 109 tests green, including live-source alias rejection, lifecycle freshness, inode replacement, source budgets, privacy, decoder safety, immutable workflows, seven-tool semantics, and stable-package tamper rejection |
 | attributed-body decoding | 375 of 375 stratified live iMessage, SMS/MMS, and RCS bodies exactly matched Apple's populated text; attachment placeholders were excluded; no private values emitted |
 | built worker runtime | seven tools registered; deadlines wait for worker and native-child termination before a slot is reused |
 | synthetic screenshots | four PNGs regenerated from a temporary synthetic database and fake home path |
 | dependency and secret audit | zero vulnerabilities reported on Node 22, 24, and 26 full gates; a redacted whole-working-tree Gitleaks scan found no leaks |
 | installed package | packed tarball passed doctor, stdio MCP, package-content, Codex, Claude Desktop/Code, and Cursor isolated configuration checks |
 | transports | real MCP requests passed over stdio, authenticated stateless loopback HTTP, and a local Tailscale Serve-style reverse-proxy simulation |
-| remote candidate | signed commit `4a569c777c052e41e61dcff200b8eaf0d751d509` passed CodeQL, dependency/package audit, secret scan, macOS 14/15/26 with Node 22/24/26, Intel package smoke, and the million-message job |
+| historical remote candidate | signed commit `4a569c777c052e41e61dcff200b8eaf0d751d509` passed CodeQL, dependency/package audit, secret scan, macOS 14/15/26 with Node 22/24/26, Intel package smoke, and the million-message job; the repaired source must repeat those checks |
 | trusted publishing | npm accepted the exact `anipotts/imessage-mcp`, `release.yml`, `npm-release` OIDC tuple with `npm publish` permission; no long-lived npm token is used |
 | public 1.3.1 package | release run `33021458297` published with provenance from signed commit `e0ab712c79869cc0e484e019dbbc1a123dce2628`; a fresh macOS 14/Node 22 registry install reported 25 tools, exact attributed-body decoding, and rejected empty contact queries |
 
@@ -61,6 +61,8 @@ Standard scan `f4327f9d-f49b-497d-9927-2ef1b2f8664e` completed with zero reporta
 
 Standard scan `f4a16214-e26d-42f0-b65e-57d21291d39f` completed with zero reportable findings and complete 78-of-78-file coverage of signed revision `bd83154124108e0e2dc8497a77d164842d4e50c1`. Follow-up review then tightened HTTP concurrency placement, CodeQL integration, scan-producer pinning, and read-only documentation at `4a569c777c052e41e61dcff200b8eaf0d751d509`, so this scan is also historical. The release-authoritative result must be the canonical `security/scan` bundle in a signed direct child of the final source commit; the protected workflow verifies that relationship before publication.
 
+Standard scan `7d588236-f899-4bf8-840a-97be019a2bd1` covered all 78 files at signed revision `2fffb0d6c379d85c81693547bed3798651166601` and found one release blocker: a copied-database alias could resolve to the live Messages database after lexical source classification. The repaired source derives the trusted live path from the OS account, compares canonical main-file and WAL identities before SQLite opens, rejects symlinked or non-regular copy WAL sidecars including dangling links, and preserves ordinary copies plus aliases to non-live copies. Synthetic regressions cover direct and parent symlinks, hardlinks, future WAL targets, ordinary copies, and missing paths. That scan is historical and cannot authorize publication; a fresh zero-finding scan of the final signed source remains required.
+
 No stable claim will use the word complete while a known security or data-correctness defect remains.
 
 ## performance gates
@@ -91,8 +93,8 @@ The bounded live archive gate passed all seven tools with zero aggregate probe l
 
 The stable workflow is implemented and tested but cannot produce its protected attestation until `2.0.0-rc.1` has been public and fully exercised for seven days. Stable release gate: blocked pending that future canary.
 
-Prerelease release gate: passed. The tag remains mechanically blocked until its signed direct-child scan bundle has zero findings, complete repository coverage, the expected producer version, and a protected GitHub attestation.
+Prerelease release gate: passed. The tag remains mechanically blocked until exact-revision remote checks pass and its signed direct-child scan bundle has zero findings, complete repository coverage, the expected producer version, and a protected GitHub attestation.
 
 ## unsupported behavior
 
-The certification excludes iPhone backup manifests, Linux, containers, Docker, public-internet HTTP, Tailscale Funnel, OAuth, multiple client tokens, persistent decoded-body indexes, semantic search, watchers, stateful sessions, old edited text, recovered unsent text, removed-reaction history, and every send capability.
+The certification excludes iPhone backup manifests, Linux, containers, Docker, public-internet HTTP, Tailscale Funnel, OAuth, multiple client tokens, persistent decoded-body indexes, semantic search, watchers, stateful sessions, old edited text, recovered unsent text, removed-reaction history, every send capability, and adversarial database-path replacement by another process running as the same macOS account.

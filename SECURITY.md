@@ -28,6 +28,8 @@ Opaque references are encrypted and authenticated with an operator-controlled ke
 
 For `sync_messages`, a copied database is an immutable snapshot and is fingerprinted with its WAL before a cursor is accepted again. The live database assumes Messages is its sole writer. Live cursors bind structural relationships independently from body/lifecycle and receipt state. Recent content carries exact per-row state for a one-hour safety window, older content is fully hashed, and receipt comparisons are normalized to the cursor's checkpoint. Changes that do not fit the corresponding monotonic lifecycle fail closed. Direct database mutation by SQLite tools, migration utilities, or third-party software is unsupported; restart the server and establish a fresh cursor after any such operation.
 
+Copied sources are checked by canonical path and file identity before SQLite opens them. Aliases to the live Messages database or its WAL are rejected. The copied database, sidecars, and parent directory must remain controlled by the operator and unchanged while the server starts and runs. Adversarial path replacement by another process running as the same macOS account is outside the security boundary.
+
 ## public assets and git history
 
 Current screenshots and verification artifacts use a synthetic database and fake home path. Private-metadata assets replaced in newer commits can remain recoverable from repository Git history and existing clones. Removing them from the current tree does not erase old objects. This notice intentionally does not repeat those values.

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { homedir } from "node:os";
+import { userInfo } from "node:os";
 import path from "node:path";
 import type { PrivacyMode, ServiceFamily, Warning, Watermark } from "../contracts.js";
 import { makeBudget, serviceFamily } from "../contracts.js";
@@ -23,7 +23,10 @@ import {
   sqliteIntegerIsPositive,
   sqliteIntegerToken,
 } from "../time.js";
+
 import { resolveUniqueMessageGuids } from "./message-integrity.js";
+
+const ACCOUNT_HOME_DIRECTORY = userInfo().homedir;
 
 export type TimelineEventType = "message" | "retraction" | "participant_joined" | "participant_left" | "group_renamed" | "system_change";
 
@@ -279,7 +282,7 @@ function loadAttachments(
     const transferName = typeof row.transfer_name === "string" ? row.transfer_name : null;
     const publicName = transferName || filename;
     const absolutePath = filename?.startsWith("~/")
-      ? path.join(homedir(), filename.slice(2))
+      ? path.join(ACCOUNT_HOME_DIRECTORY, filename.slice(2))
       : filename && path.isAbsolute(filename) ? filename : null;
     const totalBytes = Number(row.total_bytes);
     if (row.total_bytes !== null && row.total_bytes !== undefined && (!Number.isSafeInteger(totalBytes) || totalBytes < 0)) {

@@ -166,6 +166,8 @@ Copied databases use handles and reject pairing with this Mac's live Contacts, w
 
 The canonical default path is certified as `live` whether it is selected implicitly or supplied explicitly with `--database`. Any other path is treated as a `copy`. A copied source is an immutable snapshot for `sync_messages`: the first call returns its latest cursor, unchanged follow-up calls stay empty, and any byte or database-watermark change returns `DATABASE_CHANGED`. Replace or update a copy only between server runs, then start with a fresh cursor.
 
+Keep copied database files and their parent directory under the operator's control and unchanged for the server process's lifetime.
+
 Database-scoped references survive server restarts and faithful copies only when they use both the same reference key and the same operator-assigned database identity. Generate a unique database identity for each live database or unrelated archive. Copy that identity only with certified faithful copies. If a reference key is accidentally reused with a different database identity, the resulting lineages and opaque references still differ. Losing or rotating either value invalidates existing references and cursors without changing Messages data.
 
 `IMESSAGE_REFERENCE_KEY_FILE` and `IMESSAGE_DATABASE_ID_FILE` are preferred. Direct inputs through `IMESSAGE_REFERENCE_KEY` and `IMESSAGE_DATABASE_ID` are available for process supervisors that already protect environment values. Set exactly one source for each value. The server never exposes the database identity. Each paginated traversal is frozen at its first database watermark, so new activity requires a fresh query or `sync_messages`.

@@ -1,6 +1,8 @@
 import { createHash, createHmac } from "node:crypto";
-import { existsSync, realpathSync, statSync } from "node:fs";
+import { existsSync, lstatSync, realpathSync, statSync } from "node:fs";
+import path from "node:path";
 import Database from "better-sqlite3";
+import { DEFAULT_DATABASE_PATH } from "./config.js";
 import type { CapabilityState, QueryBudget, SchemaCapabilities, Watermark } from "./contracts.js";
 import { ImessageMcpError } from "./errors.js";
 import { appleTimestampSortSql, sqliteIntegerBinding, sqliteIntegerToken } from "./time.js";
@@ -19,6 +21,112 @@ const RELEVANT_TABLES = [
 const MAX_SCHEMA_COLUMNS_PER_TABLE = 512;
 const MAX_SCHEMA_IDENTIFIER_BYTES = 512;
 const MAX_SCHEMA_METADATA_BYTES = 256 * 1024;
+
+type FileIdentity = { device: bigint; inode: bigint };
+
+interface ResolvedRegularFile {
+  canonicalPath: string;
+  identity: FileIdentity;
+}
+
+function inspectRegularFile(filePath: string): ResolvedRegularFile | null {
+  try {
+    const canonicalPath = realpathSync(filePath);
+    const stat = statSync(canonicalPath, { bigint: true });
+    if (!stat.isFile()) return null;
+    return { canonicalPath, identity: { device: stat.dev, inode: stat.ino } };
+  } catch {
+    return null;
+  }
+}
+
+function resolveRequiredRegularFile(filePath: string): ResolvedRegularFile {
+  let canonicalPath: string;
+  try {
+    canonicalPath = realpathSync(filePath);
+  } catch {
+    throw new ImessageMcpError("DATABASE_UNAVAILABLE", "Messages database path could not be resolved");
+  }
+  try {
+    const stat = statSync(canonicalPath, { bigint: true });
+    if (!stat.isFile()) throw new Error("not a regular file");
+    return { canonicalPath, identity: { device: stat.dev, inode: stat.ino } };
+  } catch {
+    throw new ImessageMcpError("DATABASE_UNAVAILABLE", "Messages database must resolve to a readable regular file");
+  }
+}
+
+function isSameFile(left: FileIdentity, right: FileIdentity): boolean {
+  return left.device === right.device && left.inode === right.inode;
+}
+
+function rejectLiveCopyAlias(): never {
+  throw new ImessageMcpError(
+    "INVALID_INPUT",
+    "copied Messages data must not resolve to this Mac's live Messages database",
+  );
+}
+
+function inspectCopiedWal(filePath: string): ResolvedRegularFile | null {
+  try {
+    const stat = lstatSync(filePath, { bigint: true });
+    if (!stat.isFile() || stat.isSymbolicLink()) {
+      throw new ImessageMcpError("INVALID_INPUT", "copied Messages database sidecars must be regular files");
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    if (error instanceof ImessageMcpError) throw error;
+    throw new ImessageMcpError("DATABASE_UNAVAILABLE", "copied Messages database sidecars could not be inspected safely");
+  }
+  const inspected = inspectRegularFile(filePath);
+  if (inspected === null) {
+    throw new ImessageMcpError("DATABASE_UNAVAILABLE", "copied Messages database sidecars could not be inspected safely");
+  }
+  return inspected;
+}
+
+function assertCopiedSourceBoundary(
+  canonicalPath: string,
+  identity: FileIdentity,
+  sourceMode: "live" | "copy",
+  liveDatabasePath: string,
+): void {
+  if (sourceMode !== "copy") return;
+
+  const liveLexicalPath = path.resolve(liveDatabasePath);
+  const liveDatabase = inspectRegularFile(liveLexicalPath);
+  if (
+    canonicalPath === liveLexicalPath ||
+    (liveDatabase !== null && (
+      canonicalPath === liveDatabase.canonicalPath ||
+      isSameFile(identity, liveDatabase.identity)
+    ))
+  ) {
+    rejectLiveCopyAlias();
+  }
+
+  const copiedWal = inspectCopiedWal(`${canonicalPath}-wal`);
+  if (copiedWal === null) return;
+
+  const liveWalPaths = new Set([
+    `${liveLexicalPath}-wal`,
+    `${liveDatabase?.canonicalPath ?? liveLexicalPath}-wal`,
+  ]);
+  for (const liveWalPath of liveWalPaths) {
+    const liveWal = inspectRegularFile(liveWalPath);
+    if (
+      copiedWal.canonicalPath === path.resolve(liveWalPath) ||
+      (liveWal !== null && isSameFile(copiedWal.identity, liveWal.identity))
+    ) {
+      rejectLiveCopyAlias();
+    }
+  }
+}
+
+export function assertCopiedDatabaseSourceBoundary(databasePath: string, liveDatabasePath: string): void {
+  const selected = resolveRequiredRegularFile(databasePath);
+  assertCopiedSourceBoundary(selected.canonicalPath, selected.identity, "copy", liveDatabasePath);
+}
 
 const REQUIRED: Record<string, string[]> = {
   message: ["ROWID", "guid", "handle_id", "date", "is_from_me"],
@@ -288,12 +396,10 @@ export class DatabaseContext {
     this.referenceKey = Buffer.from(referenceKey);
     this.databaseId = Buffer.from(databaseId);
     this.sourceMode = sourceMode;
-    try {
-      this.canonicalPath = realpathSync(databasePath);
-    } catch {
-      throw new ImessageMcpError("DATABASE_UNAVAILABLE", "Messages database path could not be resolved");
-    }
-    this.fileIdentity = this.readFileIdentity("DATABASE_UNAVAILABLE");
+    const selected = resolveRequiredRegularFile(databasePath);
+    this.canonicalPath = selected.canonicalPath;
+    this.fileIdentity = selected.identity;
+    assertCopiedSourceBoundary(this.canonicalPath, this.fileIdentity, sourceMode, DEFAULT_DATABASE_PATH);
     const observer = openReadonlyDatabase(this.canonicalPath);
     let queryConnection: Database.Database;
     try {
