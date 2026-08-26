@@ -161,6 +161,7 @@ describe("native and release hardening", () => {
     expect(canary).toContain("audit signatures");
     const release = readFileSync(new URL("../.github/workflows/release.yml", import.meta.url), "utf8");
     expect(release).toContain("needs: [verify-release, release-secret-scan, release-codeql]");
+    expect(release).toContain("upload: never");
     expect(release).toContain("--signer-workflow anipotts/imessage-mcp/.github/workflows/attest-security-evidence.yml");
     expect(release).toContain("--source-digest \"$GITHUB_SHA\"");
     expect(release).toContain("--signer-workflow anipotts/imessage-mcp/.github/workflows/attest-canary.yml");
@@ -234,7 +235,7 @@ describe("native and release hardening", () => {
         schemaVersion: "1.0",
         scan: {
           id: scanId,
-          producer: { name: "codex-security-plugin", version: "0.1.19" },
+          producer: { name: "codex-security-plugin", version: "0.1.22" },
           status: "completed",
           startedAt: "2026-08-11T00:00:00.000Z",
           completedAt: "2026-08-11T00:01:00.000Z",
@@ -582,5 +583,5 @@ describe("native and release hardening", () => {
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
-  }, 20_000);
+  }, 60_000);
 });

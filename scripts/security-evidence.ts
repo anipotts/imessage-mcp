@@ -15,7 +15,7 @@ const SCAN_PATHS = [
 const MAX_MANIFEST_BYTES = 16 * 1024 * 1024;
 const MAX_FINDINGS_BYTES = 128 * 1024 * 1024;
 const MAX_COVERAGE_BYTES = 32 * 1024 * 1024;
-const EXPECTED_SCAN_PRODUCER = "codex-security-plugin@0.1.19";
+const EXPECTED_SCAN_PRODUCER = "codex-security-plugin@0.1.22";
 
 interface SecurityEvidence {
   schema_version: 3;

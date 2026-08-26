@@ -273,20 +273,6 @@ export async function startHttp(runtime: ToolRuntime): Promise<void> {
       return;
     }
 
-    let parsedBody: unknown;
-    try {
-      parsedBody = await readJsonBody(req);
-      if (Array.isArray(parsedBody)) {
-        throw new ImessageMcpError("INVALID_INPUT", "JSON-RPC batch requests are not supported");
-      }
-    } catch (error) {
-      const reason = error instanceof ImessageMcpError ? error.reason : "INVALID_INPUT";
-      const status = reason === "QUERY_BUDGET_EXCEEDED" ? 413 : 400;
-      process.stderr.write(JSON.stringify({ transport: "http", status: "error", reason }) + "\n");
-      if (!res.headersSent) rejectAndClose(req, res, status, { error: { reason } });
-      return;
-    }
-
     const release = requests.tryAcquire();
     if (!release) {
       rejectAndClose(req, res, 429, {
@@ -295,6 +281,10 @@ export async function startHttp(runtime: ToolRuntime): Promise<void> {
       return;
     }
     try {
+      const parsedBody = await readJsonBody(req);
+      if (Array.isArray(parsedBody)) {
+        throw new ImessageMcpError("INVALID_INPUT", "JSON-RPC batch requests are not supported");
+      }
       const webRequest = toWebRequest(req, parsedBody);
       const authInfo: AuthInfo = {
         token: "redacted",

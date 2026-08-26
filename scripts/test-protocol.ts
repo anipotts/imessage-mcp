@@ -411,7 +411,7 @@ async function runHttp(fixture: Fixture): Promise<void> {
       authorization: `Bearer ${token}`,
       "content-type": "application/json",
     }, "{}");
-    assert.equal(saturated, 400);
+    assert.equal(saturated, 429);
     slowA.request.destroy();
     slowB.request.destroy();
     await Promise.all([slowA.status, slowB.status]);

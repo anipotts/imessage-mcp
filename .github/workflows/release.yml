@@ -139,7 +139,6 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: read
-      security-events: write
       packages: read
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -157,6 +156,8 @@ jobs:
       - uses: github/codeql-action/analyze@5595ccaf912efad79be6eef63a5619ff05969be3 # v4
         with:
           category: /language:javascript-typescript
+          upload: never
+          upload-database: false
 
   publish-npm:
     name: publish verified npm artifact

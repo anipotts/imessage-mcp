@@ -47,9 +47,9 @@ imessage-mcp doctor
 
 This exact version installs the 2.0 prerelease. Upgrade only by explicitly selecting a newer exact version. The stable setup will remain version-pinned so an existing Full Disk Access client never begins executing a different package only because an npm dist-tag moved.
 
-The default transport is stdio. It reads `~/Library/Messages/chat.db` and uses unified Contacts when the live Contacts permission is already available. Both files are mandatory, must be independently generated operator-owned `0600` regular files, and are never written by the server.
+The default transport is stdio. It reads `~/Library/Messages/chat.db` and uses unified Contacts when the live Contacts permission is already available. A reference key and a separate database identity are mandatory. Operator-owned `0600` files are preferred; protected process environments may supply the values directly. The server never writes either value.
 
-The server never opens System Settings, requests a permission through UI automation, changes Messages settings, or writes a database pragma. `doctor` reports remediation only.
+The server never opens System Settings, requests a permission through UI automation, changes Messages settings, or persists a database change. It sets connection-local `query_only` and timeout pragmas after opening SQLite read-only. `doctor` reports remediation only.
 
 ## privacy modes
 
