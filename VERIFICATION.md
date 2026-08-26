@@ -2,7 +2,7 @@
 
 This report contains only synthetic, aggregate, or redacted evidence. It does not retain message text, contact values, database paths, tokens, or screenshots from a live archive.
 
-Last updated: 2026-08-15
+Last updated: 2026-08-26
 
 ## release state
 
@@ -20,7 +20,7 @@ Last updated: 2026-08-15
 | host | macOS 26.5 arm64 |
 | supported Node matrix | Node 22.23.1, 24.19.0, and 26.7.0 each passed the full local `npm run verify` gate |
 | TypeScript | green with `tsc --noEmit` |
-| fixture suite | 95 tests green, including lifecycle freshness, inode replacement, source budgets, privacy, decoder safety, immutable workflows, seven-tool semantics, and stable-package tamper rejection |
+| fixture suite | 104 tests green, including lifecycle freshness, inode replacement, source budgets, privacy, decoder safety, immutable workflows, seven-tool semantics, and stable-package tamper rejection |
 | attributed-body decoding | 375 of 375 stratified live iMessage, SMS/MMS, and RCS bodies exactly matched Apple's populated text; attachment placeholders were excluded; no private values emitted |
 | built worker runtime | seven tools registered; deadlines wait for worker and native-child termination before a slot is reused |
 | synthetic screenshots | four PNGs regenerated from a temporary synthetic database and fake home path |
@@ -64,17 +64,17 @@ The mixed-service one-million-message synthetic fixture passed on macOS 26.5 arm
 
 | measurement | result | gate |
 | --- | ---: | ---: |
-| fixture construction | 3.953 s | informational |
-| bounded startup | 7.371 s | informational |
+| fixture construction | 4.013 s | informational |
+| bounded startup | 7.725 s | informational |
 | `server_status` | 3 ms | under 1 s |
-| `list_conversations` | 11 ms | under 1 s |
+| `list_conversations` | 12 ms | under 1 s |
 | initial `sync_messages` cursor | 1 ms | under 1 s |
-| complete cold index | 23.911 s | under 60 s |
-| warm substring search | 10 ms | under 2 s |
-| one-character substring search | 93 ms | under 2 s |
-| two authenticated HTTP clients | 32 ms | stable and under 2 s |
+| complete cold index | 22.511 s | under 60 s |
+| warm substring search | 6 ms | under 2 s |
+| one-character substring search | 97 ms | under 2 s |
+| two authenticated HTTP clients | 22 ms | stable and under 2 s |
 | index memory | 355,192,832 bytes | at or below 536,870,912 bytes |
-| process RSS delta | 398,835,712 bytes | informational |
+| process RSS delta | 560,545,792 bytes | informational |
 
 ## client and transport gates
 

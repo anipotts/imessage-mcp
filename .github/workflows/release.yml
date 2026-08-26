@@ -30,8 +30,7 @@ jobs:
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
-          cache: npm
-          package-manager-cache: true
+          package-manager-cache: false
       - run: npm ci
       - id: version
         name: verify tag and version-bound release gate
@@ -152,8 +151,7 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 24
-          cache: npm
-          package-manager-cache: true
+          package-manager-cache: false
       - run: npm ci
       - run: npm run build
       - uses: github/codeql-action/analyze@5595ccaf912efad79be6eef63a5619ff05969be3 # v4
@@ -180,6 +178,13 @@ jobs:
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - name: verify trusted-publishing runtime
+        shell: bash
+        run: |
+          node -e "const [major, minor] = process.versions.node.split('.').map(Number); if (major < 22 || (major === 22 && minor < 14)) process.exit(1)"
+          NPM_VERSION=$(npm --version)
+          node -e "const [major, minor, patch] = process.argv[1].split('.').map(Number); if (major < 11 || (major === 11 && (minor < 5 || (minor === 5 && patch < 1)))) process.exit(1)" "$NPM_VERSION"
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: verified-release-${{ needs.verify-release.outputs.version }}
@@ -225,6 +230,7 @@ jobs:
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
+          package-manager-cache: false
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: verified-release-${{ needs.publish-npm.outputs.version }}

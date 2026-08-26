@@ -65,9 +65,11 @@ assert.deepEqual(registered.sort(), [
   "sync_messages",
 ]);
 
-assert.match(readme, /read-only MCP for iMessage, SMS, MMS, and RCS history in Apple Messages on Mac\./u);
-assert.match(readme, /Android-originated SMS, MMS, and RCS are available only when those conversations already appear/u);
-assert.match(readme, /Every 2\.x release is strictly read-only/u);
+assert.match(readme, /Private, read-only MCP for Apple Messages on Mac\./u);
+assert.match(readme, /Search and analyze iMessage, SMS, MMS, and RCS history\./u);
+assert.match(readme, /Your MCP client controls where tool results are processed\./u);
+assert.match(readme, /SMS, MMS, and RCS with Android users work only when those conversations already appear/u);
+assert.match(readme, /Every 2\.x tool reads data only\./u);
 assert.match(readme, /IMESSAGE_REFERENCE_KEY_FILE/u);
 assert.match(readme, /IMESSAGE_DATABASE_ID_FILE/u);
 const documentedVersions = [...readme.matchAll(/imessage-mcp@([0-9][0-9A-Za-z.-]*)/gu)].map((match) => match[1]);

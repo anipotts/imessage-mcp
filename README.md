@@ -1,11 +1,14 @@
 # imessage-mcp
 
-read-only MCP for iMessage, SMS, MMS, and RCS history in Apple Messages on Mac.
+Private, read-only MCP for Apple Messages on Mac.<br>
+Search and analyze iMessage, SMS, MMS, and RCS history.
 
-`imessage-mcp` gives MCP clients a bounded, privacy-aware view of message history that is already present in `Messages.app` on the same Mac. Every 2.x release is strictly read-only. It cannot send, edit, retract, react to, or delete a message.
+The server runs locally, collects no telemetry, and keeps its search index in memory. Your MCP client controls where tool results are processed.
+
+Every 2.x tool reads data only. Sending and modifying messages are outside the 2.x API.
 
 > [!IMPORTANT]
-> Android-originated SMS, MMS, and RCS are available only when those conversations already appear in Apple Messages on this Mac. Apple requires the iPhone and Mac to use the same Apple Account with Messages in iCloud or Text Message Forwarding configured. RCS and forwarding also depend on carrier and regional availability. See [Apple's Messages setup guide](https://support.apple.com/en-euro/guide/messages/ichte16154fb/mac).
+> SMS, MMS, and RCS with Android users work only when those conversations already appear in Messages on this Mac. Message forwarding or sync must be configured between the iPhone and Mac, subject to Apple, carrier, and regional availability. See [Apple's Messages setup guide](https://support.apple.com/en-euro/guide/messages/ichte16154fb/mac).
 
 ![synthetic imessage-mcp output](assets/demo-light.png)
 
@@ -292,6 +295,12 @@ npm run test:installed
 Release gates run the packed tarball through real stdio and authenticated stateless HTTP requests. Sanitized fixtures cover supported Mac schemas, service transitions, incoming-only chats, ambiguous contacts, attachments, edits, retractions, reactions, receipts, replies, group events, Unicode, malformed bodies, DST boundaries, and database changes during pagination.
 
 See [VERIFICATION.md](VERIFICATION.md) for the current public verification record and [SECURITY.md](SECURITY.md) for the disclosure policy.
+
+## migrating from 1.x
+
+2.0 is a clean API break. It requires macOS 14 or newer and Node.js 22, 24, or 26, and exposes only the seven tools listed above. The 1.x aliases, dump/export command, watcher, legacy SSE transport, Docker path, prompts, resources, and bundled plugin skills are removed.
+
+2.0 replaces raw database identifiers with database-scoped opaque references and adds `full`, `redacted`, and `aggregate` privacy ceilings. Install an exact 2.x version and update client configuration to provide independently generated reference-key and database-identity files. Existing 1.x configuration and cursors do not migrate.
 
 ## release policy
 

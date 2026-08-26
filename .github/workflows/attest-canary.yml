@@ -26,8 +26,7 @@ jobs:
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
-          cache: npm
-          package-manager-cache: true
+          package-manager-cache: false
       - run: npm ci
       - id: release
         name: verify stable state and retrieve exact security evidence
