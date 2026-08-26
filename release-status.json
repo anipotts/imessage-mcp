@@ -1,10 +1,10 @@
 {
   "schema_version": 4,
   "subject_version": "2.0.0-beta.1",
-  "prerelease_ready": false,
+  "prerelease_ready": true,
   "security_scan": {
-    "authority": "external_signed_commit",
-    "status": "external_attestation_required"
+    "authority": "signed_evidence_commit",
+    "status": "enforced_by_release_workflow"
   },
   "prerelease_gates": {
     "seven_tools": true,
