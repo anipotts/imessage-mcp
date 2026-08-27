@@ -36,7 +36,7 @@ The supported inputs are a live Mac `chat.db` and a faithful copy of that same M
 ## install
 
 ```sh
-npm install -g imessage-mcp@2.0.0-beta.1
+npm install -g imessage-mcp@2.0.0-beta.2
 umask 077
 openssl rand -base64 32 > "$HOME/.imessage-mcp-reference-key"
 openssl rand -base64 32 > "$HOME/.imessage-mcp-database-id"
@@ -72,7 +72,7 @@ Set a stricter ceiling at startup:
   "mcpServers": {
     "imessage": {
       "command": "npx",
-      "args": ["-y", "imessage-mcp@2.0.0-beta.1"],
+      "args": ["-y", "imessage-mcp@2.0.0-beta.2"],
       "env": {
         "IMESSAGE_PRIVACY": "redacted",
         "IMESSAGE_REFERENCE_KEY_FILE": "/Users/you/.imessage-mcp-reference-key",
@@ -108,7 +108,7 @@ Add the server through Codex MCP settings or the CLI:
 ```sh
 codex mcp add --env IMESSAGE_REFERENCE_KEY_FILE="$HOME/.imessage-mcp-reference-key" \
   --env IMESSAGE_DATABASE_ID_FILE="$HOME/.imessage-mcp-database-id" \
-  imessage -- npx -y imessage-mcp@2.0.0-beta.1
+  imessage -- npx -y imessage-mcp@2.0.0-beta.2
 ```
 
 Grant Full Disk Access to the Codex application that launches the process, then restart that application.
@@ -122,7 +122,7 @@ Add this entry to Claude Desktop's MCP configuration:
   "mcpServers": {
     "imessage": {
       "command": "npx",
-      "args": ["-y", "imessage-mcp@2.0.0-beta.1"],
+      "args": ["-y", "imessage-mcp@2.0.0-beta.2"],
       "env": {
         "IMESSAGE_REFERENCE_KEY_FILE": "/Users/you/.imessage-mcp-reference-key",
         "IMESSAGE_DATABASE_ID_FILE": "/Users/you/.imessage-mcp-database-id"
@@ -139,7 +139,7 @@ Grant Full Disk Access to Claude Desktop, restart it, and run `server_status`.
 ```sh
 claude mcp add imessage -e IMESSAGE_REFERENCE_KEY_FILE="$HOME/.imessage-mcp-reference-key" \
   -e IMESSAGE_DATABASE_ID_FILE="$HOME/.imessage-mcp-database-id" \
-  -- npx -y imessage-mcp@2.0.0-beta.1
+  -- npx -y imessage-mcp@2.0.0-beta.2
 ```
 
 ### cursor

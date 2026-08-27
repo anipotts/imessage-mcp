@@ -195,8 +195,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          TARBALL="release-artifact/${{ needs.verify-release.outputs.tarball }}"
+          TARBALL="./release-artifact/${{ needs.verify-release.outputs.tarball }}"
           EVIDENCE="release-artifact/security-evidence.json"
+          test -f "$TARBALL"
           gh attestation verify "$EVIDENCE" --repo "$GITHUB_REPOSITORY" \
             --signer-workflow anipotts/imessage-mcp/.github/workflows/attest-security-evidence.yml \
             --source-digest "$GITHUB_SHA" --deny-self-hosted-runners

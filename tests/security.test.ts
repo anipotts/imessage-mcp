@@ -175,6 +175,8 @@ describe("native and release hardening", () => {
       .not.toMatch(/npm run (?:verify|test:performance)/u);
     const npmJob = release.slice(release.indexOf("  publish-npm:"), release.indexOf("  verify-public-npm:"));
     expect(npmJob).toContain("attestations: read");
+    expect(npmJob).toContain('TARBALL="./release-artifact/${{ needs.verify-release.outputs.tarball }}"');
+    expect(npmJob).toContain('test -f "$TARBALL"');
     expect(npmJob.match(/gh attestation verify/gu)).toHaveLength(3);
     expect(npmJob.indexOf("gh attestation verify")).toBeLessThan(npmJob.indexOf("npm publish"));
     expect(npmJob.indexOf("attest-canary.yml")).toBeLessThan(npmJob.indexOf("--tag latest"));

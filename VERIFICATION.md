@@ -9,7 +9,8 @@ Last updated: 2026-08-26
 | release | state | evidence boundary |
 | --- | --- | --- |
 | `1.3.1` | published and verified | npm `latest`, GitHub release, and MCP Registry agree on `1.3.1`; the public tarball reproduced the attributed-body and contact fixes before issues #5 and #6 closed |
-| `2.0.0-beta.1` | repaired source candidate, not yet published | local candidate gates, trusted publishing, and the bounded Messages.app comparison are green; exact-revision remote checks and a fresh direct-child sealed scan remain fail-closed publication gates |
+| `2.0.0-beta.1` | tagged, not published | all exact-revision prepublication gates passed, but npm rejected an ambiguous relative tarball argument before upload; the signed tag and failed workflow remain immutable evidence |
+| `2.0.0-beta.2` | release candidate, not yet published | carries identical runtime code with a corrected explicit local tarball path and must repeat the exact-revision scan, attestation, package, client, and public-artifact gates |
 | `2.0.0-rc.1` | not started | requires every beta gate and public prerelease verification |
 | `2.0.0` | blocked by design gate | requires a seven-day release-candidate canary; it cannot be promoted on the beta implementation day |
 
@@ -27,7 +28,7 @@ Last updated: 2026-08-26
 | dependency and secret audit | zero vulnerabilities reported on Node 22, 24, and 26 full gates; a redacted whole-working-tree Gitleaks scan found no leaks |
 | installed package | packed tarball passed doctor, stdio MCP, package-content, Codex, Claude Desktop/Code, and Cursor isolated configuration checks |
 | transports | real MCP requests passed over stdio, authenticated stateless loopback HTTP, and a local Tailscale Serve-style reverse-proxy simulation |
-| historical remote candidate | signed commit `4a569c777c052e41e61dcff200b8eaf0d751d509` passed CodeQL, dependency/package audit, secret scan, macOS 14/15/26 with Node 22/24/26, Intel package smoke, and the million-message job; the repaired source must repeat those checks |
+| exact beta.1 candidate | signed source `a7ede194e6f20436cc08e27621cbfed825969684` passed the full local gate on Node 22, 24, and 26; its signed evidence child `49b196bc5b3b8c1a80c7f35aac86bd2bcee43404` passed all 17 pull-request checks plus protected security attestation run `33027523175` |
 | trusted publishing | npm accepted the exact `anipotts/imessage-mcp`, `release.yml`, `npm-release` OIDC tuple with `npm publish` permission; no long-lived npm token is used |
 | public 1.3.1 package | release run `33021458297` published with provenance from signed commit `e0ab712c79869cc0e484e019dbbc1a123dce2628`; a fresh macOS 14/Node 22 registry install reported 25 tools, exact attributed-body decoding, and rejected empty contact queries |
 
@@ -64,6 +65,8 @@ Standard scan `f4a16214-e26d-42f0-b65e-57d21291d39f` completed with zero reporta
 Standard scan `7d588236-f899-4bf8-840a-97be019a2bd1` covered all 78 files at signed revision `2fffb0d6c379d85c81693547bed3798651166601` and found one release blocker: a copied-database alias could resolve to the live Messages database after lexical source classification. The repaired source derives the trusted live path from the OS account, compares canonical main-file and WAL identities before SQLite opens, rejects symlinked or non-regular copy WAL sidecars including dangling links, and preserves ordinary copies plus aliases to non-live copies. Synthetic regressions cover direct and parent symlinks, hardlinks, future WAL targets, ordinary copies, and missing paths. That scan is historical and cannot authorize publication; a fresh zero-finding scan of the final signed source remains required.
 
 Standard scan `981aad1d-eb9a-476b-8f20-45dae174ab18` completed with zero findings and complete 78-of-78-file coverage of signed revision `5f35345a1b807c2eddac72be277b5dc9ad1e457f`. Its stable copy-to-live database and WAL alias controls passed independent review. That review also identified a non-security diagnostic mismatch: for a supported symlink-selected copy, `doctor` described the lexical WAL sibling instead of the canonical WAL SQLite read. The candidate now derives the displayed WAL check from the successfully validated canonical database path and includes a live-WAL synthetic regression. The zero-finding scan is therefore historical; the final signed source must repeat it before publication.
+
+Standard scan `e4eff6f1-9192-4fb3-a085-e3c4d9a83bc4` completed with zero findings and complete 78-of-78-file coverage of signed revision `a7ede194e6f20436cc08e27621cbfed825969684`. Signed evidence child `49b196bc5b3b8c1a80c7f35aac86bd2bcee43404` contains the canonical scan bundle, and protected workflow run `33027523175` attested both the evidence and exact package bytes. Release run `33028109456` repeated the package, performance, secret, and CodeQL gates, then failed before publication because npm parsed `release-artifact/imessage-mcp-2.0.0-beta.1.tgz` as a GitHub shorthand instead of a local file. Beta.2 changes the release argument to an explicit `./release-artifact/...` path; its own direct-child scan and attestation remain mandatory.
 
 No stable claim will use the word complete while a known security or data-correctness defect remains.
 

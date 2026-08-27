@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.0.0-beta.2] - 2026-08-26
+
+### Fixed
+- Trusted publication now passes npm an explicit local tarball path, preventing npm from interpreting the verified artifact path as a Git repository.
+
 ## [2.0.0-beta.1] - 2026-08-11
 
 ### Added
