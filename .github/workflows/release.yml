@@ -247,6 +247,9 @@ jobs:
     permissions:
       contents: read
     steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 24
@@ -272,9 +275,8 @@ jobs:
           npm install --prefix "$SCRATCH" --omit=dev --no-audit --no-fund "imessage-mcp@${VERSION}"
           "$SCRATCH/node_modules/.bin/imessage-mcp" --version
           npm ls --prefix "$SCRATCH" --omit=dev --all --json > public-runtime-graph.json
-          tar -xOf public.tgz package/npm-shrinkwrap.json > published-shrinkwrap.json
-          tar -xOf public.tgz package/dist/verify-installed-graph.js > verify-installed-graph.js
-          node verify-installed-graph.js "$SCRATCH" published-shrinkwrap.json
+          node "$SCRATCH/node_modules/imessage-mcp/dist/verify-installed-graph.js" \
+            "$SCRATCH" package-lock.json
 
   publish-registry:
     if: github.event_name == 'push'
@@ -621,9 +623,10 @@ jobs:
           npm install --prefix "$SCRATCH" --omit=dev --no-audit --no-fund \
             "imessage-mcp@${TARGET_VERSION}"
           test "$("$SCRATCH/node_modules/.bin/imessage-mcp" --version)" = "$TARGET_VERSION"
-          tar -xOf "$RUNNER_TEMP/public.tgz" package/npm-shrinkwrap.json \
-            > "$RUNNER_TEMP/published-shrinkwrap.json"
-          npx tsx src/verify-installed-graph.ts "$SCRATCH" "$RUNNER_TEMP/published-shrinkwrap.json"
+          git show "${EVIDENCE_COMMIT}:package-lock.json" \
+            > "$RUNNER_TEMP/reviewed-package-lock.json"
+          node "$SCRATCH/node_modules/imessage-mcp/dist/verify-installed-graph.js" \
+            "$SCRATCH" "$RUNNER_TEMP/reviewed-package-lock.json"
           npm --prefix "$SCRATCH" audit signatures
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
