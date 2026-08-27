@@ -173,6 +173,11 @@ describe("2.0 data and query core", () => {
         status: "pass",
         detail: "active WAL is readable",
       });
+      expect(result.checks.find((check) => check.name === "contacts")).toEqual({
+        name: "contacts",
+        status: "pass",
+        detail: "disabled by --contacts none; using handles only",
+      });
     } finally {
       stdout.mockRestore();
       writer.close();
