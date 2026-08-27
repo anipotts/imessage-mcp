@@ -90,6 +90,21 @@ async function main(): Promise<void> {
     assert.ok(installedNodes <= 12, "vanilla installed dependency graph must remain bounded");
     assert.ok(installedBytes < 128 * 1024 * 1024,
       "vanilla installed dependency graph must remain below 128 MiB");
+    const installedRoot = path.join(install, "node_modules", "imessage-mcp");
+    const installedReadme = readFileSync(path.join(installedRoot, "README.md"), "utf8");
+    const installedSecurity = readFileSync(path.join(installedRoot, "SECURITY.md"), "utf8");
+    const installedTools = readFileSync(path.join(installedRoot, "dist", "tools.js"), "utf8");
+    for (const value of [installedReadme, installedSecurity, installedTools]) {
+      assert.match(value, /untrusted archival data/u);
+      assert.match(value, /do(?:es)? not eliminate prompt injection/u);
+    }
+    assert.match(installedReadme, /model provider processes or retains returned results/u);
+    const installedMcp = JSON.parse(readFileSync(path.join(installedRoot, ".mcp.json"), "utf8")) as {
+      mcpServers: Record<string, { args: string[] }>;
+    };
+    assert.deepEqual(Object.keys(installedMcp.mcpServers), ["imessage-history"]);
+    assert.deepEqual(installedMcp.mcpServers["imessage-history"].args.slice(-4),
+      ["--contacts", "none", "--privacy", "redacted"]);
     const binary = path.join(install, "node_modules", ".bin", "imessage-mcp");
     assert.equal(execFileSync(binary, ["--version"], { cwd: install, encoding: "utf8" }).trim(), packageVersionValue);
     for (const args of [["--help"], ["-h"], ["help"]]) {
