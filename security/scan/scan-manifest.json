@@ -5,21 +5,21 @@
       {
         "mediaType": "application/json",
         "path": "findings.json",
-        "sha256": "d3474ec90814569b522e534c617d23c7cc284331a7229ef3a0236fc454ef000c"
+        "sha256": "6aaa35b5f9dad4431bf3cc9bc8e1fee8030b3339d51b146346fb355ee6fd754e"
       },
       {
         "mediaType": "application/json",
         "path": "coverage.json",
-        "sha256": "2e37bc415e365994739566060837ec360f507574ccc35ce493a6d01437797b79"
+        "sha256": "f2a57174d4f7ba4808fb910b0e4db0298c78c5fca6cdb292930759ff26d8298b"
       }
     ],
-    "completedAt": "2026-08-27T16:39:04.881197Z",
+    "completedAt": "2026-08-27T20:07:05.771164Z",
     "coverageRef": "coverage.json",
     "findingsRef": "findings.json",
-    "id": "7043a2c4-89b3-4bd4-9c8d-b48b851b83d9",
+    "id": "ecdc5ce0-c355-4292-a182-4c5d129e425c",
     "preservedSources": {
-      "checkpoints/1915ec6878382d990325dfc0517a65594b403dbfecad98e3148e54dbd2d598f3.json": "1915ec6878382d990325dfc0517a65594b403dbfecad98e3148e54dbd2d598f3",
-      "checkpoints/a55a1d122eac8210eed19fc82901c61176a53bf4179ca3191c798490b12b3b51.json": "e7268fb65fb11be1b484d525734f901fcce7b28ed7709ff88f42654b180c16df"
+      "checkpoints/a9d82ef49abc17d548c2618d010166c57665782ba6fcc5b941b55f12ab63755c.json": "b64037199d7572be22a762b35eca96964b4cfae8c932f91f6045eaaf86b4df67",
+      "checkpoints/f109fd12fa41d25241518c8dd422c8380e4d91689255af7927a87e3dc9747c97.json": "f109fd12fa41d25241518c8dd422c8380e4d91689255af7927a87e3dc9747c97"
     },
     "producer": {
       "name": "codex-security-plugin",
@@ -110,68 +110,78 @@
         "tsconfig.json",
         "vitest.config.ts"
       ],
-      "context": "Full prior review plus exact delta review and successful release-gate/metadata reproduction.",
       "excludePaths": [],
       "includePaths": [
         "."
       ],
       "limitations": [
-        "Independent deep-scan variance reduction remained unavailable because the desktop parent lacked a managed filesystem permission profile.",
-        "No private live Messages or Contacts data was retained.",
-        "Future Apple schemas and provider behavior are outside this bounded evidence."
+        "Independent Deep Scan variance reduction was unavailable because the desktop parent lacks the required managed filesystem permission profile.",
+        "External provider protection and identity state remain publication-time controls.",
+        "No private Messages or Contacts values were retained."
       ],
-      "runtimeStatus": "complete",
-      "summary": "Complete standard review of exact signed beta.3 source 8b350f5b23b98422aca6743f771b7b720756d408 and all 82 tracked artifacts, revalidating the prior exact full-tree scan after one documentation-only correction.",
-      "validationMode": "Sequential parent review, exact documentation diff, prior full-tree source review, and executed release/metadata gates."
+      "runtimeStatus": "Node 24 full verification passed: 112 tests, seven tools over stdio and authenticated HTTP, installed tarball, clean-room redacted first run, exact metadata/package content, and zero npm advisories.",
+      "summary": "Complete Standard review of exact signed 2.0.0-rc.1 source 9c4a5b8e73f7ac7dd2f7ce20f1237ac689bcb12c and all 82 tracked artifacts.",
+      "validationMode": "Sequential exact-source parent review, independent static baseline, exact delta reconciliation, prior sealed scan as historical routing input only, and executed supported-runtime release gates."
     },
-    "sealedAt": "2026-08-27T16:39:04.881197Z",
-    "startedAt": "2026-08-27T16:38:03.084369Z",
+    "sealedAt": "2026-08-27T20:07:05.771164Z",
+    "startedAt": "2026-08-27T20:05:53.537904Z",
     "status": "completed",
     "target": {
       "displayName": "imessage-mcp",
       "kind": "git_revision",
-      "revision": "8b350f5b23b98422aca6743f771b7b720756d408",
+      "revision": "9c4a5b8e73f7ac7dd2f7ce20f1237ac689bcb12c",
       "targetId": "target_sha256_91a5cfb7b3d17e1fa8fb342de4bf5e1ed933375ae15ffb07b6229c2a5086c983"
     },
     "threatModel": {
       "assets": [
-        "Messages and lifecycle state",
-        "Contacts and handles",
-        "Conversation and attachment metadata",
-        "Database/WAL",
-        "Reference, lineage, and HTTP secrets",
-        "Release artifacts and provenance"
+        "Messages bodies and visible lifecycle state",
+        "Contacts, handles, group titles, URLs, attachment metadata and paths",
+        "Messages database, WAL, copied archives, schema and lineage",
+        "Launching client Full Disk Access and Contacts authorization",
+        "Reference, database identity, masking, and HTTP secrets plus authenticated cursors",
+        "Decoded bodies and memory-only search indexes",
+        "Privacy, diagnostic, and read-only guarantees",
+        "Signed source, scan evidence, package bytes, dependency lock, OIDC identities, Registry and release provenance"
       ],
       "assumptions": [
-        "Supported macOS and Node only",
-        "Operator protects launching client and 0600 files",
-        "Tailscale terminates TLS",
-        "Same-account arbitrary code execution is outside scope",
-        "Prompt guidance cannot control downstream processing"
+        "Supported macOS 14+ and Node 22, 24, or 26 only",
+        "Operator deliberately grants Full Disk Access to the launching client and protects 0600 secrets",
+        "Messages is the sole live writer; copied files and parent directory stay operator-controlled",
+        "Tailscale, GitHub environments, signer, OIDC, npm publisher, Registry, and immutability settings are external controls",
+        "Same-account arbitrary code execution and adversarial filesystem micro-races are outside the isolation claim",
+        "Prompt guidance cannot control downstream clients or providers",
+        "Fixtures and screenshots are synthetic; live parity retains no private values",
+        "Prior beta scan is historical input; this scan binds exact RC source"
       ],
       "attackerCapabilities": [
-        "Controls archival data",
-        "Sends malformed or oversized requests",
-        "Attempts unauthorized loopback access",
-        "Mutates local database state",
-        "Attempts package or provenance substitution"
+        "Authorized caller submits malformed or schema-valid requests",
+        "Unauthenticated local process probes loopback HTTP",
+        "Copied archive provider controls database-derived strings, blobs, relationships, paths, and sidecars",
+        "Archived participant places prompt-injection text, links, and commands in history fields",
+        "Contributor proposes source, workflow, manifest, or dependency changes without protected-provider authority",
+        "Downstream client or model provider controls processing and retention after disclosure"
       ],
       "securityObjectives": [
-        "Strict read-only operation",
-        "Privacy-ceiling enforcement",
-        "Archive data never treated as instruction",
-        "Fail-closed bounds and integrity",
-        "Authenticated bounded HTTP",
-        "Exact signed release lineage"
+        "Keep all seven 2.x tools strictly read-only",
+        "Prevent SQL, shell, deserialization, path-alias, cursor/reference, and cross-lineage attacks",
+        "Fail closed on unsupported schema, decoding, database changes, resource budgets, and provenance mismatches",
+        "Never relax the startup privacy ceiling and remove prohibited fields in stricter modes",
+        "Treat all archival strings as untrusted without claiming prompt-injection elimination",
+        "Authenticate HTTP before parsing and enforce loopback, authority, size, rate, concurrency, and deadline limits",
+        "Keep decoded search state memory-only and bounded",
+        "Bind publication to exact signed source, complete zero-finding scan, exact package/provenance agreement, and seven-day canary"
       ],
-      "summary": "Local read-only macOS MCP serving sensitive Messages history over stdio or authenticated loopback HTTP; risks include confidentiality, correctness, archival prompt injection, native decoding, database races, resource exhaustion, and release substitution.",
+      "summary": "At exact signed revision 9c4a5b8e73f7ac7dd2f7ce20f1237ac689bcb12c, imessage-mcp 2.0.0-rc.1 is a macOS-only seven-tool read-only MCP. The launching client supplies Full Disk Access and starts stdio or authenticated loopback HTTP. Bounded workers open a canonical live or copied Apple Messages SQLite database readonly with query_only; optional unified Contacts and a fixed Foundation/JXA decoder are local dependencies; decoded search state remains memory-only. Results cross a startup privacy ceiling before reaching the client, and all database-derived strings are untrusted archival data. Publication separately requires signed exact-source scan evidence, protected attestations, npm OIDC provenance, Registry agreement, immutable GitHub release, and a seven-day RC canary.",
       "trustBoundaries": [
-        "Apple databases to local process",
-        "Archived strings/blobs to decoder and results",
-        "Client requests to validation/privacy",
-        "Loopback HTTP to authentication/workers",
-        "0600 files to secret consumers",
-        "GitHub Actions to npm, Registry, and releases"
+        "Launching client to local stdio process",
+        "Authenticated caller to loopback HTTP before body parsing",
+        "CLI and environment into validated runtime configuration",
+        "Workers into canonical readonly Messages SQLite snapshots",
+        "Untrusted copied archive and sidecars into repositories",
+        "Workers into already-authorized unified Contacts",
+        "Workers into fixed bounded Foundation/JXA decoder",
+        "Internal result through privacy projection to MCP caller",
+        "Exact signed source through scan evidence and protected provider jobs"
       ]
     }
   },
