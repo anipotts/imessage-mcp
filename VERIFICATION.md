@@ -20,7 +20,7 @@ Last updated: 2026-08-26
 | host | macOS 26.5 arm64 |
 | supported Node matrix | Node 22.22.3, 24.19.0, and 26.7.0 each passed the full local `npm run verify` gate |
 | TypeScript | green with `tsc --noEmit` |
-| fixture suite | 109 tests green, including live-source alias rejection, lifecycle freshness, inode replacement, source budgets, privacy, decoder safety, immutable workflows, seven-tool semantics, and stable-package tamper rejection |
+| fixture suite | 110 tests green, including live-source alias rejection, canonical doctor WAL reporting, lifecycle freshness, inode replacement, source budgets, privacy, decoder safety, immutable workflows, seven-tool semantics, and stable-package tamper rejection |
 | attributed-body decoding | 375 of 375 stratified live iMessage, SMS/MMS, and RCS bodies exactly matched Apple's populated text; attachment placeholders were excluded; no private values emitted |
 | built worker runtime | seven tools registered; deadlines wait for worker and native-child termination before a slot is reused |
 | synthetic screenshots | four PNGs regenerated from a temporary synthetic database and fake home path |
@@ -62,6 +62,8 @@ Standard scan `f4327f9d-f49b-497d-9927-2ef1b2f8664e` completed with zero reporta
 Standard scan `f4a16214-e26d-42f0-b65e-57d21291d39f` completed with zero reportable findings and complete 78-of-78-file coverage of signed revision `bd83154124108e0e2dc8497a77d164842d4e50c1`. Follow-up review then tightened HTTP concurrency placement, CodeQL integration, scan-producer pinning, and read-only documentation at `4a569c777c052e41e61dcff200b8eaf0d751d509`, so this scan is also historical. The release-authoritative result must be the canonical `security/scan` bundle in a signed direct child of the final source commit; the protected workflow verifies that relationship before publication.
 
 Standard scan `7d588236-f899-4bf8-840a-97be019a2bd1` covered all 78 files at signed revision `2fffb0d6c379d85c81693547bed3798651166601` and found one release blocker: a copied-database alias could resolve to the live Messages database after lexical source classification. The repaired source derives the trusted live path from the OS account, compares canonical main-file and WAL identities before SQLite opens, rejects symlinked or non-regular copy WAL sidecars including dangling links, and preserves ordinary copies plus aliases to non-live copies. Synthetic regressions cover direct and parent symlinks, hardlinks, future WAL targets, ordinary copies, and missing paths. That scan is historical and cannot authorize publication; a fresh zero-finding scan of the final signed source remains required.
+
+Standard scan `981aad1d-eb9a-476b-8f20-45dae174ab18` completed with zero findings and complete 78-of-78-file coverage of signed revision `5f35345a1b807c2eddac72be277b5dc9ad1e457f`. Its stable copy-to-live database and WAL alias controls passed independent review. That review also identified a non-security diagnostic mismatch: for a supported symlink-selected copy, `doctor` described the lexical WAL sibling instead of the canonical WAL SQLite read. The candidate now derives the displayed WAL check from the successfully validated canonical database path and includes a live-WAL synthetic regression. The zero-finding scan is therefore historical; the final signed source must repeat it before publication.
 
 No stable claim will use the word complete while a known security or data-correctness defect remains.
 

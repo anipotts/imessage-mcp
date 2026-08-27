@@ -54,7 +54,25 @@ export async function doctor(config: RuntimeConfig, json: boolean): Promise<numb
   } catch {
     checks.push({ name: "database_read", status: "fail", detail: "grant Full Disk Access to the MCP client and confirm Messages has created chat.db" });
   }
-  const walPath = `${config.database_path}-wal`;
+  let canonicalDatabasePath = config.database_path;
+  let schemaCheck: DoctorCheck;
+  try {
+    const database = new DatabaseContext(
+      config.database_path,
+      config.reference_key ? Buffer.from(config.reference_key, "base64") : Buffer.alloc(32, 0x5a),
+      config.database_id ? Buffer.from(config.database_id, "base64") : Buffer.alloc(32, 0x6b),
+      config.source_mode,
+    );
+    try {
+      canonicalDatabasePath = database.canonicalPath;
+      schemaCheck = { name: "schema", status: database.capabilities.required_core === "available" ? "pass" : "fail", detail: `schema ${database.capabilities.schema_fingerprint.slice(0, 12)}` };
+    } finally {
+      database.close();
+    }
+  } catch {
+    schemaCheck = { name: "schema", status: "fail", detail: "unsupported or unavailable Mac chat.db schema" };
+  }
+  const walPath = `${canonicalDatabasePath}-wal`;
   if (existsSync(walPath)) {
     try {
       accessSync(walPath, constants.R_OK);
@@ -65,21 +83,7 @@ export async function doctor(config: RuntimeConfig, json: boolean): Promise<numb
   } else {
     checks.push({ name: "wal_read", status: "pass", detail: "no active WAL is present" });
   }
-  try {
-    const database = new DatabaseContext(
-      config.database_path,
-      config.reference_key ? Buffer.from(config.reference_key, "base64") : Buffer.alloc(32, 0x5a),
-      config.database_id ? Buffer.from(config.database_id, "base64") : Buffer.alloc(32, 0x6b),
-      config.source_mode,
-    );
-    try {
-      checks.push({ name: "schema", status: database.capabilities.required_core === "available" ? "pass" : "fail", detail: `schema ${database.capabilities.schema_fingerprint.slice(0, 12)}` });
-    } finally {
-      database.close();
-    }
-  } catch {
-    checks.push({ name: "schema", status: "fail", detail: "unsupported or unavailable Mac chat.db schema" });
-  }
+  checks.push(schemaCheck);
   const contacts = new UnifiedContactResolver(config.contacts_mode === "live").status();
   checks.push({ name: "contacts", status: contacts.state === "available" ? "pass" : "warn", detail: contacts.state === "available" ? `${contacts.count} unified contacts available` : `continuing with handles: ${contacts.reason}` });
   const decoder = new MessageTextDecoder();

@@ -1,9 +1,10 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { copyFileSync, linkSync, renameSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { copyFileSync, existsSync, linkSync, renameSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { userInfo } from "node:os";
 import path from "node:path";
 import Database from "better-sqlite3";
 import { DEFAULT_DATABASE_PATH, resolveDefaultDatabasePath, runtimeConfig } from "../src/config.js";
+import { doctor } from "../src/commands/doctor.js";
 import { serviceFamily } from "../src/contracts.js";
 import { UnifiedContactResolver } from "../src/contacts.js";
 import { assertCopiedDatabaseSourceBoundary, DatabaseContext } from "../src/database.js";
@@ -136,6 +137,46 @@ describe("2.0 data and query core", () => {
     } finally {
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
+    }
+  });
+
+  it("reports the canonical WAL for a symlink-selected copied database", async () => {
+    const doctorFixture = createFixture();
+    const aliasPath = path.join(doctorFixture.directory, "selected-copy.db");
+    const writer = new Database(doctorFixture.databasePath);
+    const output: string[] = [];
+    const stdout = vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      output.push(String(chunk));
+      return true;
+    });
+    try {
+      symlinkSync(doctorFixture.databasePath, aliasPath);
+      writer.pragma("journal_mode = WAL");
+      writer.pragma("wal_autocheckpoint = 0");
+      writer.prepare("UPDATE message SET text = text WHERE ROWID = 1").run();
+      expect(existsSync(`${doctorFixture.databasePath}-wal`)).toBe(true);
+      expect(existsSync(`${aliasPath}-wal`)).toBe(false);
+
+      await doctor(runtimeConfig({
+        transport: "stdio",
+        databasePath: aliasPath,
+        contacts: "none",
+        referenceKey: REFERENCE_KEY,
+        databaseId: DATABASE_ID,
+      }), true);
+
+      const result = JSON.parse(output.join("")) as {
+        checks: Array<{ name: string; status: string; detail: string }>;
+      };
+      expect(result.checks.find((check) => check.name === "wal_read")).toEqual({
+        name: "wal_read",
+        status: "pass",
+        detail: "active WAL is readable",
+      });
+    } finally {
+      stdout.mockRestore();
+      writer.close();
+      doctorFixture.cleanup();
     }
   });
 
