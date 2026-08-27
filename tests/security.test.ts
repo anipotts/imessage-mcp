@@ -227,9 +227,10 @@ describe("native and release hardening", () => {
     expect(verify).toContain("scripts/security-evidence.ts verify");
     expect(verify).toContain('workflow.path !== ".github/workflows/release.yml"');
     expect(verify).toContain("--omit=dev");
-    expect(verify).toContain("src/verify-installed-graph.ts");
+    expect(verify).toContain('git show "${EVIDENCE_COMMIT}:package-lock.json"');
+    expect(verify).toContain("node_modules/imessage-mcp/dist/verify-installed-graph.js");
     expect(verify).toContain('node_modules/.bin/imessage-mcp" --version');
-    expect(verify).not.toContain("package/dist/verify-installed-graph.js");
+    expect(verify).not.toContain("package/npm-shrinkwrap.json");
     expect(verify).toContain("audit signatures");
 
     expect(registry).toContain("environment: mcp-registry-release");
