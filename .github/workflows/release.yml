@@ -392,7 +392,6 @@ jobs:
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          ref: ${{ inputs.evidence_commit }}
           fetch-depth: 0
           persist-credentials: false
       - id: release
@@ -405,8 +404,11 @@ jobs:
           [[ "$TARGET_VERSION" =~ ^2\.[0-9]+\.[0-9]+(-(beta|rc)\.[1-9][0-9]*)?$ ]]
           [[ "$EVIDENCE_COMMIT" =~ ^[a-f0-9]{40}$ ]]
           [[ "$ORIGINAL_RUN_ID" =~ ^[1-9][0-9]*$ ]]
-          test "$(git rev-parse HEAD)" = "$EVIDENCE_COMMIT"
-          test "$(node -p "require('./package.json').version")" = "$TARGET_VERSION"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse "${EVIDENCE_COMMIT}^{commit}")" = "$EVIDENCE_COMMIT"
+          PACKAGE_VERSION=$(git show "${EVIDENCE_COMMIT}:package.json" | \
+            node -e 'let body=""; process.stdin.on("data", (chunk) => body += chunk).on("end", () => process.stdout.write(JSON.parse(body).version))')
+          test "$PACKAGE_VERSION" = "$TARGET_VERSION"
           test "$(git cat-file -t "refs/tags/v${TARGET_VERSION}")" = "tag"
           test "$(git rev-parse "refs/tags/v${TARGET_VERSION}^{commit}")" = "$EVIDENCE_COMMIT"
           test -n "$SECURITY_SCAN_ALLOWED_SIGNER"
@@ -574,13 +576,16 @@ jobs:
                 !details.metadata.invocationId.includes("/actions/runs/" + runId + "/")) process.exit(1);
           ' "$RUNNER_TEMP/npm-attestations.json" "$RUNNER_TEMP/public.tgz"
           SCRATCH=$(mktemp -d)
-          npm install --prefix "$SCRATCH" --omit=dev --no-audit --no-fund "imessage-mcp@${TARGET_VERSION}"
-          test "$("$SCRATCH/node_modules/.bin/imessage-mcp" --version)" = "$TARGET_VERSION"
+          npm install --prefix "$SCRATCH" --omit=dev --ignore-scripts --no-audit --no-fund \
+            "imessage-mcp@${TARGET_VERSION}"
+          INSTALLED_VERSION=$(node -e '
+            const fs = require("fs");
+            process.stdout.write(JSON.parse(fs.readFileSync(process.argv[1], "utf8")).version);
+          ' "$SCRATCH/node_modules/imessage-mcp/package.json")
+          test "$INSTALLED_VERSION" = "$TARGET_VERSION"
           tar -xOf "$RUNNER_TEMP/public.tgz" package/npm-shrinkwrap.json \
             > "$RUNNER_TEMP/published-shrinkwrap.json"
-          tar -xOf "$RUNNER_TEMP/public.tgz" package/dist/verify-installed-graph.js \
-            > "$RUNNER_TEMP/verify-installed-graph.js"
-          node "$RUNNER_TEMP/verify-installed-graph.js" "$SCRATCH" "$RUNNER_TEMP/published-shrinkwrap.json"
+          npx tsx src/verify-installed-graph.ts "$SCRATCH" "$RUNNER_TEMP/published-shrinkwrap.json"
           npm --prefix "$SCRATCH" audit signatures
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
@@ -599,26 +604,29 @@ jobs:
     permissions:
       contents: read
       id-token: write
+    env:
+      VERSION: ${{ needs.resume-verify-public-npm.outputs.version }}
+      EVIDENCE_COMMIT: ${{ needs.resume-verify-public-npm.outputs.evidence_commit }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          ref: ${{ needs.resume-verify-public-npm.outputs.evidence_commit }}
           fetch-depth: 0
           persist-credentials: false
       - name: install verified mcp publisher
         shell: bash
         run: |
+          test "$(git rev-parse "refs/tags/v${VERSION}^{commit}")" = "$EVIDENCE_COMMIT"
+          git show "${EVIDENCE_COMMIT}:server.json" > "$RUNNER_TEMP/release-server.json"
+          test "$(node -p "require('$RUNNER_TEMP/release-server.json').version")" = "$VERSION"
           curl --fail --location --silent --show-error \
             https://github.com/modelcontextprotocol/registry/releases/download/v1.8.1/mcp-publisher_darwin_arm64.tar.gz \
-            --output mcp-publisher.tar.gz
-          echo "e45e520892460732a4bdf37255576415d4a53ec171f8b913faf15bb1aef7cb77  mcp-publisher.tar.gz" | shasum -a 256 -c -
-          tar -xzf mcp-publisher.tar.gz mcp-publisher
-          chmod 700 mcp-publisher
-          ./mcp-publisher validate
+            --output "$RUNNER_TEMP/mcp-publisher.tar.gz"
+          echo "e45e520892460732a4bdf37255576415d4a53ec171f8b913faf15bb1aef7cb77  $RUNNER_TEMP/mcp-publisher.tar.gz" | shasum -a 256 -c -
+          tar -xzf "$RUNNER_TEMP/mcp-publisher.tar.gz" -C "$RUNNER_TEMP" mcp-publisher
+          chmod 700 "$RUNNER_TEMP/mcp-publisher"
+          "$RUNNER_TEMP/mcp-publisher" validate "$RUNNER_TEMP/release-server.json"
       - id: registry
         name: inspect exact registry state
-        env:
-          VERSION: ${{ needs.resume-verify-public-npm.outputs.version }}
         shell: bash
         run: |
           curl --fail --silent --show-error \
@@ -627,7 +635,7 @@ jobs:
           STATE=$(node -e '
             const fs = require("fs"), assert = require("assert/strict");
             const payload = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-            const local = JSON.parse(fs.readFileSync("server.json", "utf8"));
+            const local = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + "/release-server.json", "utf8"));
             const normalize = (value) => Array.isArray(value) ? value.map(normalize) :
               value && typeof value === "object" ? Object.fromEntries(Object.entries(value)
                 .filter(([key, entry]) => key !== "isRequired" || entry !== false)
@@ -647,11 +655,9 @@ jobs:
       - name: publish matching registry metadata
         if: steps.registry.outputs.state == 'absent'
         run: |
-          ./mcp-publisher login github-oidc
-          ./mcp-publisher publish
+          "$RUNNER_TEMP/mcp-publisher" login github-oidc
+          "$RUNNER_TEMP/mcp-publisher" publish "$RUNNER_TEMP/release-server.json"
       - name: verify exact registry metadata
-        env:
-          VERSION: ${{ needs.resume-verify-public-npm.outputs.version }}
         shell: bash
         run: |
           for ATTEMPT in {1..20}; do
@@ -662,7 +668,7 @@ jobs:
               let body = "";
               process.stdin.on("data", (chunk) => body += chunk).on("end", () => {
                 const payload = JSON.parse(body);
-                const local = JSON.parse(fs.readFileSync("server.json", "utf8"));
+                const local = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + "/release-server.json", "utf8"));
                 const normalize = (value) => Array.isArray(value) ? value.map(normalize) :
                   value && typeof value === "object" ? Object.fromEntries(Object.entries(value)
                     .filter(([key, entry]) => key !== "isRequired" || entry !== false)
@@ -763,7 +769,6 @@ jobs:
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          ref: ${{ needs.resume-verify-public-npm.outputs.evidence_commit }}
           fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
@@ -785,6 +790,7 @@ jobs:
         shell: bash
         run: |
           test "$(git rev-parse "refs/tags/v${VERSION}^{commit}")" = "$EVIDENCE_COMMIT"
+          git show "${EVIDENCE_COMMIT}:server.json" > "$RUNNER_TEMP/release-server.json"
           PUBLIC_URL=$(npm view "imessage-mcp@${VERSION}" dist.tarball)
           test "$PUBLIC_URL" = "https://registry.npmjs.org/imessage-mcp/-/imessage-mcp-${VERSION}.tgz"
           curl --fail --location --silent --show-error --max-filesize 16777216 \
@@ -797,7 +803,7 @@ jobs:
             > "$RUNNER_TEMP/release.json"
           node -e '
             const fs = require("fs"), assert = require("assert/strict");
-            const local = JSON.parse(fs.readFileSync("server.json", "utf8"));
+            const local = JSON.parse(fs.readFileSync(process.argv[3], "utf8"));
             const normalize = (value) => Array.isArray(value) ? value.map(normalize) :
               value && typeof value === "object" ? Object.fromEntries(Object.entries(value)
                 .filter(([key, entry]) => key !== "isRequired" || entry !== false)
@@ -815,4 +821,4 @@ jobs:
             if (release.tag_name !== "v" + process.env.VERSION || release.draft ||
                 release.prerelease !== (process.env.PRERELEASE === "true") ||
                 JSON.stringify(actualAssets) !== JSON.stringify(expectedAssets)) process.exit(1);
-          ' "$RUNNER_TEMP/registry.json" "$RUNNER_TEMP/release.json"
+          ' "$RUNNER_TEMP/registry.json" "$RUNNER_TEMP/release.json" "$RUNNER_TEMP/release-server.json"

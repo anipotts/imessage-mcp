@@ -208,6 +208,8 @@ describe("native and release hardening", () => {
 
     expect(release).toContain("workflow_dispatch:");
     expect(recovery).not.toContain("npm publish");
+    expect(recovery).not.toContain("ref: ${{ inputs.evidence_commit }}");
+    expect(recovery).not.toContain("ref: ${{ needs.resume-verify-public-npm.outputs.evidence_commit }}");
     expect(verify).toContain("environment: security-attestation");
     expect(verify).toContain('test "$GITHUB_REF" = "refs/heads/main"');
     expect(verify).toContain('verify-commit "$EVIDENCE_COMMIT"');
@@ -219,6 +221,9 @@ describe("native and release hardening", () => {
     expect(verify).toContain("scripts/security-evidence.ts verify");
     expect(verify).toContain('workflow.path !== ".github/workflows/release.yml"');
     expect(verify).toContain("--omit=dev");
+    expect(verify).toContain("--ignore-scripts");
+    expect(verify).toContain("src/verify-installed-graph.ts");
+    expect(verify).not.toContain("package/dist/verify-installed-graph.js");
     expect(verify).toContain("audit signatures");
 
     expect(registry).toContain("environment: mcp-registry-release");
