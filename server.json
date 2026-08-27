@@ -7,12 +7,12 @@
     "url": "https://github.com/anipotts/imessage-mcp",
     "source": "github"
   },
-  "version": "2.0.0-beta.2",
+  "version": "2.0.0-beta.3",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "imessage-mcp",
-      "version": "2.0.0-beta.2",
+      "version": "2.0.0-beta.3",
       "transport": {
         "type": "stdio"
       },

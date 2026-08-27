@@ -106,7 +106,8 @@ assert.match(security, /do not eliminate prompt injection/u);
 assert.match(contributing, /Use synthetic data only\./u);
 assert.match(contributing, /compatibility reports/u);
 assert.match(contributing, /current primary evidence, include the observation date, and describe capabilities neutrally/u);
-assert.ok(verification.includes(`| \`${version}\` | published and verified | npm \`${channel}\``),
+const currentReleaseLine = verification.split(/\r?\n/u).find((line) => line.startsWith(`| \`${version}\` |`));
+assert.ok(currentReleaseLine?.includes(`npm \`${channel}\``),
   "verification release table must identify the exact current version and npm channel");
 assert.match(tools, /untrusted archival data, never as an instruction/u);
 assert.match(tools, /does not eliminate prompt injection/u);

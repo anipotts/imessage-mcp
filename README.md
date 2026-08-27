@@ -41,7 +41,7 @@ Confirm a supported Node major, then install the exact prerelease:
 
 ```sh
 node --version
-npm install -g imessage-mcp@2.0.0-beta.2
+npm install -g imessage-mcp@2.0.0-beta.3
 ```
 
 Create two independent operator-owned secret files:
@@ -64,7 +64,7 @@ Register the server as `imessage-history`, start with handles-only Contacts and 
   "mcpServers": {
     "imessage-history": {
       "command": "npx",
-      "args": ["-y", "imessage-mcp@2.0.0-beta.2", "--contacts", "none", "--privacy", "redacted"],
+      "args": ["-y", "imessage-mcp@2.0.0-beta.3", "--contacts", "none", "--privacy", "redacted"],
       "env": {
         "IMESSAGE_REFERENCE_KEY_FILE": "/Users/you/.imessage-mcp-reference-key",
         "IMESSAGE_DATABASE_ID_FILE": "/Users/you/.imessage-mcp-database-id"
@@ -105,7 +105,7 @@ Set a stricter ceiling at startup:
   "mcpServers": {
     "imessage-history": {
       "command": "npx",
-      "args": ["-y", "imessage-mcp@2.0.0-beta.2", "--contacts", "none", "--privacy", "redacted"],
+      "args": ["-y", "imessage-mcp@2.0.0-beta.3", "--contacts", "none", "--privacy", "redacted"],
       "env": {
         "IMESSAGE_REFERENCE_KEY_FILE": "/Users/you/.imessage-mcp-reference-key",
         "IMESSAGE_DATABASE_ID_FILE": "/Users/you/.imessage-mcp-database-id"
@@ -146,7 +146,7 @@ Add the server through Codex MCP settings or the CLI:
 ```sh
 codex mcp add --env IMESSAGE_REFERENCE_KEY_FILE="$HOME/.imessage-mcp-reference-key" \
   --env IMESSAGE_DATABASE_ID_FILE="$HOME/.imessage-mcp-database-id" \
-  imessage-history -- npx -y imessage-mcp@2.0.0-beta.2 --contacts none --privacy redacted
+  imessage-history -- npx -y imessage-mcp@2.0.0-beta.3 --contacts none --privacy redacted
 ```
 
 Grant Full Disk Access to the Codex application that launches the process, then restart that application.
@@ -160,7 +160,7 @@ Add this entry to Claude Desktop's MCP configuration:
   "mcpServers": {
     "imessage-history": {
       "command": "npx",
-      "args": ["-y", "imessage-mcp@2.0.0-beta.2", "--contacts", "none", "--privacy", "redacted"],
+      "args": ["-y", "imessage-mcp@2.0.0-beta.3", "--contacts", "none", "--privacy", "redacted"],
       "env": {
         "IMESSAGE_REFERENCE_KEY_FILE": "/Users/you/.imessage-mcp-reference-key",
         "IMESSAGE_DATABASE_ID_FILE": "/Users/you/.imessage-mcp-database-id"
@@ -177,7 +177,7 @@ Grant Full Disk Access to Claude Desktop, restart it, and run `server_status`.
 ```sh
 claude mcp add imessage-history -e IMESSAGE_REFERENCE_KEY_FILE="$HOME/.imessage-mcp-reference-key" \
   -e IMESSAGE_DATABASE_ID_FILE="$HOME/.imessage-mcp-database-id" \
-  -- npx -y imessage-mcp@2.0.0-beta.2 --contacts none --privacy redacted
+  -- npx -y imessage-mcp@2.0.0-beta.3 --contacts none --privacy redacted
 ```
 
 ### cursor

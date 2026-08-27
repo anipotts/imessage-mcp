@@ -1,6 +1,6 @@
 {
   "name": "imessage-mcp",
-  "version": "2.0.0-beta.2",
+  "version": "2.0.0-beta.3",
   "mcpName": "io.github.anipotts/imessage-mcp",
   "description": "Read-only MCP for iMessage, SMS, MMS, and RCS history in Apple Messages on Mac",
   "author": "Ani Potts",

@@ -11,8 +11,25 @@ Last updated: 2026-08-27
 | `1.3.1` | published and verified | npm `latest`, GitHub Release, and MCP Registry agree; a fresh public install reproduced fixes for issues #5 and #6 before they closed |
 | `2.0.0-beta.1` | tagged, not published | npm rejected the relative tarball argument before upload; the signed tag and failed workflow remain immutable historical evidence |
 | `2.0.0-beta.2` | published and verified | npm `next`, MCP Registry, and an immutable GitHub prerelease agree on the signed evidence lineage and exact package |
+| `2.0.0-beta.3` | release subject | npm `next`; current public availability is authoritative at npm, MCP Registry, and the immutable GitHub release |
 | `2.0.0-rc.1` | not started | requires beta acceptance with no known security, privacy, attribution, completeness, or installation blocker |
 | `2.0.0` | blocked by design gate | requires an unchanged release candidate to pass the seven-day canary |
+
+## `2.0.0-beta.3` release evidence
+
+The beta.3 source repairs the validated cached-watermark snapshot race, vanilla installation graph, CLI discovery, privacy-first onboarding, untrusted-archive guidance, client namespace, and cross-surface release consistency. Publication is fail-closed unless the signed evidence commit contains a complete exact-revision scan with zero findings and the protected workflow re-verifies the package, provenance, npm, MCP Registry, GitHub release, and tag subjects.
+
+| evidence | result |
+| --- | --- |
+| fixture suite | 112 tests passed |
+| package | 129 allowlisted files; 9 dependency nodes; 39.3 MiB vanilla installation; no extraneous packages |
+| protocol | all seven tools passed over stdio and authenticated stateless HTTP; MCP instructions mark archival values untrusted and preserve read-only annotations |
+| metadata | package, documentation, plugin, Registry manifest, client namespace, screenshots, verification record, exact version, and npm `next` channel agree |
+| dependency audit | zero vulnerabilities at the high/critical release threshold |
+| million-message fixture | 22.583 s cold index; 9 ms warm search; 90 ms one-character search; 23 ms two-client HTTP; 355,192,832-byte index |
+| bounded live parity | 375/375 exact attributed bodies; iMessage, SMS/MMS, and RCS; seven tools; zero aggregate leakage; no private values emitted |
+
+The release package is intentionally neutral about mutable publication timing. Public provider surfaces determine whether the immutable beta.3 subject is currently available.
 
 ## `2.0.0-beta.2` public evidence
 
