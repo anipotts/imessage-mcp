@@ -1,8 +1,8 @@
 {
   "name": "imessage-mcp",
-  "version": "1.5.0",
+  "version": "2.0.0-beta.1",
   "mcpName": "io.github.anipotts/imessage-mcp",
-  "description": "iMessage MCP server — 26 tools for searching, analyzing, and exploring your entire iMessage history on macOS",
+  "description": "Read-only MCP for iMessage, SMS, MMS, and RCS history in Apple Messages on Mac",
   "author": "Ani Potts",
   "license": "MIT",
   "type": "module",
@@ -13,38 +13,58 @@
   "files": [
     "dist",
     "bin",
+    "native",
+    "assets",
+    "docs",
+    ".claude-plugin",
+    ".mcp.json",
     "README.md",
     "LICENSE",
-    "server.json",
-    "smithery.yaml"
+    "SECURITY.md",
+    "VERIFICATION.md",
+    "release-status.json",
+    "package-files.json",
+    "npm-shrinkwrap.json",
+    "server.json"
   ],
   "scripts": {
-    "build": "tsc",
-    "dev": "tsx src/index.ts",
-    "doctor": "tsx src/commands/doctor.ts",
-    "dump": "tsx src/commands/dump.ts",
+    "build": "node scripts/clean-dist.mjs && tsc",
+    "dev": "tsx src/cli.ts",
+    "doctor": "tsx src/cli.ts doctor",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:installed": "tsx scripts/test-installed.ts",
+    "test:live-parity": "tsx scripts/test-live-parity.ts",
+    "test:performance": "npm run build && tsx scripts/test-performance.ts",
+    "test:protocol": "tsx scripts/test-protocol.ts",
+    "test:privacy": "vitest run tests/privacy.test.ts tests/security.test.ts",
     "screenshots": "tsx scripts/screenshots.ts",
-    "prepublishOnly": "npm run build"
+    "check:metadata": "tsx scripts/check-metadata.ts",
+    "check:release": "tsx scripts/check-release-gate.ts",
+    "verify": "npm run build && npm run typecheck && npm test && npm run test:protocol && npm run test:installed && npm run check:metadata && npm audit --audit-level=high && npm pack --dry-run",
+    "prepublishOnly": "npm run verify"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.27.0",
-    "better-sqlite3": "^12.6.2",
-    "zod": "^3.25.67"
+    "@modelcontextprotocol/server": "2.0.0",
+    "better-sqlite3": "13.0.3",
+    "node-addon-api": "8.9.2",
+    "zod": "4.4.3"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^7.6.13",
-    "@types/node": "^20.0.0",
-    "playwright": "^1.58.2",
-    "tsx": "^4.21.0",
-    "typescript": "^5.7.0",
-    "vitest": "^4.0.18"
+    "@modelcontextprotocol/client": "2.0.0",
+    "@types/better-sqlite3": "9.6.0",
+    "@types/node": "26.2.0",
+    "tsx": "4.23.12",
+    "typescript": "7.0.2",
+    "vitest": "4.1.10"
   },
   "engines": {
-    "node": ">=18"
+    "node": "^22.0.0 || ^24.0.0 || ^26.0.0"
   },
+  "os": [
+    "darwin"
+  ],
   "keywords": [
     "imessage",
     "mcp",

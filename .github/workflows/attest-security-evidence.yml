@@ -1,0 +1,68 @@
+name: attest security evidence
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  attest:
+    name: verify and attest exact release evidence
+    runs-on: macos-26
+    timeout-minutes: 40
+    environment: security-attestation
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: verify operator-signed scan-bundle commit
+        env:
+          SECURITY_SCAN_ALLOWED_SIGNER: ${{ vars.SECURITY_SCAN_ALLOWED_SIGNER }}
+        shell: bash
+        run: |
+          test -n "$SECURITY_SCAN_ALLOWED_SIGNER"
+          umask 077
+          printf '%s\n' "$SECURITY_SCAN_ALLOWED_SIGNER" > "$RUNNER_TEMP/security-scan-allowed-signers"
+          git -c gpg.format=ssh \
+            -c gpg.ssh.allowedSignersFile="$RUNNER_TEMP/security-scan-allowed-signers" \
+            verify-commit "$GITHUB_SHA"
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - run: npm ci
+      - id: version
+        name: verify version-bound release state
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          npm run check:release -- "$VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+      - run: npm run verify
+      - run: npm run test:performance
+      - id: pack
+        name: build exact evidence subjects
+        shell: bash
+        run: |
+          mkdir evidence
+          TARBALL=$(npm pack --json --pack-destination evidence | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>process.stdout.write(JSON.parse(s)[0].filename))")
+          npx tsx scripts/security-evidence.ts create "evidence/$TARBALL" "$GITHUB_SHA" evidence/security-evidence.json
+          echo "tarball=$TARBALL" >> "$GITHUB_OUTPUT"
+      - name: attest evidence and package
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: |
+            evidence/security-evidence.json
+            evidence/${{ steps.pack.outputs.tarball }}
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: security-evidence-${{ github.sha }}
+          path: evidence
+          if-no-files-found: error
+          retention-days: 90

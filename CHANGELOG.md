@@ -2,6 +2,31 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.0.0-beta.1] - 2026-08-11
+
+### Added
+- Seven-tool, clean-break MCP API: `server_status`, `resolve_contact`, `list_conversations`, `get_conversation`, `search_messages`, `analyze_communication`, and `sync_messages`
+- Explicit iMessage, SMS/MMS, RCS, and unknown-service families with schema capability states
+- Full, redacted, and aggregate privacy ceilings with field-level leakage tests
+- Authenticated stateless HTTP on loopback for use behind Tailscale Serve
+- Exact Foundation decoding, memory-only FTS5 and trigram search, opaque keyset cursors, and caller-held sync cursors
+- Synthetic fixtures, installed-package client checks, sealed release gates, and a one-million-message performance certification
+
+### Changed
+- Requires macOS 14 or newer and active Node 22, 24, or 26
+- Opens live or faithfully copied Mac `chat.db` files in read-only, file-must-exist, SQLite query-only mode
+- Android-originated SMS, MMS, and RCS are covered only when those conversations already appear in Apple Messages on the Mac
+- Conversation joins now use `chat_message_join`, participants use `chat_handle_join`, and only Apple `chat_lookup` links merge service variants
+
+### Fixed
+- Conversation attribution, local date boundaries, search completeness and pagination, reaction parents, receipts, contact ambiguity, edited and retracted state, optional schemas, privacy leakage, HTTP exposure, and package metadata
+
+### Removed
+- Legacy aliases, dump/export, watcher state, SSE, Docker, Smithery, prompts, resources, bundled agents, and the 1.x plugin skills
+- Heuristic attributed-body fallback and unrestricted legacy archive deserialization
+
+Every 2.x version remains strictly read-only. Sending is reserved for the separately gated 3.0 roadmap.
+
 ## [1.5.0] - 2026-02-25
 
 ### Added

@@ -1,28 +1,65 @@
-name: CI
+name: ci
 
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
+  supported-matrix:
+    name: macos ${{ matrix.os-version }} arm64, node ${{ matrix.node-version }}
     strategy:
+      fail-fast: false
       matrix:
-        node-version: [18, 22]
-
+        os-version: [14, 15, 26]
+        node-version: [22, 24, 26]
+    runs-on: macos-${{ matrix.os-version }}
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Use Node.js ${{ matrix.node-version }}
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: ${{ matrix.node-version }}
           cache: npm
+          package-manager-cache: true
+      - run: npm ci
+      - run: npm run verify
 
+  intel-package-smoke:
+    name: macos 26 intel package smoke
+    runs-on: macos-26-intel
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+          cache: npm
+          package-manager-cache: true
       - run: npm ci
       - run: npm run build
-      - run: npm run typecheck
-      - run: npm test
+      - run: npm run test:installed
+
+  performance:
+    name: million-message performance (macos 14, node 24)
+    runs-on: macos-14
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+          cache: npm
+          package-manager-cache: true
+      - run: npm ci
+      - run: npm run build
+      - run: npm run test:performance

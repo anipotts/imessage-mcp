@@ -22,4 +22,4 @@ What you expected to happen.
 - Package version: 
 
 **Logs / screenshots**
-If applicable.
+Use synthetic or fully redacted evidence only. Do not post message contents, handles, contact names, database files, attachment paths, opaque references, tokens, home-directory paths, or screenshots of private conversations. Report security issues through the private advisory link in SECURITY.md.

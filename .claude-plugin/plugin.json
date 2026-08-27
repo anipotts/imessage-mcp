@@ -1,7 +1,7 @@
 {
-  "name": "imessage",
-  "version": "1.4.0",
-  "description": "Give Claude access to your iMessage history so it can search your conversations, tell you who you should text back, analyze how your friendships are trending, and surface patterns from years of messages — all with a privacy layer so you control exactly what it sees.",
+  "name": "imessage-mcp",
+  "version": "2.0.0-beta.1",
+  "description": "Read-only MCP for iMessage, SMS, MMS, and RCS history already present in Apple Messages on Mac.",
   "author": {
     "name": "Ani Potts",
     "url": "https://github.com/anipotts"
@@ -9,5 +9,14 @@
   "homepage": "https://github.com/anipotts/imessage-mcp",
   "repository": "https://github.com/anipotts/imessage-mcp",
   "license": "MIT",
-  "keywords": ["imessage", "analytics", "wrapped", "macos", "mcp", "claude", "cowork", "messages", "texting"]
+  "keywords": [
+    "imessage",
+    "sms",
+    "mms",
+    "rcs",
+    "macos",
+    "mcp",
+    "messages",
+    "read-only"
+  ]
 }

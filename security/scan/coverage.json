@@ -1,0 +1,97 @@
+{
+  "completeness": "complete",
+  "deferred": [],
+  "documentType": "codex-security.coverage",
+  "excludePaths": [],
+  "explicitExclusions": [],
+  "includePaths": [
+    "."
+  ],
+  "inventoryStrategy": "repository",
+  "mode": "repository",
+  "openQuestions": [],
+  "scanId": "e4eff6f1-9192-4fb3-a085-e3c4d9a83bc4",
+  "schemaVersion": "1.0",
+  "surfaces": [
+    {
+      "disposition": "no_issue_found",
+      "id": "repository-integrity-assets",
+      "label": "Repository integrity and public assets",
+      "notes": "Verified clean signed revision a7ede194e6f20436cc08e27621cbfed825969684, its signed audited parent, all 78 tracked files, three changed-file rereviews, 75 byte-identical inherited receipts, and five synthetic PNGs.",
+      "receiptRefs": [],
+      "riskArea": "Private-data publication and source ambiguity"
+    },
+    {
+      "disposition": "no_issue_found",
+      "id": "database-source-boundary",
+      "label": "Database source, read-only open, and copy/live boundary",
+      "notes": "Reviewed canonical path and device/inode checks, WAL sidecar rejection before SQLite, readonly/fileMustExist/query_only opens, identity pinning, copy sync fingerprints, canonical doctor WAL reporting, and synthetic regressions.",
+      "receiptRefs": [],
+      "riskArea": "Live Messages disclosure or mutation"
+    },
+    {
+      "disposition": "no_issue_found",
+      "id": "schema-query-correctness",
+      "label": "Schema capabilities and query repositories",
+      "notes": "Reviewed capability-gated SQL, bound caller values, conversations, messages, analytics, sync, date handling, reactions, receipts, edits, retractions, and keyset cursors.",
+      "receiptRefs": [],
+      "riskArea": "SQL injection, attribution, completeness, and snapshot integrity"
+    },
+    {
+      "disposition": "no_issue_found",
+      "id": "http-auth-transport",
+      "label": "HTTP authentication and transport limits",
+      "notes": "Reviewed loopback bind, constant-time bearer checks before body parsing, Host/Origin allowlists, request/response limits, rate, concurrency, and deadlines.",
+      "receiptRefs": [],
+      "riskArea": "Unauthorized remote access and resource exhaustion"
+    },
+    {
+      "disposition": "no_issue_found",
+      "id": "secret-handling-references",
+      "label": "Secret files, opaque references, and lineage",
+      "notes": "Reviewed O_NOFOLLOW 0600 operator-owned regular-file loading, independent secrets, AES-GCM references, and database-lineage scoping.",
+      "receiptRefs": [],
+      "riskArea": "Secret substitution and cross-archive reference reuse"
+    },
+    {
+      "disposition": "no_issue_found",
+      "id": "native-decoders-contacts",
+      "label": "Foundation decoder and unified Contacts adapter",
+      "notes": "Reviewed fixed executables/scripts, no shell, minimal environment, bounded IPC, timeouts, class allowlists, Contacts authorization, and input/output limits.",
+      "receiptRefs": [],
+      "riskArea": "Unsafe deserialization, subprocess abuse, and identity leakage"
+    },
+    {
+      "disposition": "no_issue_found",
+      "id": "privacy-results-logging",
+      "label": "Privacy projection, results, errors, and diagnostics",
+      "notes": "Reviewed full, redacted, and aggregate projections, forbidden-field assertions, grapheme-safe snippets, bounded summaries, safe errors, and stderr-only redacted diagnostics.",
+      "receiptRefs": [],
+      "riskArea": "Disclosure above the configured ceiling"
+    },
+    {
+      "disposition": "no_issue_found",
+      "id": "memory-search-budgets",
+      "label": "Memory-only search and resource budgets",
+      "notes": "Reviewed :memory: indexing, sizing cap, exact/token/phrase/trigram behavior, literal wildcard handling, worker deadlines, decoder locks, and query budgets.",
+      "receiptRefs": [],
+      "riskArea": "Persistent sensitive indexes and denial of service"
+    },
+    {
+      "disposition": "no_issue_found",
+      "id": "package-release-supply-chain",
+      "label": "Package and release supply chain",
+      "notes": "Reviewed exact dependencies, shrinkwrap integrity, package allowlist, pinned Actions, permission-separated jobs, signed direct-child evidence, attestations, OIDC publication, and canary derivation.",
+      "receiptRefs": [],
+      "riskArea": "Artifact substitution and unauthorized publication"
+    },
+    {
+      "disposition": "no_issue_found",
+      "id": "tool-api-client-manifests",
+      "label": "Seven-tool API, client manifests, and documentation",
+      "notes": "Reviewed exactly seven read-only registrations, MCP schemas, installed entrypoint, canonical doctor diagnostics, Claude/Codex/Cursor metadata, Android SMS/RCS boundary, privacy claims, and unsupported behavior.",
+      "receiptRefs": [],
+      "riskArea": "Unexpected write capability or misleading deployment contract"
+    }
+  ]
+}
