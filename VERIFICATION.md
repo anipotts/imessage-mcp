@@ -11,7 +11,7 @@ Last updated: 2026-08-27
 | `1.3.1` | published and verified | npm `latest`, GitHub Release, and MCP Registry agree; a fresh public install reproduced fixes for issues #5 and #6 before they closed |
 | `2.0.0-beta.1` | tagged, not published | npm rejected the relative tarball argument before upload; the signed tag and failed workflow remain immutable historical evidence |
 | `2.0.0-beta.2` | published and verified | npm `next`, MCP Registry, and an immutable GitHub prerelease agree on the signed evidence lineage and exact package |
-| `2.0.0-beta.3` | release subject | npm `next`; current public availability is authoritative at npm, MCP Registry, and the immutable GitHub release |
+| `2.0.0-beta.3` | published and verified | npm `next`, MCP Registry, and the immutable GitHub prerelease agree on the signed evidence lineage and exact package |
 | `2.0.0-rc.1` | not started | requires beta acceptance with no known security, privacy, attribution, completeness, or installation blocker |
 | `2.0.0` | blocked by design gate | requires an unchanged release candidate to pass the seven-day canary |
 
@@ -57,7 +57,7 @@ The first beta.2 workflow published the attested package to npm, then stopped be
 | --- | --- |
 | supported matrix | GitHub-hosted macOS 14, 15, and 26 on Node 22, 24, and 26 passed `npm run verify` |
 | architecture | arm64 full matrix; macOS 26 Intel installed-package smoke passed |
-| fixture suite | 111 tests passed, covering seven-tool semantics, privacy, database lineage, immutable release controls, source aliasing, decoder safety, lifecycle freshness, and package tamper rejection |
+| fixture suite | 112 tests passed, covering seven-tool semantics, privacy, database lineage, immutable release controls, source aliasing, decoder safety, lifecycle freshness, and package tamper rejection |
 | package | 129-file allowlisted tarball passed metadata, doctor, stdio MCP, authenticated HTTP, named-client, and installed dependency-graph checks |
 | static and supply chain | TypeScript, CodeQL for Actions and JavaScript/TypeScript, Gitleaks, package signatures, and dependency audit passed; zero dependency vulnerabilities reported |
 | transport | stdio and authenticated stateless loopback HTTP passed; a local reverse proxy exercised the documented Tailscale Serve boundary without creating a route |
