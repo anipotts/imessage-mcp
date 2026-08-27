@@ -77,6 +77,7 @@ async function exerciseLiveTools(): Promise<{
   referenceKey.fill(0);
   const runtime = new LocalToolRuntime(config, randomBytes(32));
   try {
+    await runtime.prepare();
     const probe = privateProbe();
     const durationMs: Record<string, number> = {};
     const call = async (tool: string, params: Record<string, unknown>) => {
