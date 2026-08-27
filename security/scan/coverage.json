@@ -10,14 +10,14 @@
   "inventoryStrategy": "repository",
   "mode": "repository",
   "openQuestions": [],
-  "scanId": "c4e78861-6a75-4f1a-a843-8223dcae9ffc",
+  "scanId": "7043a2c4-89b3-4bd4-9c8d-b48b851b83d9",
   "schemaVersion": "1.0",
   "surfaces": [
     {
       "disposition": "no_issue_found",
       "id": "surface_runtime-cli-configuration-and-native-subprocess-boundaries",
       "label": "Runtime, CLI, configuration, and native subprocess boundaries",
-      "notes": "Reviewed fixed native entrypoints, bounded decoding, Contacts behavior, CLI configuration, worker isolation, tool schemas, and seven-tool dispatch.",
+      "notes": "Prior exact full-tree review revalidated; no runtime source changed.",
       "paths": [
         "bin/imessage-mcp.js",
         "native/contact-resolver.js",
@@ -56,7 +56,7 @@
       "disposition": "no_issue_found",
       "id": "surface_sqlite-query-search-references-privacy-and-sync-integrity",
       "label": "SQLite, query, search, references, privacy, and sync integrity",
-      "notes": "Reviewed readonly snapshots, canonical file identity, bound SQL, allowlists, bounded memory search, authenticated lineage references, fail-closed projections, frozen pagination, and sync fingerprints.",
+      "notes": "Readonly snapshots, bound SQL, search bounds, lineage references, privacy projection, frozen pagination, and sync integrity remain unchanged and verified.",
       "paths": [
         "src/contracts.ts",
         "src/database.ts",
@@ -80,7 +80,7 @@
       "disposition": "no_issue_found",
       "id": "surface_http-authentication-and-resource-controls",
       "label": "HTTP authentication and resource controls",
-      "notes": "Reviewed authentication before parsing, constant-time comparison, loopback binding, Host and Origin checks, forwarded trust, body/result/time/concurrency/rate bounds, and redacted diagnostics.",
+      "notes": "Authentication-before-parse, loopback/authority checks, constant-time secrets, worker isolation, limits, and diagnostics remain unchanged.",
       "paths": [
         "src/transport.ts",
         "src/secrets.ts",
@@ -96,7 +96,7 @@
       "disposition": "no_issue_found",
       "id": "surface_release-workflows-packaging-provenance-and-dependencies",
       "label": "Release workflows, packaging, provenance, and dependencies",
-      "notes": "Reviewed pinned actions, split environments, OIDC, exact-parent scan evidence, signed lineage, public tarball identity, Registry/GitHub agreement, resumable downstream publication, package allowlist, lockfile, and audit.",
+      "notes": "Reproduced check:release and metadata successfully; immutable evidence, OIDC, exact artifacts, downstream recovery, and dependency controls remain unchanged.",
       "paths": [
         ".github/workflows/attest-canary.yml",
         ".github/workflows/attest-security-evidence.yml",
@@ -127,7 +127,7 @@
       "disposition": "no_issue_found",
       "id": "surface_correctness-privacy-protocol-installed-package-and-performance-verification",
       "label": "Correctness, privacy, protocol, installed-package, and performance verification",
-      "notes": "Reviewed synthetic verification for data semantics, all seven tools, stdio/HTTP, privacy denial, clean-room onboarding, and bounded performance.",
+      "notes": "Prior 112 tests, installed tarball, seven-tool protocol, privacy, package, and million-message gates remain applicable; no executable test source changed.",
       "paths": [
         "scripts/test-installed.ts",
         "scripts/test-live-parity.ts",
@@ -146,7 +146,7 @@
       "disposition": "no_issue_found",
       "id": "surface_public-documentation-security-policy-and-compatibility-boundaries",
       "label": "Public documentation, security policy, and compatibility boundaries",
-      "notes": "Reviewed read-only, Android, Full Disk Access, provider processing, Contacts, redacted-first, prompt-injection, synthetic-only contribution, migration, and unsupported behavior guidance.",
+      "notes": "Reviewed the only source delta: VERIFICATION.md truthfully marks the green prerelease gate, corrects 82-file scope, and uses future tense for still-pending publication. Privacy and prompt-injection guidance remain accurate.",
       "paths": [
         "CHANGELOG.md",
         "CONTRIBUTING.md",
@@ -162,7 +162,7 @@
       "disposition": "no_issue_found",
       "id": "surface_client-namespaces-and-public-manifests",
       "label": "Client namespaces and public manifests",
-      "notes": "Reviewed imessage-history namespace, beta.3 next alignment, redacted contacts-none setup, required 0600 files, platform and discovery metadata, and API consistency.",
+      "notes": "imessage-history, beta.3 next metadata, redacted contacts-none first run, and version/channel agreement remain unchanged.",
       "paths": [
         ".mcp.json",
         ".claude-plugin/plugin.json",
@@ -175,9 +175,9 @@
     },
     {
       "disposition": "no_issue_found",
-      "id": "surface_synthetic-assets-repository-policy-and-scan-evidence-placeholders",
-      "label": "Synthetic assets, repository policy, and scan-evidence placeholders",
-      "notes": "Reviewed asset hashes and live-database refusal, issue templates, Dependabot, funding, ignore rules, evidence policy, and prior canonical scan files to be replaced by this completed scan.",
+      "id": "surface_synthetic-assets-repository-policy-and-canonical-prior-scan-artifacts",
+      "label": "Synthetic assets, repository policy, and canonical prior scan artifacts",
+      "notes": "Assets remain synthetic and hash-bound; prior scan artifacts are reviewed inputs and will be replaced by this exact-revision scan.",
       "paths": [
         ".github/FUNDING.yml",
         ".github/ISSUE_TEMPLATE/bug_report.md",

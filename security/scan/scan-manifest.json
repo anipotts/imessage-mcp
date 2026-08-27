@@ -5,21 +5,21 @@
       {
         "mediaType": "application/json",
         "path": "findings.json",
-        "sha256": "40931234883e69d7a62b157223460f119f57f9fb24440225bd4caa2cd91a898c"
+        "sha256": "d3474ec90814569b522e534c617d23c7cc284331a7229ef3a0236fc454ef000c"
       },
       {
         "mediaType": "application/json",
         "path": "coverage.json",
-        "sha256": "0827efc444c61afcdf7d034959f6cf9063131d81e6d5ad0c13982126d165d0bc"
+        "sha256": "2e37bc415e365994739566060837ec360f507574ccc35ce493a6d01437797b79"
       }
     ],
-    "completedAt": "2026-08-27T07:57:05.842889Z",
+    "completedAt": "2026-08-27T16:39:04.881197Z",
     "coverageRef": "coverage.json",
     "findingsRef": "findings.json",
-    "id": "c4e78861-6a75-4f1a-a843-8223dcae9ffc",
+    "id": "7043a2c4-89b3-4bd4-9c8d-b48b851b83d9",
     "preservedSources": {
-      "checkpoints/50f2bd6d9d2978dfc1cddb6fb3d08e4b445e9c490efc0f5eaa20d5b2b4d2e759.json": "50f2bd6d9d2978dfc1cddb6fb3d08e4b445e9c490efc0f5eaa20d5b2b4d2e759",
-      "checkpoints/f8d4fc21beffabc5111d1a3a1b8db982fe269d248f137ed6d5635ea3579e37e2.json": "e4739a16d028d40a60e2b556cfb4bd0c986a3db7f0f615e745734cfdfb754ce3"
+      "checkpoints/1915ec6878382d990325dfc0517a65594b403dbfecad98e3148e54dbd2d598f3.json": "1915ec6878382d990325dfc0517a65594b403dbfecad98e3148e54dbd2d598f3",
+      "checkpoints/a55a1d122eac8210eed19fc82901c61176a53bf4179ca3191c798490b12b3b51.json": "e7268fb65fb11be1b484d525734f901fcce7b28ed7709ff88f42654b180c16df"
     },
     "producer": {
       "name": "codex-security-plugin",
@@ -110,72 +110,68 @@
         "tsconfig.json",
         "vitest.config.ts"
       ],
-      "context": "Release-focused static review plus executed automated verification.",
+      "context": "Full prior review plus exact delta review and successful release-gate/metadata reproduction.",
       "excludePaths": [],
       "includePaths": [
         "."
       ],
       "limitations": [
-        "Independent deep-scan workers could not start because the desktop parent lacked a managed filesystem permission profile; this standard scan does not claim independent variance reduction.",
-        "No private live Messages or Contacts values were retained.",
-        "Bounded to reviewed source and executed synthetic/package gates; future Apple schema or provider behavior is not proven."
+        "Independent deep-scan variance reduction remained unavailable because the desktop parent lacked a managed filesystem permission profile.",
+        "No private live Messages or Contacts data was retained.",
+        "Future Apple schemas and provider behavior are outside this bounded evidence."
       ],
       "runtimeStatus": "complete",
-      "summary": "Complete standard security review of exact signed beta.3 revision f72ffba8f71082492b73c9c11b9d658793208123 and all 82 tracked artifacts.",
-      "validationMode": "Sequential parent review with build, tests, protocol, installed tarball, metadata, package content, audit, and source inspection."
+      "summary": "Complete standard review of exact signed beta.3 source 8b350f5b23b98422aca6743f771b7b720756d408 and all 82 tracked artifacts, revalidating the prior exact full-tree scan after one documentation-only correction.",
+      "validationMode": "Sequential parent review, exact documentation diff, prior full-tree source review, and executed release/metadata gates."
     },
-    "sealedAt": "2026-08-27T07:57:05.842889Z",
-    "startedAt": "2026-08-27T07:50:02.618693Z",
+    "sealedAt": "2026-08-27T16:39:04.881197Z",
+    "startedAt": "2026-08-27T16:38:03.084369Z",
     "status": "completed",
     "target": {
       "displayName": "imessage-mcp",
       "kind": "git_revision",
-      "revision": "f72ffba8f71082492b73c9c11b9d658793208123",
+      "revision": "8b350f5b23b98422aca6743f771b7b720756d408",
       "targetId": "target_sha256_91a5cfb7b3d17e1fa8fb342de4bf5e1ed933375ae15ffb07b6229c2a5086c983"
     },
     "threatModel": {
       "assets": [
-        "Message bodies and lifecycle state",
-        "Contacts identities and handles",
-        "Conversation and group metadata",
-        "Attachment metadata and optional paths",
-        "Database and WAL contents",
-        "Opaque-reference and lineage secrets",
-        "HTTP bearer token",
+        "Messages and lifecycle state",
+        "Contacts and handles",
+        "Conversation and attachment metadata",
+        "Database/WAL",
+        "Reference, lineage, and HTTP secrets",
         "Release artifacts and provenance"
       ],
       "assumptions": [
-        "Supported macOS and Node releases only",
-        "Operator deliberately grants launching-client filesystem authority and protects 0600 secrets",
-        "Tailscale Serve terminates remote TLS",
-        "Same-account arbitrary code execution is outside the server boundary",
-        "Schema capability flags are authoritative",
-        "Prompt guidance cannot control downstream client or provider behavior"
+        "Supported macOS and Node only",
+        "Operator protects launching client and 0600 files",
+        "Tailscale terminates TLS",
+        "Same-account arbitrary code execution is outside scope",
+        "Prompt guidance cannot control downstream processing"
       ],
       "attackerCapabilities": [
-        "Controls archival strings or attributed-body blobs",
-        "Sends malformed or oversized MCP or HTTP inputs",
-        "Attempts unauthenticated or cross-origin loopback requests",
-        "Mutates copied or live database state within local authority",
-        "Supplies schema-amplified records",
-        "Attempts release or provenance substitution"
+        "Controls archival data",
+        "Sends malformed or oversized requests",
+        "Attempts unauthorized loopback access",
+        "Mutates local database state",
+        "Attempts package or provenance substitution"
       ],
       "securityObjectives": [
-        "Never write Messages or Contacts state",
-        "Never disclose above the privacy ceiling",
-        "Never treat archive strings as server instructions",
-        "Fail closed on unsupported or changed data and bounds",
-        "Authenticate and bound HTTP before dispatch",
-        "Bind public artifacts to scanned signed lineage"
+        "Strict read-only operation",
+        "Privacy-ceiling enforcement",
+        "Archive data never treated as instruction",
+        "Fail-closed bounds and integrity",
+        "Authenticated bounded HTTP",
+        "Exact signed release lineage"
       ],
-      "summary": "A local macOS read-only MCP server exposes sensitive Apple Messages history to an authorized local MCP client over stdio or authenticated loopback HTTP. Primary risks are confidentiality loss, incorrect attribution/completeness, archival prompt injection, native decoder abuse, database race or lineage confusion, HTTP exposure, resource exhaustion, and release substitution.",
+      "summary": "Local read-only macOS MCP serving sensitive Messages history over stdio or authenticated loopback HTTP; risks include confidentiality, correctness, archival prompt injection, native decoding, database races, resource exhaustion, and release substitution.",
       "trustBoundaries": [
-        "Messages and Contacts stores into the process",
-        "Untrusted archived strings and blobs into native decoding and MCP results",
-        "MCP client requests into validation and privacy ceilings",
-        "Loopback HTTP into authentication and workers",
-        "Operator-owned secret files into references and authentication",
-        "Git source through GitHub Actions, npm, MCP Registry, and GitHub Releases"
+        "Apple databases to local process",
+        "Archived strings/blobs to decoder and results",
+        "Client requests to validation/privacy",
+        "Loopback HTTP to authentication/workers",
+        "0600 files to secret consumers",
+        "GitHub Actions to npm, Registry, and releases"
       ]
     }
   },
