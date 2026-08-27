@@ -340,35 +340,70 @@ jobs:
     timeout-minutes: 10
     environment: github-release
     permissions:
+      attestations: read
       contents: write
     steps:
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: verified-release-${{ needs.publish-npm.outputs.version }}
           path: release-artifact
-      - uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3
+      - id: draft-release
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3
         with:
+          tag_name: v${{ needs.publish-npm.outputs.version }}
+          draft: true
           prerelease: ${{ needs.publish-npm.outputs.prerelease == 'true' }}
           generate_release_notes: true
+          overwrite_files: true
+          fail_on_unmatched_files: true
           files: release-artifact/*
-      - name: verify exact github release
+      - name: verify complete draft, publish it, and verify immutable release
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.publish-npm.outputs.version }}
           PRERELEASE: ${{ needs.publish-npm.outputs.prerelease }}
+          RELEASE_ID: ${{ steps.draft-release.outputs.id }}
         shell: bash
         run: |
-          gh api "repos/${GITHUB_REPOSITORY}/releases/tags/v${VERSION}" \
-            > "$RUNNER_TEMP/release.json"
+          gh api "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" > "$RUNNER_TEMP/draft.json"
           node -e '
             const fs = require("fs");
             const release = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
             const expectedAssets = fs.readdirSync("release-artifact").sort();
             const actualAssets = release.assets.map((asset) => asset.name).sort();
-            if (release.tag_name !== "v" + process.env.VERSION || release.draft ||
+            if (release.tag_name !== "v" + process.env.VERSION || !release.draft ||
                 release.prerelease !== (process.env.PRERELEASE === "true") ||
                 JSON.stringify(actualAssets) !== JSON.stringify(expectedAssets)) process.exit(1);
-          ' "$RUNNER_TEMP/release.json"
+          ' "$RUNNER_TEMP/draft.json"
+          if [[ "$PRERELEASE" == "true" ]]; then
+            gh release edit "v${VERSION}" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease
+          else
+            gh release edit "v${VERSION}" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease=false --latest
+          fi
+          VERIFIED=false
+          for ATTEMPT in {1..20}; do
+            if gh api "repos/${GITHUB_REPOSITORY}/releases/tags/v${VERSION}" \
+              > "$RUNNER_TEMP/release.json" && node -e '
+                const fs = require("fs");
+                const release = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+                const expectedAssets = fs.readdirSync("release-artifact").sort();
+                const actualAssets = release.assets.map((asset) => asset.name).sort();
+                if (release.tag_name !== "v" + process.env.VERSION || release.draft || !release.immutable ||
+                    release.prerelease !== (process.env.PRERELEASE === "true") ||
+                    JSON.stringify(actualAssets) !== JSON.stringify(expectedAssets)) process.exit(1);
+              ' "$RUNNER_TEMP/release.json"; then VERIFIED=true; break; fi
+            sleep 3
+          done
+          test "$VERIFIED" = "true"
+          ATTESTED=false
+          for ATTEMPT in {1..20}; do
+            if gh release verify "v${VERSION}" --repo "$GITHUB_REPOSITORY"; then ATTESTED=true; break; fi
+            sleep 3
+          done
+          test "$ATTESTED" = "true"
+          for ASSET in release-artifact/*; do
+            gh release verify-asset "v${VERSION}" "$ASSET" --repo "$GITHUB_REPOSITORY"
+          done
 
   resume-verify-public-npm:
     if: github.event_name == 'workflow_dispatch'
@@ -697,6 +732,7 @@ jobs:
     environment: github-release
     permissions:
       actions: read
+      attestations: read
       contents: write
     steps:
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
@@ -724,41 +760,87 @@ jobs:
               const release = matches[0];
               const expectedAssets = fs.readdirSync("release-artifact").sort();
               const actualAssets = release.assets.map((asset) => asset.name).sort();
-              if (release.draft || release.prerelease !== (process.env.PRERELEASE === "true") ||
-                  JSON.stringify(actualAssets) !== JSON.stringify(expectedAssets)) process.exit(1);
-              process.stdout.write("present");
+              if (release.prerelease !== (process.env.PRERELEASE === "true") ||
+                  new Set(actualAssets).size !== actualAssets.length ||
+                  actualAssets.some((asset) => !expectedAssets.includes(asset))) process.exit(1);
+              if (release.draft) process.stdout.write("draft");
+              else {
+                if (!release.immutable || JSON.stringify(actualAssets) !== JSON.stringify(expectedAssets)) process.exit(1);
+                process.stdout.write("published");
+              }
             }
           ' "$RUNNER_TEMP/releases.json")
-          if [[ "$STATE" == "absent" ]]; then
-            echo "publish=true" >> "$GITHUB_OUTPUT"
-          else
+          if [[ "$STATE" == "published" ]]; then
             echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
           fi
-      - uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3
+      - id: draft-release
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3
         if: steps.release.outputs.publish == 'true'
         with:
           tag_name: v${{ needs.resume-verify-public-npm.outputs.version }}
+          draft: true
           prerelease: ${{ needs.resume-verify-public-npm.outputs.prerelease == 'true' }}
           generate_release_notes: true
+          overwrite_files: true
+          fail_on_unmatched_files: true
           files: release-artifact/*
-      - name: verify exact github release
+      - name: verify complete draft and publish it
+        if: steps.release.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.resume-verify-public-npm.outputs.version }}
+          PRERELEASE: ${{ needs.resume-verify-public-npm.outputs.prerelease }}
+          RELEASE_ID: ${{ steps.draft-release.outputs.id }}
+        shell: bash
+        run: |
+          gh api "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" > "$RUNNER_TEMP/draft.json"
+          node -e '
+            const fs = require("fs");
+            const release = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+            const expectedAssets = fs.readdirSync("release-artifact").sort();
+            const actualAssets = release.assets.map((asset) => asset.name).sort();
+            if (release.tag_name !== "v" + process.env.VERSION || !release.draft ||
+                release.prerelease !== (process.env.PRERELEASE === "true") ||
+                JSON.stringify(actualAssets) !== JSON.stringify(expectedAssets)) process.exit(1);
+          ' "$RUNNER_TEMP/draft.json"
+          if [[ "$PRERELEASE" == "true" ]]; then
+            gh release edit "v${VERSION}" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease
+          else
+            gh release edit "v${VERSION}" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease=false --latest
+          fi
+      - name: verify exact immutable github release and assets
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.resume-verify-public-npm.outputs.version }}
           PRERELEASE: ${{ needs.resume-verify-public-npm.outputs.prerelease }}
         shell: bash
         run: |
-          gh api "repos/${GITHUB_REPOSITORY}/releases/tags/v${VERSION}" \
-            > "$RUNNER_TEMP/release.json"
-          node -e '
-            const fs = require("fs");
-            const release = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-            const expectedAssets = fs.readdirSync("release-artifact").sort();
-            const actualAssets = release.assets.map((asset) => asset.name).sort();
-            if (release.tag_name !== "v" + process.env.VERSION || release.draft ||
-                release.prerelease !== (process.env.PRERELEASE === "true") ||
-                JSON.stringify(actualAssets) !== JSON.stringify(expectedAssets)) process.exit(1);
-          ' "$RUNNER_TEMP/release.json"
+          VERIFIED=false
+          for ATTEMPT in {1..20}; do
+            if gh api "repos/${GITHUB_REPOSITORY}/releases/tags/v${VERSION}" \
+              > "$RUNNER_TEMP/release.json" && node -e '
+                const fs = require("fs");
+                const release = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+                const expectedAssets = fs.readdirSync("release-artifact").sort();
+                const actualAssets = release.assets.map((asset) => asset.name).sort();
+                if (release.tag_name !== "v" + process.env.VERSION || release.draft || !release.immutable ||
+                    release.prerelease !== (process.env.PRERELEASE === "true") ||
+                    JSON.stringify(actualAssets) !== JSON.stringify(expectedAssets)) process.exit(1);
+              ' "$RUNNER_TEMP/release.json"; then VERIFIED=true; break; fi
+            sleep 3
+          done
+          test "$VERIFIED" = "true"
+          ATTESTED=false
+          for ATTEMPT in {1..20}; do
+            if gh release verify "v${VERSION}" --repo "$GITHUB_REPOSITORY"; then ATTESTED=true; break; fi
+            sleep 3
+          done
+          test "$ATTESTED" = "true"
+          for ASSET in release-artifact/*; do
+            gh release verify-asset "v${VERSION}" "$ASSET" --repo "$GITHUB_REPOSITORY"
+          done
 
   resume-verify-public-surfaces:
     if: github.event_name == 'workflow_dispatch'
@@ -768,6 +850,7 @@ jobs:
     timeout-minutes: 10
     permissions:
       actions: read
+      attestations: read
       contents: read
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -821,7 +904,7 @@ jobs:
             const release = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
             const expectedAssets = fs.readdirSync("release-artifact").sort();
             const actualAssets = release.assets.map((asset) => asset.name).sort();
-            if (release.tag_name !== "v" + process.env.VERSION || release.draft ||
+            if (release.tag_name !== "v" + process.env.VERSION || release.draft || !release.immutable ||
                 release.prerelease !== (process.env.PRERELEASE === "true") ||
                 JSON.stringify(actualAssets) !== JSON.stringify(expectedAssets)) process.exit(1);
           ' "$RUNNER_TEMP/registry.json" "$RUNNER_TEMP/release.json" "$RUNNER_TEMP/release-server.json"

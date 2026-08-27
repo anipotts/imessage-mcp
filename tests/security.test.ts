@@ -191,6 +191,10 @@ describe("native and release hardening", () => {
     expect(github).toContain("contents: write");
     expect(github).not.toContain("id-token: write");
     expect(github).not.toContain("mcp-publisher");
+    expect(github).toContain("draft: true");
+    expect(github).toContain('gh release edit "v${VERSION}"');
+    expect(github).toContain("!release.immutable");
+    expect(github).toContain("gh release verify-asset");
   });
 
   it("resumes a partial release without republishing npm or weakening split authority", () => {
@@ -238,6 +242,12 @@ describe("native and release hardening", () => {
     expect(github).toContain("contents: write");
     expect(github).not.toContain("id-token: write");
     expect(github).not.toContain("mcp-publisher");
+    expect(github).toContain("draft: true");
+    expect(github).toContain('process.stdout.write("draft")');
+    expect(github).toContain('gh release edit "v${VERSION}"');
+    expect(github).toContain("!release.immutable");
+    expect(github).toContain("gh release verify-asset");
+    expect(github).not.toContain("--method DELETE");
   });
 
   it("binds security evidence to canonical scan files whose exact parent was scanned", () => {
