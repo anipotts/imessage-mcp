@@ -24,7 +24,6 @@
     "VERIFICATION.md",
     "release-status.json",
     "package-files.json",
-    "npm-shrinkwrap.json",
     "server.json"
   ],
   "scripts": {
@@ -79,7 +78,15 @@
     "apple",
     "sms",
     "chat-history",
-    "analytics"
+    "analytics",
+    "read-only",
+    "privacy",
+    "local-first",
+    "codex",
+    "cursor",
+    "mms",
+    "rcs",
+    "apple-messages"
   ],
   "repository": {
     "type": "git",

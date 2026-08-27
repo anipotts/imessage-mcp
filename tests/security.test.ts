@@ -359,7 +359,7 @@ describe("native and release hardening", () => {
       ".mcp.json",
       "README.md",
       "VERIFICATION.md",
-      "npm-shrinkwrap.json",
+      "package-lock.json",
       "package.json",
       "release-status.json",
       "server.json",
@@ -375,7 +375,7 @@ describe("native and release hardening", () => {
               scripts: { prepublishOnly: "npm run verify" },
               dependencies: { example: "1.0.0" },
             }
-          : file === "npm-shrinkwrap.json"
+          : file === "package-lock.json"
             ? {
                 name: "imessage-mcp",
                 version,
@@ -607,12 +607,12 @@ describe("native and release hardening", () => {
       )).toThrow();
 
       writeVersionFiles(directory, "2.0.0", stableStatus);
-      const shrinkwrapFile = path.join(directory, "npm-shrinkwrap.json");
-      const shrinkwrap = JSON.parse(readFileSync(shrinkwrapFile, "utf8")) as {
+      const lockFile = path.join(directory, "package-lock.json");
+      const lock = JSON.parse(readFileSync(lockFile, "utf8")) as {
         packages: Record<string, Record<string, unknown>>;
       };
-      shrinkwrap.packages["node_modules/example"].integrity = "sha512-changed";
-      writeFileSync(shrinkwrapFile, `${JSON.stringify(shrinkwrap, null, 2)}\n`);
+      lock.packages["node_modules/example"].integrity = "sha512-changed";
+      writeFileSync(lockFile, `${JSON.stringify(lock, null, 2)}\n`);
       const tamperedDependency = path.join(directory, "tampered-dependency.tgz");
       buildPackage(directory, tamperedDependency);
       expect(() => execFileSync(

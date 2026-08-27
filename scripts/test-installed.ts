@@ -2,7 +2,7 @@
 
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createFixture } from "../tests/fixture.js";
@@ -16,6 +16,29 @@ interface PackResult {
 
 function packageVersion(file: string): string {
   return (JSON.parse(readFileSync(file, "utf8")) as { version: string }).version;
+}
+
+function directoryBytes(root: string): number {
+  let total = 0;
+  const queue = [root];
+  while (queue.length) {
+    const current = queue.pop() as string;
+    for (const name of readdirSync(current)) {
+      const selected = path.join(current, name);
+      const stat = lstatSync(selected);
+      if (stat.isSymbolicLink()) continue;
+      if (stat.isDirectory()) queue.push(selected);
+      else if (stat.isFile()) total += stat.size;
+    }
+  }
+  return total;
+}
+
+function dependencyNodes(value: { dependencies?: Record<string, unknown> }): number {
+  return Object.values(value.dependencies ?? {}).reduce(
+    (total, dependency) => total + 1 + dependencyNodes(dependency as { dependencies?: Record<string, unknown> }),
+    0,
+  );
 }
 
 async function main(): Promise<void> {
@@ -36,7 +59,8 @@ async function main(): Promise<void> {
     assert.ok(paths.includes("release-status.json"));
     assert.ok(paths.includes("VERIFICATION.md"));
     assert.ok(paths.includes("server.json"));
-    assert.ok(paths.includes("npm-shrinkwrap.json"));
+    assert.ok(!paths.includes("npm-shrinkwrap.json"));
+    assert.ok(!paths.includes("package-lock.json"));
 
     const packageVersionValue = packageVersion("package.json");
     assert.equal(packageVersion(".claude-plugin/plugin.json"), packageVersionValue);
@@ -47,15 +71,25 @@ async function main(): Promise<void> {
     const install = path.join(scratch, "install");
     mkdirSync(install);
     writeFileSync(path.join(install, "package.json"), JSON.stringify({ private: true }));
-    execFileSync("npm", ["install", "--omit=dev", "--no-audit", "--no-fund", path.join(scratch, packed[0].filename)], {
+    execFileSync("npm", ["install", "--no-audit", "--no-fund", path.join(scratch, packed[0].filename)], {
       cwd: install,
       stdio: "ignore",
     });
     execFileSync(process.execPath, [
       path.join(install, "node_modules", "imessage-mcp", "dist", "verify-installed-graph.js"),
       install,
-      path.join(process.cwd(), "npm-shrinkwrap.json"),
+      path.join(process.cwd(), "package-lock.json"),
     ], { cwd: install });
+    const installedTree = JSON.parse(execFileSync("npm", ["ls", "--all", "--json"], {
+      cwd: install,
+      encoding: "utf8",
+    })) as { problems?: string[]; dependencies?: Record<string, unknown> };
+    assert.deepEqual(installedTree.problems ?? [], [], "vanilla install must not contain extraneous or invalid packages");
+    const installedBytes = directoryBytes(path.join(install, "node_modules"));
+    const installedNodes = dependencyNodes(installedTree);
+    assert.ok(installedNodes <= 12, "vanilla installed dependency graph must remain bounded");
+    assert.ok(installedBytes < 128 * 1024 * 1024,
+      "vanilla installed dependency graph must remain below 128 MiB");
     const binary = path.join(install, "node_modules", ".bin", "imessage-mcp");
     assert.equal(execFileSync(binary, ["--version"], { cwd: install, encoding: "utf8" }).trim(), packageVersionValue);
     for (const args of [["--help"], ["-h"], ["help"]]) {
@@ -100,7 +134,10 @@ async function main(): Promise<void> {
       writeFileSync(file, JSON.stringify(clientConfig));
       assert.equal(JSON.parse(readFileSync(file, "utf8")).mcpServers.imessage.command, binary);
     }
-    process.stdout.write("installed tarball verification passed: package contents, doctor, stdio, and isolated client configs\n");
+    process.stdout.write(
+      `installed tarball verification passed: ${installedNodes} dependency nodes, ` +
+      `${(installedBytes / (1024 * 1024)).toFixed(1)} MiB, package contents, help, doctor, stdio, and isolated clients\n`,
+    );
   } finally {
     fixture.cleanup();
     rmSync(scratch, { recursive: true, force: true });

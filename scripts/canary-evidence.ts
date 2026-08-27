@@ -23,7 +23,7 @@ const STABLE_DERIVATION_FILES = [
   ".mcp.json",
   "README.md",
   "VERIFICATION.md",
-  "npm-shrinkwrap.json",
+  "package-lock.json",
   "package.json",
   "release-status.json",
   "server.json",
@@ -433,11 +433,11 @@ function assertReviewedDerivation(
   assert.equal(stable.version, stableVersion, `${file} must name the stable version`);
   expected.version = stableVersion;
 
-  if (file === "npm-shrinkwrap.json") {
-    const packages = record(expected.packages, "npm-shrinkwrap.json packages");
-    const root = record(packages[""], "npm-shrinkwrap.json root package");
+  if (file === "package-lock.json") {
+    const packages = record(expected.packages, "package-lock.json packages");
+    const root = record(packages[""], "package-lock.json root package");
     assert.equal(root.version, candidateVersion,
-      "npm-shrinkwrap.json root package must name the release-candidate version");
+      "package-lock.json root package must name the release-candidate version");
     root.version = stableVersion;
   } else if (file === "server.json") {
     assert.ok(Array.isArray(expected.packages) && expected.packages.length === 1,

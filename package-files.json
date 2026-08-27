@@ -125,7 +125,6 @@
     "docs/ROADMAP-3.0.md",
     "native/contact-resolver.js",
     "native/message-text-decoder.js",
-    "npm-shrinkwrap.json",
     "package-files.json",
     "package.json",
     "release-status.json",
