@@ -19,9 +19,12 @@ interface ParityRow {
   service: string | null;
 }
 
-const databasePath = path.join(homedir(), "Library", "Messages", "chat.db");
-const liveDatabaseId = randomBytes(48);
-const context = new DatabaseContext(databasePath, randomBytes(32), liveDatabaseId, "live");
+const defaultDatabasePath = path.join(homedir(), "Library", "Messages", "chat.db");
+const configuredDatabasePath = process.env.IMESSAGE_PARITY_DB;
+const databasePath = configuredDatabasePath ? path.resolve(configuredDatabasePath) : defaultDatabasePath;
+const sourceMode = configuredDatabasePath ? "copy" : "live";
+const databaseId = randomBytes(48);
+const context = new DatabaseContext(databasePath, randomBytes(32), databaseId, sourceMode);
 const decoder = new MessageTextDecoder();
 const MAX_SAMPLE = 500;
 const MAX_BATCH_ITEMS = 500;
@@ -29,7 +32,7 @@ const MAX_BATCH_BYTES = 8 * 1024 * 1024;
 const MAX_BLOB_BYTES = 1024 * 1024;
 // The one-million-message reference fixture owns the 60-second index SLA. A growing live archive
 // is bounded by the supported cold-request deadline while this check verifies exact private parity.
-const MAX_LIVE_COLD_SEARCH_MS = 90_000;
+const MAX_COLD_SEARCH_MS = 90_000;
 
 function structured(result: { isError?: boolean; structuredContent?: unknown }): Record<string, unknown> {
   assert.notEqual(result.isError, true);
@@ -57,7 +60,7 @@ function privateProbe(): { handle: string; search: string } {
   }
 }
 
-async function exerciseLiveTools(): Promise<{
+async function exerciseTools(): Promise<{
   tools: number;
   aggregate_leaks: number;
   duration_ms: Record<string, number>;
@@ -65,14 +68,14 @@ async function exerciseLiveTools(): Promise<{
   const referenceKey = randomBytes(48);
   const config: RuntimeConfig = {
     database_path: databasePath,
-    source_mode: "live",
-    contacts_mode: "live",
+    source_mode: sourceMode,
+    contacts_mode: sourceMode === "live" ? "live" : "none",
     privacy_ceiling: "full",
     transport: "stdio",
     port: 3000,
     attachment_paths_enabled: false,
     reference_key: referenceKey.toString("base64"),
-    database_id: liveDatabaseId.toString("base64"),
+    database_id: databaseId.toString("base64"),
   };
   referenceKey.fill(0);
   const runtime = new LocalToolRuntime(config, randomBytes(32));
@@ -92,7 +95,7 @@ async function exerciseLiveTools(): Promise<{
     }));
     const fullData = fullList.data as { conversations?: Array<{ conversation_ref?: unknown }> };
     const conversationRef = fullData.conversations?.[0]?.conversation_ref;
-    assert.equal(typeof conversationRef, "string", "no live conversation reference was available for tool parity");
+    assert.equal(typeof conversationRef, "string", "no conversation reference was available for tool parity");
 
     const results = [
       await call("server_status", { privacy_mode: "aggregate" }),
@@ -123,20 +126,20 @@ async function exerciseLiveTools(): Promise<{
     ] as const;
     for (const [tool, result] of results) {
       const error = result.structuredContent as { error?: { reason?: string } } | undefined;
-      assert.notEqual(result.isError, true, `${tool} failed live parity: ${JSON.stringify(error?.error ?? { reason: "unknown" })}`);
+      assert.notEqual(result.isError, true, `${tool} failed parity: ${JSON.stringify(error?.error ?? { reason: "unknown" })}`);
     }
     const aggregate = results.map(([, result]) => structured(result));
     const serialized = JSON.stringify(aggregate);
     const leaks = [probe.handle, conversationRef as string]
       .filter((value) => serialized.includes(value)).length;
-    assert.equal(leaks, 0, "aggregate live-tool output retained a private probe value or record reference");
+    assert.equal(leaks, 0, "aggregate tool output retained a private probe value or record reference");
     assert.doesNotMatch(serialized, /"(?:message|conversation)_ref"/u);
     assert.doesNotMatch(serialized, /"query"\s*:/u);
-    assert.ok(durationMs.server_status < 1_000, "live server_status exceeded the sub-second metadata budget");
-    assert.ok(durationMs.list_conversations < 1_000, "live list_conversations exceeded the sub-second metadata budget");
+    assert.ok(durationMs.server_status < 1_000, "server_status exceeded the sub-second metadata budget");
+    assert.ok(durationMs.list_conversations < 1_000, "list_conversations exceeded the sub-second metadata budget");
     assert.ok(
-      durationMs.search_messages < MAX_LIVE_COLD_SEARCH_MS,
-      `live cold search exceeded the 90-second request budget: ${durationMs.search_messages}ms`,
+      durationMs.search_messages < MAX_COLD_SEARCH_MS,
+      `cold search exceeded the 90-second request budget: ${durationMs.search_messages}ms`,
     );
     return { tools: results.length, aggregate_leaks: leaks, duration_ms: durationMs };
   } finally {
@@ -228,10 +231,10 @@ try {
     }
   });
   assert.equal(mismatch, 0, `one or more bounded attributed-body values differed from the populated text column: ${JSON.stringify({ mismatch_by_status: mismatchByStatus, mismatch_by_service: mismatchByService })}`);
-  const contacts = new UnifiedContactResolver(true).status();
-  const toolParity = await exerciseLiveTools();
+  const contacts = new UnifiedContactResolver(sourceMode === "live").status();
+  const toolParity = await exerciseTools();
   process.stdout.write(`${JSON.stringify({
-    source: "live_mac_chat_db",
+    source: sourceMode === "live" ? "live_mac_chat_db" : "copied_mac_chat_db",
     readonly: "passed",
     schema: context.capabilities.required_core,
     decoder_self_test: decoder.healthState(),
