@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- Protected, idempotent recovery for downstream publication failures after a verified npm release.
+
+### Changed
+- GitHub releases are assembled as complete drafts, published once, made immutable, and verified with release and asset attestations.
+- Public verification now records the exact beta.2 source, evidence lineage, artifact hashes, and reconciled npm, MCP Registry, and GitHub state.
+
 ## [2.0.0-beta.2] - 2026-08-26
 
 ### Fixed
