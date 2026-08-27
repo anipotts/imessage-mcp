@@ -175,18 +175,79 @@ describe("native and release hardening", () => {
       .not.toMatch(/npm run (?:verify|test:performance)/u);
     const npmJob = release.slice(release.indexOf("  publish-npm:"), release.indexOf("  verify-public-npm:"));
     expect(npmJob).toContain("attestations: read");
+    expect(npmJob).toContain('TARBALL="./release-artifact/${{ needs.verify-release.outputs.tarball }}"');
+    expect(npmJob).toContain('test -f "$TARBALL"');
     expect(npmJob.match(/gh attestation verify/gu)).toHaveLength(3);
     expect(npmJob.indexOf("gh attestation verify")).toBeLessThan(npmJob.indexOf("npm publish"));
     expect(npmJob.indexOf("attest-canary.yml")).toBeLessThan(npmJob.indexOf("--tag latest"));
+    const publicNpm = release.slice(release.indexOf("  verify-public-npm:"), release.indexOf("  publish-registry:"));
+    expect(publicNpm).toContain("--omit=dev");
     const registry = release.slice(release.indexOf("  publish-registry:"), release.indexOf("  publish-github-release:"));
     expect(registry).toContain("contents: read");
     expect(registry).toContain("id-token: write");
     expect(registry).not.toContain("contents: write");
     expect(registry).toContain("persist-credentials: false");
-    const github = release.slice(release.indexOf("  publish-github-release:"));
+    const github = release.slice(release.indexOf("  publish-github-release:"), release.indexOf("  resume-verify-public-npm:"));
     expect(github).toContain("contents: write");
     expect(github).not.toContain("id-token: write");
     expect(github).not.toContain("mcp-publisher");
+    expect(github).toContain("draft: true");
+    expect(github).toContain('gh release edit "v${VERSION}"');
+    expect(github).toContain("!release.immutable");
+    expect(github).toContain("gh release verify-asset");
+  });
+
+  it("resumes a partial release without republishing npm or weakening split authority", () => {
+    const release = readFileSync(new URL("../.github/workflows/release.yml", import.meta.url), "utf8");
+    const recovery = release.slice(release.indexOf("  resume-verify-public-npm:"));
+    const verify = recovery.slice(0, recovery.indexOf("  resume-publish-registry:"));
+    const registry = recovery.slice(
+      recovery.indexOf("  resume-publish-registry:"),
+      recovery.indexOf("  resume-publish-github-release:"),
+    );
+    const github = recovery.slice(
+      recovery.indexOf("  resume-publish-github-release:"),
+      recovery.indexOf("  resume-verify-public-surfaces:"),
+    );
+
+    expect(release).toContain("workflow_dispatch:");
+    expect(recovery).not.toContain("npm publish");
+    expect(recovery).not.toContain("ref: ${{ inputs.evidence_commit }}");
+    expect(recovery).not.toContain("ref: ${{ needs.resume-verify-public-npm.outputs.evidence_commit }}");
+    expect(verify).toContain("environment: security-attestation");
+    expect(verify).toContain('test "$GITHUB_REF" = "refs/heads/main"');
+    expect(verify).toContain('verify-commit "$EVIDENCE_COMMIT"');
+    expect(verify).toContain('verify-tag "v${TARGET_VERSION}"');
+    expect(verify).toContain('"publish verified npm artifact",');
+    expect(verify).toContain('jobs.get(name) !== "success"');
+    expect(verify).toContain('["failure", "skipped", "skipped"]');
+    expect(verify).toContain('["success", "failure", "skipped"]');
+    expect(verify).toContain('["success", "success", "failure"]');
+    expect(verify).toContain("--source-digest \"$EVIDENCE_COMMIT\"");
+    expect(verify).toContain("scripts/security-evidence.ts verify");
+    expect(verify).toContain('workflow.path !== ".github/workflows/release.yml"');
+    expect(verify).toContain("--omit=dev");
+    expect(verify).toContain("src/verify-installed-graph.ts");
+    expect(verify).toContain('node_modules/.bin/imessage-mcp" --version');
+    expect(verify).not.toContain("package/dist/verify-installed-graph.js");
+    expect(verify).toContain("audit signatures");
+
+    expect(registry).toContain("environment: mcp-registry-release");
+    expect(registry).toContain("id-token: write");
+    expect(registry).toContain("contents: read");
+    expect(registry).not.toContain("contents: write");
+    expect(registry).toContain("login github-oidc");
+
+    expect(github).toContain("environment: github-release");
+    expect(github).toContain("contents: write");
+    expect(github).not.toContain("id-token: write");
+    expect(github).not.toContain("mcp-publisher");
+    expect(github).toContain("draft: true");
+    expect(github).toContain('process.stdout.write("draft")');
+    expect(github).toContain('gh release edit "v${VERSION}"');
+    expect(github).toContain("!release.immutable");
+    expect(github).toContain("gh release verify-asset");
+    expect(github).not.toContain("--method DELETE");
   });
 
   it("binds security evidence to canonical scan files whose exact parent was scanned", () => {

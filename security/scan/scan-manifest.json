@@ -5,22 +5,21 @@
       {
         "mediaType": "application/json",
         "path": "findings.json",
-        "sha256": "47bafbcc829842f405f51c22a2b070b485606da7e7a796532a781600ffe7098c"
+        "sha256": "ee74508517ebd80977332e42acc683ad0027e5f07d8ec6d4df75a82fc761528a"
       },
       {
         "mediaType": "application/json",
         "path": "coverage.json",
-        "sha256": "b292ebc76c2e58a0572a541fc855b649b5862ab09ee51aa83b20fa362355d3b7"
+        "sha256": "e29e03b281c1e81083221ccfa4a963e13c94ff67d3b80e888928c83a1123770f"
       }
     ],
-    "completedAt": "2026-08-27T00:21:31.196841Z",
+    "completedAt": "2026-08-27T02:04:37.589236Z",
     "coverageRef": "coverage.json",
     "findingsRef": "findings.json",
-    "id": "e4eff6f1-9192-4fb3-a085-e3c4d9a83bc4",
+    "id": "fa2751e9-81f8-4821-a867-d58388af08a9",
     "preservedSources": {
-      "checkpoints/36e2772b843d75244760651ca1056b48d43ecc392966aa77da1f15db2bed8210.json": "933554f1faade15735bed480e04f7de11c5f95cc5ea8978f3d4a4e5265a1be6a",
-      "checkpoints/86445328811a8ff7a94ebc35032d344ab22e20d6685c5f17a58c8675dd33078b.json": "881e7674c4f614e5e831fef13965e315b303ed458453cefc43963ec7c9f0019d",
-      "checkpoints/cf8f12929afc2a762b0fb1ca24e80687b0122d877e9e72ed9aeeef88618e95ba.json": "cf8f12929afc2a762b0fb1ca24e80687b0122d877e9e72ed9aeeef88618e95ba"
+      "checkpoints/4337730e81b01b6c1153b42ae01b6f868cfb1cba325d1cd72531ba1a346ab77e.json": "4337730e81b01b6c1153b42ae01b6f868cfb1cba325d1cd72531ba1a346ab77e",
+      "checkpoints/5e64319c5c2226d29d6c29c2fe325f993a162a075a3a3440ed70084b936cdf51.json": "29354e4640c4645ebef03f4c164129145bf03abc1406db902623859ee3327488"
     },
     "producer": {
       "name": "codex-security-plugin",
@@ -28,74 +27,85 @@
     },
     "scope": {
       "artifactsReviewed": [
-        "All 78 tracked files",
-        "Immutable Git delta from zero-finding signed parent 5f35345a1b807c2eddac72be277b5dc9ad1e457f",
-        "Five bundled PNG assets",
-        "Node 22/24/26 complete verification results",
-        "Packed-tarball stdio, authenticated HTTP, doctor, client-config, audit, metadata, release-gate, and package-content results"
+        "All 81 tracked files",
+        "Signed beta.2 source commit and immutable Git delta from beta.1 source",
+        "Five bundled PNG assets and their manifest",
+        "Supported Node 22, 24, and 26 verification results",
+        "Packed-tarball stdio, authenticated HTTP, doctor, named-client, metadata, audit, secret-scan, package-content, release-gate, and million-message performance results"
       ],
-      "context": "Strict read-only Apple Messages beta release candidate. Stable main/WAL aliases, canonical doctor WAL reporting, privacy ceilings, transport bounds, and signed scan-to-package release lineage were specifically checked.",
+      "context": "Release-authoritative review focused on read-only database identity, correctness/privacy boundaries, native decoding, resource limits, and signed scan-to-package OIDC release lineage.",
       "excludePaths": [],
       "includePaths": [
         "."
       ],
       "limitations": [
-        "The same-macOS-account adversarial path-replacement race was explicitly outside the supplied threat model and is documented as unsupported.",
-        "Tailscale route mutation was not performed; authenticated loopback HTTP and a local Tailscale Serve-style reverse-proxy simulation own the automated transport evidence."
+        "Adversarial path replacement by another process under the same macOS account is outside the documented copied-source threat model.",
+        "No Tailscale route was created or changed; loopback HTTP and proxy simulation own transport evidence.",
+        "Offline source review cannot prove current provider OIDC mappings or final public state; those are checked at publication time."
       ],
-      "runtimeStatus": "Build, typecheck, 110 tests, installed-tarball checks, all seven tools over stdio and authenticated HTTP, metadata, release gate, package audit, whole-tree secret scan, and identical dry-run package bytes passed locally on Node 22, 24, and 26.",
-      "summary": "Whole-repository Standard security review of the exact clean signed Git revision a7ede194e6f20436cc08e27621cbfed825969684.",
-      "validationMode": "Independent full-file baseline with immutable receipt reuse for 75 Git-proven byte-identical files, independent rereview of all three changed files and transitive controls, separate architecture delta review, parent control review, and supported-runtime dynamic gates."
+      "runtimeStatus": "Build, typecheck, 110 tests, installed-tarball checks, all seven tools over stdio and authenticated HTTP, package metadata and release gates, dependency audit, whole-tree secret scan, dry-run tarball publication, and supported Node 22/24/26 verification passed. The million-message fixture met documented cold-index, warm-search, metadata, concurrency, and memory ceilings.",
+      "summary": "Whole-repository Standard security review of exact clean signed Git revision 4f68be639b4963538c2ff474ef82fe3b292130af for imessage-mcp 2.0.0-beta.2.",
+      "validationMode": "Independent complete 81-file baseline, separate architecture mapping, focused release/HTTP/privacy review, parent reconciliation, and supported-runtime dynamic gates."
     },
-    "sealedAt": "2026-08-27T00:21:31.196841Z",
-    "startedAt": "2026-08-27T00:15:56.357876Z",
+    "sealedAt": "2026-08-27T02:04:37.589236Z",
+    "startedAt": "2026-08-27T01:41:16.185754Z",
     "status": "completed",
     "target": {
       "displayName": "imessage-mcp",
       "kind": "git_revision",
-      "revision": "a7ede194e6f20436cc08e27621cbfed825969684",
+      "revision": "4f68be639b4963538c2ff474ef82fe3b292130af",
       "targetId": "target_sha256_91a5cfb7b3d17e1fa8fb342de4bf5e1ed933375ae15ffb07b6229c2a5086c983"
     },
     "threatModel": {
       "assets": [
-        "Apple Messages history, including visible bodies, handles, names, timestamps, attachments, and lifecycle state.",
-        "Unified Contacts identities read only when the live database and existing Contacts permission are both available.",
-        "Full Disk Access and local process authority inherited from the launching MCP client.",
-        "HTTP bearer token, opaque-reference key, and independent database-lineage identity.",
-        "Decoded message text, memory-only search indexes, privacy projections, cursors, and diagnostic outputs.",
-        "Signed source/evidence commits, canonical scan evidence, package bytes, provenance, tags, and registry metadata."
+        "Apple Messages history, visible bodies, handles, names, timestamps, attachments, conversation relationships, edits, retractions, reactions, receipts, and group events.",
+        "Unified Contacts identities read only for a live source when existing macOS Contacts authorization is available.",
+        "Correct service, sender, contact, conversation, pagination, date, and lifecycle attribution.",
+        "The launching client's Full Disk Access and same-account process authority.",
+        "HTTP bearer token, opaque-reference key, independent database-lineage identity, masking key, references, and sync cursors.",
+        "Decoded text and metadata in worker memory, including the memory-only exact, FTS, and trigram index.",
+        "Privacy-ceiling enforcement, bounded outputs, strict 2.x read-only behavior, signed evidence, exact package bytes, attestations, tags, and registry metadata."
       ],
       "assumptions": [
-        "Supported deployment is macOS 14+ using the CLI over stdio or authenticated loopback HTTP behind operator-managed Tailscale Serve.",
-        "Tailscale configuration, tailnet ACLs, Full Disk Access, Contacts permission, downstream MCP-client processing, and Apple Messages as sole live writer are external operator/platform controls.",
-        "The copied database, its sidecars, and their parent directory remain controlled by the operator and unchanged while starting and running; adversarial replacement by another process under the same macOS account is outside the supplied threat model.",
-        "Direct in-process embedding shares the embedding caller's local authority and must preserve RuntimeConfig invariants.",
-        "The exact signed revision a7ede194e6f20436cc08e27621cbfed825969684 and all 78 tracked files were covered: three changed files were independently rereviewed with their transitive controls and Git proved the other 75 byte-identical to the fully audited zero-finding parent. Dynamic release gates passed locally on supported Node 22, 24, and 26."
+        "Supported runtime is macOS 14+ with Node 22, 24, or 26; Full Disk Access, Contacts permission, filesystem ownership, and downstream client processing are external controls.",
+        "Apple Messages is the sole live writer. A copied database, sidecars, and parent directory remain operator-controlled and unchanged; adversarial same-account replacement is unsupported.",
+        "Direct in-process embedding is same-authority use and must preserve RuntimeConfig cross-field invariants.",
+        "The exact clean signed revision and all 81 tracked files were reviewed. Runtime files under bin, native, and src are byte-identical to the clean beta.1 source; beta.2 changes version/client/release metadata, documentation, the explicit local tarball path, and its regression test.",
+        "The checked-in scan bundle at the source revision is historical beta.1 evidence and cannot authorize beta.2; this scan must become a new signed direct-child bundle.",
+        "Provider configuration and public state are action-time prerequisites, not facts established by offline source review.",
+        "The server has no telemetry sink, but npm/npx bootstrap may contact npm and the MCP client may process returned results elsewhere.",
+        "Redacted and aggregate search still decode and index searchable content internally; privacy constrains output while the index remains process-memory-only and bounded."
       ],
       "attackerCapabilities": [
-        "An MCP caller may supply schema-valid tool arguments, query text, cursors, references, modes, and partial-result options but does not control startup secrets or host files.",
-        "A party reaching loopback HTTP without the token may supply headers and a bounded authorization candidate but must be rejected before body parsing.",
-        "An authenticated HTTP caller receives only the configured privacy ceiling; there is no per-client identity or multi-tenant authorization.",
-        "A copied-database provider may control schema values, message blobs, identifiers, attachment strings, and sidecar bytes but not operator secrets, live Contacts, fixed executables, or release authority.",
-        "A repository contributor may influence source and workflows but is not assumed to control signing keys, protected environments, OIDC mappings, registry accounts, or tag protection."
+        "An MCP caller may submit schema-valid tool arguments, query text, cursors, references, modes, dates, search scopes, and partial-result options, and receives only data permitted by the startup ceiling.",
+        "A party reaching loopback HTTP without the token may submit bounded headers and an authorization candidate but must be rejected before body parsing.",
+        "Possession of the single HTTP token grants the configured capability; there is no per-client identity, tenant isolation, OAuth, or distinct token scope.",
+        "A copied-database provider may control SQLite values, blobs, identifiers, filenames, paths, and sidecars but not operator secrets, live Contacts, fixed helpers, or release authority.",
+        "A same-account process capable of adversarial path replacement is outside the supported copy boundary; stable symlink, hard-link, and main/WAL aliases are checked.",
+        "A repository contributor may alter source and workflows but is not assumed to control signing keys, protected environments, OIDC mappings, registry identities, or protected tags.",
+        "The downstream MCP client controls retention and further processing after results cross the MCP boundary."
       ],
       "securityObjectives": [
-        "Keep every 2.x tool read-only and exclude message sending, mutation, watchers, stateful sessions, and bulk dump APIs.",
-        "Fail closed on unsupported schema, changed database state, decoding failures, query budgets, copy/live aliasing, and cursor-lineage mismatches.",
-        "Authenticate HTTP before body parsing, bind only loopback, and enforce authority, size, rate, concurrency, and timeout limits.",
-        "Prevent privacy relaxation above startup policy and exclude forbidden identities, content, paths, references, and exact timestamps from stricter modes.",
-        "Keep decoded search data memory-only and bound native decoding, query work, worker lifetime, package content, and diagnostics.",
-        "Bind every public package to reviewed source, complete zero-finding evidence, exact bytes, protected provenance, and version-aligned public metadata."
+        "Keep every 2.x tool read-only and exclude sending, mutation, dump/export, watchers, subscriptions, stateful HTTP sessions, and persistent message indexes.",
+        "Resolve live and copied database sources safely, reject copy/live aliases, preserve snapshots, lineages, and frozen traversals, and fail closed on unsupported schema or change.",
+        "Never pair copied Messages data with live Contacts, never guess ambiguous contacts, and preserve unknown service attribution.",
+        "Prevent privacy relaxation and remove forbidden content, identities, paths, references, and exact timestamps from stricter outputs.",
+        "Keep decoded search state memory-only and bound source cardinality, native IPC, worker lifetime, query/HTTP work, and result size.",
+        "Use fixed packaged native helpers with no shell, bounded IPC and environments, decoder self-test, class allowlisting, and no object-constructing legacy deserializer.",
+        "Load each secret from one direct or file source; require operator-owned 0600 no-follow regular files and independent reference/database secrets.",
+        "Authenticate HTTP before parsing, bind loopback, validate Host/Origin, and enforce resource limits.",
+        "Bind beta.2 to a fresh signed evidence child of 4f68be639b4963538c2ff474ef82fe3b292130af and publish identical attested bytes and aligned metadata everywhere."
       ],
-      "summary": "imessage-mcp 2.0.0-beta.1 is a macOS-only, read-only MCP that exposes Apple Messages history through local stdio or authenticated loopback HTTP. Both transports share a bounded two-worker runtime that opens one live or copied Mac chat.db read-only, may read already-authorized unified Contacts for the live source, decodes attributed bodies through a fixed Foundation helper, keeps search data in memory, and enforces a startup privacy ceiling. Publication is a separate privileged path bound to signed source and evidence commits, sealed zero-finding scan artifacts, exact package bytes, protected environments, and OIDC provenance.",
+      "summary": "At signed revision 4f68be639b4963538c2ff474ef82fe3b292130af, imessage-mcp 2.0.0-beta.2 is a macOS-only, read-only MCP server for Apple Messages history. Stdio runs under the launching macOS account and defaults to full disclosure; authenticated HTTP binds only to loopback and defaults to redacted output. Two bounded workers open one live or copied chat.db read-only, may read already-authorized unified Contacts for a live source, decode attributed bodies through fixed Foundation/JXA helpers, and keep searchable decoded content only in a bounded in-memory index. Publication is a separate privileged path requiring signed source and evidence commits, exact-revision zero-finding evidence, protected attestations, exact tarball verification, and independently scoped npm, MCP Registry, and GitHub Release jobs.",
       "trustBoundaries": [
-        "Local MCP client to stdio server: the caller inherits the same macOS account authority and stdio defaults to full disclosure.",
-        "Tailnet or local HTTP client to the loopback server: Tailscale Serve is the operator-owned TLS boundary; the server owns bearer authentication, Host/Origin validation, method and body validation, rates, concurrency, deadlines, and response limits.",
-        "Server workers to Apple Messages SQLite: selected files are canonicalized and identity-checked before readonly/fileMustExist SQLite opens, query_only is enabled, and requests use bounded read snapshots.",
-        "Live source versus copied source: copy mode cannot resolve to this account's live database or WAL through stable path aliases or device/inode identity; copied inputs must remain operator-controlled and unchanged.",
-        "Workers to fixed native Contacts and Foundation decoder helpers: absolute executables and packaged scripts, no shell, minimal environment, bounded IPC, deadlines, and class allowlists.",
-        "Tool implementation to MCP result: strict schemas, seven registered read-only tools, privacy projection, forbidden-field assertions, bounded summaries, and redacted diagnostics.",
-        "Source revision to public release: signed direct-child evidence, exactly three canonical scan files, protected attestations, exact tarball verification, OIDC publication, and stable-only canary proof."
+        "Local MCP client to stdio: same macOS account and inherited Full Disk Access; stdio defaults to full disclosure and has bounded input.",
+        "Local or tailnet client to HTTP: loopback bind, authentication before body parsing, Host/Origin checks, POST /mcp only, and bounded headers, bodies, responses, sockets, rates, concurrency, and deadlines; Tailscale remains operator-owned.",
+        "CLI or same-authority embedding caller to runtime: CLI enforces source, Contacts, transport, privacy, secret, and attachment invariants; direct embedding must preserve RuntimeConfig cross-field invariants.",
+        "Workers to Messages SQLite: canonical and identity-pinned source; copy aliases to live main/WAL rejected before open; readonly, fileMustExist, query_only, deferred snapshots, and fail-closed change detection.",
+        "Copied archive provider to server: schema values, bodies, identifiers, relationships, paths, and sidecars are untrusted; live Contacts are disabled and the operator must keep the archive stable.",
+        "Workers to fixed Contacts and Foundation helpers: absolute executable, packaged scripts, no shell, bounded IPC, deadlines, decoder serialization, output validation, and keyed-archive class allowlist.",
+        "Full internal result to MCP caller: startup ceiling, privacy projection, and forbidden-field assertions precede structuredContent and text; outputs and metadata-only diagnostics are bounded.",
+        "Source to public package: signed direct-child evidence changes only three canonical scan files; protected workflows attest exact bytes and independently authorize npm OIDC, Registry OIDC, and GitHub Release."
       ]
     }
   },
