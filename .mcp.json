@@ -2,7 +2,7 @@
   "mcpServers": {
     "imessage-history": {
       "command": "npx",
-      "args": ["-y", "imessage-mcp@2.0.0-beta.3", "--contacts", "none", "--privacy", "redacted"],
+      "args": ["-y", "imessage-mcp@2.0.0-rc.1", "--contacts", "none", "--privacy", "redacted"],
       "env": {
         "IMESSAGE_REFERENCE_KEY_FILE": "${HOME}/.imessage-mcp-reference-key",
         "IMESSAGE_DATABASE_ID_FILE": "${HOME}/.imessage-mcp-database-id"

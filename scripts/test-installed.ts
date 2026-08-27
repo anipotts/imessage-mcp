@@ -183,13 +183,21 @@ async function main(): Promise<void> {
     const firstRunDatabaseId = path.join(scratch, "doctor-database-id");
     writeFileSync(firstRunReferenceKey, "synthetic-reference-key-".padEnd(48, "x"), { mode: 0o600 });
     writeFileSync(firstRunDatabaseId, "synthetic-database-lineage-".padEnd(48, "x"), { mode: 0o600 });
-    execFileSync(binary, ["doctor", "--database", fixture.databasePath, "--contacts", "none", "--privacy", "redacted", "--json"], {
+    const doctorOutput = execFileSync(binary, ["doctor", "--database", fixture.databasePath, "--contacts", "none", "--privacy", "redacted", "--json"], {
       cwd: install,
       env: cleanEnvironment({
         IMESSAGE_REFERENCE_KEY_FILE: firstRunReferenceKey,
         IMESSAGE_DATABASE_ID_FILE: firstRunDatabaseId,
       }),
       encoding: "utf8",
+    });
+    const doctorResult = JSON.parse(doctorOutput) as {
+      checks: Array<{ name: string; status: string; detail: string }>;
+    };
+    assert.deepEqual(doctorResult.checks.find((check) => check.name === "contacts"), {
+      name: "contacts",
+      status: "pass",
+      detail: "disabled by --contacts none; using handles only",
     });
     await runCleanRoomFirstRequest(binary, fixture, scratch);
     await runStdio(binary, [], fixture);

@@ -11,9 +11,17 @@ Last updated: 2026-08-27
 | `1.3.1` | published and verified | npm `latest`, GitHub Release, and MCP Registry agree; a fresh public install reproduced fixes for issues #5 and #6 before they closed |
 | `2.0.0-beta.1` | tagged, not published | npm rejected the relative tarball argument before upload; the signed tag and failed workflow remain immutable historical evidence |
 | `2.0.0-beta.2` | published and verified | npm `next`, MCP Registry, and an immutable GitHub prerelease agree on the signed evidence lineage and exact package |
-| `2.0.0-beta.3` | release subject | npm `next`; current public availability is authoritative at npm, MCP Registry, and the immutable GitHub release |
-| `2.0.0-rc.1` | not started | requires beta acceptance with no known security, privacy, attribution, completeness, or installation blocker |
+| `2.0.0-beta.3` | published and verified | npm `next`, MCP Registry, and the immutable GitHub prerelease agree on the signed evidence lineage and exact package |
+| `2.0.0-rc.1` | release subject | npm `next`; publication requires exact-source scan evidence and protected package/provider gates |
 | `2.0.0` | blocked by design gate | requires an unchanged release candidate to pass the seven-day canary |
+
+## `2.0.0-rc.1` release evidence
+
+Beta acceptance completed against the public `2.0.0-beta.3` npm tarball in an isolated projectless Codex task with no repository context. Under Node 24, privacy-first `doctor`, MCP startup and handshake, all seven advertised tools, redacted status and conversation reads, an opaque-reference history read, fail-closed search plus documented partial recovery, and clean shutdown passed. The task emitted no private archive values and changed no Messages, Contacts, Full Disk Access, active client configuration, or Tailscale state.
+
+Fresh bounded live parity on the RC source matched 375 of 375 attributed bodies across iMessage, SMS/MMS, and RCS. All seven tools passed with zero aggregate leakage and no private values emitted. The RC also makes intentional `--contacts none` doctor state a pass, removes redundant global-install guidance, and puts fail-closed search recovery in the first-run path.
+
+Prerelease release gate: passed.
 
 ## `2.0.0-beta.3` release evidence
 
@@ -57,7 +65,7 @@ The first beta.2 workflow published the attested package to npm, then stopped be
 | --- | --- |
 | supported matrix | GitHub-hosted macOS 14, 15, and 26 on Node 22, 24, and 26 passed `npm run verify` |
 | architecture | arm64 full matrix; macOS 26 Intel installed-package smoke passed |
-| fixture suite | 111 tests passed, covering seven-tool semantics, privacy, database lineage, immutable release controls, source aliasing, decoder safety, lifecycle freshness, and package tamper rejection |
+| fixture suite | 112 tests passed, covering seven-tool semantics, privacy, database lineage, immutable release controls, source aliasing, decoder safety, lifecycle freshness, and package tamper rejection |
 | package | 129-file allowlisted tarball passed metadata, doctor, stdio MCP, authenticated HTTP, named-client, and installed dependency-graph checks |
 | static and supply chain | TypeScript, CodeQL for Actions and JavaScript/TypeScript, Gitleaks, package signatures, and dependency audit passed; zero dependency vulnerabilities reported |
 | transport | stdio and authenticated stateless loopback HTTP passed; a local reverse proxy exercised the documented Tailscale Serve boundary without creating a route |
@@ -92,23 +100,23 @@ No stable release claim will use the word complete while a known security or dat
 
 ## performance gates
 
-The mixed-service one-million-message synthetic fixture passed on macOS 26.5 arm64 with Node 24.19.0:
+The mixed-service one-million-message synthetic fixture passed on macOS 26.5 arm64 with Node 24.20.0:
 
 | measurement | result | gate |
 | --- | ---: | ---: |
-| fixture construction | 4.013 s | informational |
-| bounded startup | 7.725 s | informational |
+| fixture construction | 4.119 s | informational |
+| bounded startup | 7.902 s | informational |
 | `server_status` | 3 ms | under 1 s |
 | `list_conversations` | 12 ms | under 1 s |
 | initial `sync_messages` cursor | 1 ms | under 1 s |
-| complete cold index | 22.511 s | under 60 s |
-| warm substring search | 6 ms | under 2 s |
-| one-character substring search | 97 ms | under 2 s |
-| two authenticated HTTP clients | 22 ms | stable and under 2 s |
+| complete cold index | 24.037 s | under 60 s |
+| warm substring search | 8 ms | under 2 s |
+| one-character substring search | 102 ms | under 2 s |
+| two authenticated HTTP clients | 29 ms | stable and under 2 s |
 | index memory | 355,192,832 bytes | at or below 536,870,912 bytes |
-| process RSS delta | 560,545,792 bytes | informational |
+| process RSS delta | 417,611,776 bytes | informational |
 
-The bounded live archive gate passed all seven tools with zero aggregate probe leakage. Cold complete search took 61.981 seconds; `server_status` took 59 ms and `list_conversations` took 9 ms. The fixed million-message fixture owns the 60-second index target. Live archives use the 90-second cold-request ceiling.
+The bounded live archive gate passed all seven tools with zero aggregate probe leakage. Cold complete search took 61.165 seconds; `server_status` took 56 ms and `list_conversations` took 8 ms. The fixed million-message fixture owns the 60-second index target. Live archives use the 90-second cold-request ceiling.
 
 ## client and transport gates
 

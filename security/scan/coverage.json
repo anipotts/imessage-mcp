@@ -10,14 +10,14 @@
   "inventoryStrategy": "repository",
   "mode": "repository",
   "openQuestions": [],
-  "scanId": "7043a2c4-89b3-4bd4-9c8d-b48b851b83d9",
+  "scanId": "ecdc5ce0-c355-4292-a182-4c5d129e425c",
   "schemaVersion": "1.0",
   "surfaces": [
     {
       "disposition": "no_issue_found",
       "id": "surface_runtime-cli-configuration-and-native-subprocess-boundaries",
       "label": "Runtime, CLI, configuration, and native subprocess boundaries",
-      "notes": "Prior exact full-tree review revalidated; no runtime source changed.",
+      "notes": "Exact current source plus independent baseline review found no reportable write, unsafe subprocess, configuration, or worker boundary.",
       "paths": [
         "bin/imessage-mcp.js",
         "native/contact-resolver.js",
@@ -27,28 +27,13 @@
         "src/config.ts",
         "src/contacts.ts",
         "src/contracts.ts",
-        "src/database.ts",
         "src/decoder.ts",
         "src/errors.ts",
         "src/index.ts",
-        "src/privacy.ts",
-        "src/references.ts",
-        "src/repositories/analytics.ts",
-        "src/repositories/conversations.ts",
-        "src/repositories/message-integrity.ts",
-        "src/repositories/messages.ts",
-        "src/repositories/sync.ts",
-        "src/result.ts",
-        "src/schema-sql.ts",
-        "src/search-index.ts",
         "src/secrets.ts",
-        "src/sender.ts",
-        "src/time.ts",
         "src/tool-local.ts",
         "src/tool-worker.ts",
-        "src/tools.ts",
-        "src/transport.ts",
-        "src/verify-installed-graph.ts"
+        "src/tools.ts"
       ],
       "receiptRefs": []
     },
@@ -56,11 +41,9 @@
       "disposition": "no_issue_found",
       "id": "surface_sqlite-query-search-references-privacy-and-sync-integrity",
       "label": "SQLite, query, search, references, privacy, and sync integrity",
-      "notes": "Readonly snapshots, bound SQL, search bounds, lineage references, privacy projection, frozen pagination, and sync integrity remain unchanged and verified.",
+      "notes": "Readonly snapshots, bound SQL, canonical source checks, index/decoder bounds, lineage references, privacy projection, pagination, and sync integrity were reviewed at exact source.",
       "paths": [
-        "src/contracts.ts",
         "src/database.ts",
-        "src/errors.ts",
         "src/privacy.ts",
         "src/references.ts",
         "src/repositories/analytics.ts",
@@ -80,7 +63,7 @@
       "disposition": "no_issue_found",
       "id": "surface_http-authentication-and-resource-controls",
       "label": "HTTP authentication and resource controls",
-      "notes": "Authentication-before-parse, loopback/authority checks, constant-time secrets, worker isolation, limits, and diagnostics remain unchanged.",
+      "notes": "Loopback binding, auth-before-parse, constant-time token checks, Host/Origin validation, proxy handling, response/log privacy, concurrency, rate, size, and timeout bounds passed review and protocol execution.",
       "paths": [
         "src/transport.ts",
         "src/secrets.ts",
@@ -96,7 +79,7 @@
       "disposition": "no_issue_found",
       "id": "surface_release-workflows-packaging-provenance-and-dependencies",
       "label": "Release workflows, packaging, provenance, and dependencies",
-      "notes": "Reproduced check:release and metadata successfully; immutable evidence, OIDC, exact artifacts, downstream recovery, and dependency controls remain unchanged.",
+      "notes": "Reviewed exact privileged workflows, evidence lineage, OIDC separation, public recovery, stable derivation, package manifests, dependency graph, and version/channel checks. Node 24 verification and audit passed.",
       "paths": [
         ".github/workflows/attest-canary.yml",
         ".github/workflows/attest-security-evidence.yml",
@@ -113,12 +96,8 @@
         "scripts/clean-dist.mjs",
         "scripts/package-manifest.ts",
         "scripts/release-version.ts",
-        "scripts/screenshots.ts",
         "scripts/security-evidence.ts",
-        "scripts/test-installed.ts",
-        "scripts/test-live-parity.ts",
-        "scripts/test-performance.ts",
-        "scripts/test-protocol.ts",
+        "src/verify-installed-graph.ts",
         "server.json"
       ],
       "receiptRefs": []
@@ -127,8 +106,9 @@
       "disposition": "no_issue_found",
       "id": "surface_correctness-privacy-protocol-installed-package-and-performance-verification",
       "label": "Correctness, privacy, protocol, installed-package, and performance verification",
-      "notes": "Prior 112 tests, installed tarball, seven-tool protocol, privacy, package, and million-message gates remain applicable; no executable test source changed.",
+      "notes": "112 tests, seven-tool stdio and authenticated HTTP, installed tarball, clean-room redacted setup, metadata/package content, and zero-advisory gates passed under supported Node 24.",
       "paths": [
+        "scripts/screenshots.ts",
         "scripts/test-installed.ts",
         "scripts/test-live-parity.ts",
         "scripts/test-performance.ts",
@@ -146,7 +126,7 @@
       "disposition": "no_issue_found",
       "id": "surface_public-documentation-security-policy-and-compatibility-boundaries",
       "label": "Public documentation, security policy, and compatibility boundaries",
-      "notes": "Reviewed the only source delta: VERIFICATION.md truthfully marks the green prerelease gate, corrects 82-file scope, and uses future tense for still-pending publication. Privacy and prompt-injection guidance remain accurate.",
+      "notes": "Reviewed archival prompt-injection guidance, Full Disk Access/client-provider boundary, automatic Contacts disclosure and privacy-first contacts-none setup, redacted first run, Android boundary, contribution privacy, comparison policy, and RC evidence claims.",
       "paths": [
         "CHANGELOG.md",
         "CONTRIBUTING.md",
@@ -154,7 +134,8 @@
         "README.md",
         "SECURITY.md",
         "VERIFICATION.md",
-        "docs/ROADMAP-3.0.md"
+        "docs/ROADMAP-3.0.md",
+        "security/README.md"
       ],
       "receiptRefs": []
     },
@@ -162,22 +143,23 @@
       "disposition": "no_issue_found",
       "id": "surface_client-namespaces-and-public-manifests",
       "label": "Client namespaces and public manifests",
-      "notes": "imessage-history, beta.3 next metadata, redacted contacts-none first run, and version/channel agreement remain unchanged.",
+      "notes": "Package/repository retain imessage-mcp while examples use imessage-history; exact RC version, next channel, redacted ceiling, and contacts-none setup agree across public metadata.",
       "paths": [
         ".mcp.json",
         ".claude-plugin/plugin.json",
         "server.json",
         "package.json",
         "release-status.json",
-        "package-files.json"
+        "package-files.json",
+        "assets/manifest.json"
       ],
       "receiptRefs": []
     },
     {
       "disposition": "no_issue_found",
-      "id": "surface_synthetic-assets-repository-policy-and-canonical-prior-scan-artifacts",
-      "label": "Synthetic assets, repository policy, and canonical prior scan artifacts",
-      "notes": "Assets remain synthetic and hash-bound; prior scan artifacts are reviewed inputs and will be replaced by this exact-revision scan.",
+      "id": "surface_synthetic-assets-repository-policy-and-prior-scan-inputs",
+      "label": "Synthetic assets, repository policy, and prior scan inputs",
+      "notes": "Assets are synthetic and hash-bound; issue templates prohibit private reports; dependency policy is bounded; prior scan artifacts were treated only as historical input and will be replaced by this exact scan.",
       "paths": [
         ".github/FUNDING.yml",
         ".github/ISSUE_TEMPLATE/bug_report.md",
@@ -190,7 +172,6 @@
         "assets/doctor-light.png",
         "assets/logo.png",
         "assets/manifest.json",
-        "security/README.md",
         "security/scan/coverage.json",
         "security/scan/findings.json",
         "security/scan/scan-manifest.json"

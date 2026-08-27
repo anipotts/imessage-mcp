@@ -84,8 +84,12 @@ export async function doctor(config: RuntimeConfig, json: boolean): Promise<numb
     checks.push({ name: "wal_read", status: "pass", detail: "no active WAL is present" });
   }
   checks.push(schemaCheck);
-  const contacts = new UnifiedContactResolver(config.contacts_mode === "live").status();
-  checks.push({ name: "contacts", status: contacts.state === "available" ? "pass" : "warn", detail: contacts.state === "available" ? `${contacts.count} unified contacts available` : `continuing with handles: ${contacts.reason}` });
+  if (config.contacts_mode === "none") {
+    checks.push({ name: "contacts", status: "pass", detail: "disabled by --contacts none; using handles only" });
+  } else {
+    const contacts = new UnifiedContactResolver(true).status();
+    checks.push({ name: "contacts", status: contacts.state === "available" ? "pass" : "warn", detail: contacts.state === "available" ? `${contacts.count} unified contacts available` : `continuing with handles: ${contacts.reason}` });
+  }
   const decoder = new MessageTextDecoder();
   checks.push({ name: "decoder", status: await decoder.selfTest() ? "pass" : "fail", detail: decoder.healthState() === "healthy" ? "Foundation decoder self-test passed" : "Foundation decoder self-test failed" });
   checks.push({
