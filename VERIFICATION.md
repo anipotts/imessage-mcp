@@ -19,6 +19,8 @@ Last updated: 2026-08-27
 
 The beta.3 source repairs the validated cached-watermark snapshot race, vanilla installation graph, CLI discovery, privacy-first onboarding, untrusted-archive guidance, client namespace, and cross-surface release consistency. Publication is fail-closed unless the signed evidence commit contains a complete exact-revision scan with zero findings and the protected workflow re-verifies the package, provenance, npm, MCP Registry, GitHub release, and tag subjects.
 
+Prerelease release gate: passed.
+
 | evidence | result |
 | --- | --- |
 | fixture suite | 112 tests passed |
@@ -80,7 +82,7 @@ SMS, MMS, and RCS with Android users work only when those conversations already 
 
 Automated denial tests cover full, redacted, and aggregate results, including structured content, text summaries, warnings, errors, stderr diagnostics, attachment aliases, filenames, paths, search scopes, cursors, and references through installed stdio and HTTP packages.
 
-The release-authoritative standard scan covered the exact 81-file source revision and reported zero findings. Protected workflows then verified the signed direct-child evidence, exact package bytes, secret scan, CodeQL results, package contents, public provenance, and downstream metadata before completing publication.
+The beta.3 release-authoritative standard scan covers the exact 82-file source revision and reports zero findings. Protected workflows must verify its signed direct-child evidence, exact package bytes, secret scan, CodeQL results, package contents, public provenance, and downstream metadata before publication.
 
 The 2.0 rebuild repaired the validated classes found at the original `c911b17` baseline: transport authentication and exposure, privacy leakage, incorrect joins and attribution, pagination and date semantics, reaction and receipt state, contact ambiguity, resource bounds, private public assets, unsafe legacy decoding, mutable release evidence, and shared watcher/session state.
 
