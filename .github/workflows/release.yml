@@ -451,9 +451,18 @@ jobs:
               "exact revision codeql",
               "publish verified npm artifact",
             ]) if (jobs.get(name) !== "success") process.exit(1);
-            if (jobs.get("verify public npm installation") !== "failure" ||
-                jobs.get("publish mcp registry metadata") !== "skipped" ||
-                jobs.get("publish github release") !== "skipped") process.exit(1);
+            const actualDownstream = [
+              jobs.get("verify public npm installation"),
+              jobs.get("publish mcp registry metadata"),
+              jobs.get("publish github release"),
+            ];
+            const allowedDownstream = [
+              ["failure", "skipped", "skipped"],
+              ["success", "failure", "skipped"],
+              ["success", "success", "failure"],
+            ];
+            if (!allowedDownstream.some((states) =>
+              states.every((state, index) => actualDownstream[index] === state))) process.exit(1);
           ' "$RUNNER_TEMP/original-run.json"
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:

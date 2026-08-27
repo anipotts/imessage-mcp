@@ -216,7 +216,9 @@ describe("native and release hardening", () => {
     expect(verify).toContain('verify-tag "v${TARGET_VERSION}"');
     expect(verify).toContain('"publish verified npm artifact",');
     expect(verify).toContain('jobs.get(name) !== "success"');
-    expect(verify).toContain('jobs.get("verify public npm installation") !== "failure"');
+    expect(verify).toContain('["failure", "skipped", "skipped"]');
+    expect(verify).toContain('["success", "failure", "skipped"]');
+    expect(verify).toContain('["success", "success", "failure"]');
     expect(verify).toContain("--source-digest \"$EVIDENCE_COMMIT\"");
     expect(verify).toContain("scripts/security-evidence.ts verify");
     expect(verify).toContain('workflow.path !== ".github/workflows/release.yml"');
