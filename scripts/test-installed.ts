@@ -47,7 +47,7 @@ async function main(): Promise<void> {
     const install = path.join(scratch, "install");
     mkdirSync(install);
     writeFileSync(path.join(install, "package.json"), JSON.stringify({ private: true }));
-    execFileSync("npm", ["install", "--no-audit", "--no-fund", path.join(scratch, packed[0].filename)], {
+    execFileSync("npm", ["install", "--omit=dev", "--no-audit", "--no-fund", path.join(scratch, packed[0].filename)], {
       cwd: install,
       stdio: "ignore",
     });

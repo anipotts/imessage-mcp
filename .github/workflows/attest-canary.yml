@@ -78,7 +78,7 @@ jobs:
           curl --fail --location --silent --show-error --max-filesize 4194304 "$ATTESTATION_URL" \
             --output evidence/candidate-attestations.json
           AUDIT_DIR=$(mktemp -d)
-          npm install --prefix "$AUDIT_DIR" --ignore-scripts --no-audit --no-fund \
+          npm install --prefix "$AUDIT_DIR" --omit=dev --ignore-scripts --no-audit --no-fund \
             "imessage-mcp@${CANDIDATE_VERSION}"
           npm --prefix "$AUDIT_DIR" audit signatures
           CANDIDATE_RUN_ID=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow release.yml \
