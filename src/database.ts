@@ -332,6 +332,13 @@ export class DatabaseRequest {
       if (this.capabilities.required_core !== "available") {
         throw new ImessageMcpError("UNSUPPORTED_SCHEMA", "Messages database is missing required Mac chat.db tables or columns");
       }
+      // BEGIN DEFERRED does not establish SQLite's read snapshot. The cached
+      // capabilities/watermark path otherwise performs no read before the
+      // observer data_version check in DatabaseContext.request(), leaving a
+      // commit window in which newer rows could be labeled with an older
+      // watermark. This bounded read pins the query connection's snapshot
+      // before that observer comparison.
+      this.db.prepare("SELECT ROWID FROM message ORDER BY ROWID LIMIT 1").get();
       this.lineage = computeLineage(this.referenceKey, databaseId);
       this.asOf = knownWatermark
         ? { ...knownWatermark, data_version: observedDataVersion ?? knownWatermark.data_version }

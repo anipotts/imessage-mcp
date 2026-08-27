@@ -1,12 +1,16 @@
 #!/usr/bin/env tsx
 
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { DEFAULT_DATABASE_PATH, runtimeConfig } from "../src/config.js";
 import { LocalToolRuntime } from "../src/tool-local.js";
 import { createFixture } from "../tests/fixture.js";
+
+const packageVersion = (JSON.parse(readFileSync("package.json", "utf8")) as { version: string }).version;
+const releaseChannel = packageVersion.includes("-") ? "next" : "latest";
 
 const suppliedDatabase = process.argv.find((value) => value.startsWith("--database="))?.slice("--database=".length) ?? process.env.IMESSAGE_DB;
 if (suppliedDatabase && path.resolve(suppliedDatabase) === path.resolve(DEFAULT_DATABASE_PATH)) {
@@ -54,6 +58,17 @@ function terminalSvg(lines: string[], theme: "light" | "dark", title: string): s
   </svg>`;
 }
 
+function pngRecord(selectedPath: string): { path: string; sha256: string; width: number; height: number } {
+  const bytes = readFileSync(selectedPath);
+  if (bytes.subarray(0, 8).toString("hex") !== "89504e470d0a1a0a") throw new Error(`${selectedPath} is not a PNG`);
+  return {
+    path: selectedPath,
+    sha256: createHash("sha256").update(bytes).digest("hex"),
+    width: bytes.readUInt32BE(16),
+    height: bytes.readUInt32BE(20),
+  };
+}
+
 async function main(): Promise<void> {
   const fixture = createFixture();
   const runtime = new LocalToolRuntime(
@@ -63,13 +78,14 @@ async function main(): Promise<void> {
       contacts: "none",
       referenceKey: Buffer.alloc(32, 0x5a),
       databaseId: Buffer.alloc(32, 0x6b),
+      privacy: "redacted",
     }),
     Buffer.alloc(32, 9),
   );
   const scratch = mkdtempSync(path.join(tmpdir(), "imessage-mcp-screenshots-"));
   try {
-    const status = await runtime.call("server_status", {});
-    const listed = await runtime.call("list_conversations", { limit: 50 });
+    const status = await runtime.call("server_status", { privacy_mode: "redacted" });
+    const listed = await runtime.call("list_conversations", { limit: 50, privacy_mode: "redacted" });
     const statusData = (status.structuredContent?.data ?? {}) as Record<string, unknown>;
     const listedData = (listed.structuredContent?.data ?? {}) as { conversations?: Array<Record<string, unknown>> };
     const conversations = listedData.conversations ?? [];
@@ -95,10 +111,10 @@ async function main(): Promise<void> {
       ...conversationLines,
       "",
       `meta services detected: ${services}`,
-      "meta source: synthetic-chat.db · privacy: full · read-only",
+      "meta source: synthetic-chat.db · privacy: redacted · read-only",
     ];
     const doctor = [
-      "$ imessage-mcp doctor",
+      "$ imessage-mcp doctor --contacts none --privacy redacted",
       "",
       "imessage-mcp doctor: pass",
       "pass platform: macOS 14 or newer",
@@ -130,6 +146,19 @@ async function main(): Promise<void> {
         process.stdout.write(`generated assets/${name}-${theme}.png\n`);
       }
     }
+    const assetPaths = [
+      "assets/demo-dark.png",
+      "assets/demo-light.png",
+      "assets/doctor-dark.png",
+      "assets/doctor-light.png",
+      "assets/logo.png",
+    ];
+    writeFileSync("assets/manifest.json", `${JSON.stringify({
+      schema_version: 2,
+      subject_version: packageVersion,
+      channel: releaseChannel,
+      assets: assetPaths.map(pngRecord),
+    }, null, 2)}\n`);
   } finally {
     runtime.close();
     fixture.cleanup();

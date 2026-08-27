@@ -17,9 +17,17 @@ A clear description of the bug.
 What you expected to happen.
 
 **Environment**
-- OS: 
-- Node version: 
-- Package version: 
+- Exact package version:
+- macOS version and architecture:
+- Node version:
+- Source mode (`live` or `copy`):
+- Service family:
+- Transport and privacy ceiling:
+- Contacts mode:
+- Tool and stable error reason:
+
+**Compatibility report**
+Run `imessage-mcp doctor --contacts none --privacy aggregate --json` and list only check names with pass/warn/fail states. Include sanitized timing and the smallest synthetic reproduction. Do not paste paths or raw tool results.
 
 **Logs / screenshots**
-Use synthetic or fully redacted evidence only. Do not post message contents, handles, contact names, database files, attachment paths, opaque references, tokens, home-directory paths, or screenshots of private conversations. Report security issues through the private advisory link in SECURITY.md.
+Use synthetic evidence only. Do not post message contents, handles, contact names, group titles, URLs, database or WAL files, attributed-body blobs, attachment names or paths, opaque references, tokens, client configuration, home-directory paths, raw tool results, or screenshots of private conversations. Report security issues through the private advisory link in SECURITY.md.

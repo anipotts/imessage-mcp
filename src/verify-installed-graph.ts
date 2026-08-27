@@ -15,7 +15,7 @@ interface LockEntry {
   optional?: boolean;
 }
 
-interface Shrinkwrap {
+interface Lockfile {
   lockfileVersion: number;
   packages: Record<string, LockEntry & { dependencies?: Record<string, string> }>;
 }
@@ -76,10 +76,9 @@ function sortedPairs(values: PackageRecord[]): string[] {
   return values.map((value) => `${value.name}@${value.version}`).sort();
 }
 
-export function verifyInstalledGraph(installRoot: string, shrinkwrapPath: string): void {
-  const lockBytes = readFileSync(shrinkwrapPath);
-  const lock = JSON.parse(lockBytes.toString("utf8")) as Shrinkwrap;
-  assert.equal(lock.lockfileVersion, 3, "published runtime graph requires npm shrinkwrap lockfileVersion 3");
+export function verifyInstalledGraph(installRoot: string, lockfilePath: string): void {
+  const lock = JSON.parse(readFileSync(lockfilePath, "utf8")) as Lockfile;
+  assert.equal(lock.lockfileVersion, 3, "reviewed runtime graph requires package-lock lockfileVersion 3");
   assert.ok(lock.packages && typeof lock.packages === "object");
   const root = lock.packages[""];
   assert.ok(root?.dependencies && typeof root.dependencies === "object", "shrinkwrap root dependencies are missing");
@@ -88,24 +87,21 @@ export function verifyInstalledGraph(installRoot: string, shrinkwrapPath: string
   }
 
   const expected = Object.entries(lock.packages)
-    .filter(([lockPath, entry]) => lockPath.length > 0 && entry.dev !== true && entry.optional !== true)
+    .filter(([lockPath, entry]) => lockPath.length > 0 && entry.dev !== true)
     .map(([lockPath, entry]) => {
       assert.match(entry.version ?? "", /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u, `invalid locked version at ${lockPath}`);
       return { name: packageNameFromLockPath(lockPath), version: entry.version as string };
     });
-  assert.equal(new Set(sortedPairs(expected)).size, expected.length, "production shrinkwrap contains duplicate name/version records");
+  assert.equal(new Set(sortedPairs(expected)).size, expected.length, "production lock graph contains duplicate name/version records");
 
   const actual = installedPackages(installRoot);
   const packageRoot = actual.find((record) => record.name === "imessage-mcp");
   assert.ok(packageRoot, "installed graph does not contain imessage-mcp");
   const runtime = actual.filter((record) => record.name !== "imessage-mcp");
-  assert.deepEqual(sortedPairs(runtime), sortedPairs(expected), "installed production graph differs from the published shrinkwrap");
-
-  const embedded = path.join(installRoot, "node_modules", "imessage-mcp", "npm-shrinkwrap.json");
-  assert.deepEqual(readFileSync(embedded), lockBytes, "installed package shrinkwrap differs from the published artifact");
+  assert.deepEqual(sortedPairs(runtime), sortedPairs(expected), "installed production graph differs from the reviewed lock graph");
 }
 
-const [installRoot, shrinkwrapPath] = process.argv.slice(2);
-assert.ok(installRoot && shrinkwrapPath, "usage: verify-installed-graph <install-root> <published-shrinkwrap>");
-verifyInstalledGraph(installRoot, shrinkwrapPath);
-process.stdout.write("verified exact installed production graph against published npm shrinkwrap\n");
+const [installRoot, lockfilePath] = process.argv.slice(2);
+assert.ok(installRoot && lockfilePath, "usage: verify-installed-graph <install-root> <reviewed-package-lock>");
+verifyInstalledGraph(installRoot, lockfilePath);
+process.stdout.write("verified exact installed production graph against reviewed package lock\n");

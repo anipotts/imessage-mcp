@@ -7,12 +7,12 @@
     "url": "https://github.com/anipotts/imessage-mcp",
     "source": "github"
   },
-  "version": "2.0.0-beta.2",
+  "version": "2.0.0-beta.3",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "imessage-mcp",
-      "version": "2.0.0-beta.2",
+      "version": "2.0.0-beta.3",
       "transport": {
         "type": "stdio"
       },
@@ -24,12 +24,12 @@
         },
         {
           "name": "IMESSAGE_CONTACTS",
-          "description": "Use live unified Contacts or handles only. Values: live, none.",
+          "description": "Use the authorized live unified contact store or handles only. Values: live, none. Privacy-first setup uses none; the live database runtime default is live.",
           "isRequired": false
         },
         {
           "name": "IMESSAGE_PRIVACY",
-          "description": "Startup disclosure ceiling. Values: full, redacted, aggregate.",
+          "description": "Startup disclosure ceiling. Values: full, redacted, aggregate. Privacy-first setup uses redacted; stdio runtime defaults to full and HTTP to redacted.",
           "isRequired": false
         },
         {

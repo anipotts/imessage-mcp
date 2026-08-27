@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.0.0-beta.3] - 2026-08-27
+
+- Pinned every SQLite request snapshot before validating cached cursor watermarks, with a deterministic concurrent-WAL regression.
+- Added database-free CLI help and privacy-first doctor guidance.
+- Removed the published development shrinkwrap, reducing a vanilla install from roughly 1.2 GB to a bounded 39 MiB runtime graph.
+- Added untrusted-archive MCP instructions and prompt-injection, Full Disk Access, provider-retention, Contacts, and redacted-first guidance.
+- Registered client examples under `imessage-history`, added synthetic-only contribution rules, and bound package, Registry, client, screenshot, verification, version, and channel metadata.
+
 All notable changes to this project will be documented in this file.
 
 ## [Unreleased]

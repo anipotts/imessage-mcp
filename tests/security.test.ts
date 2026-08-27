@@ -357,9 +357,11 @@ describe("native and release hardening", () => {
     const releaseFiles = [
       ".claude-plugin/plugin.json",
       ".mcp.json",
+      "assets/manifest.json",
+      "package-files.json",
       "README.md",
       "VERIFICATION.md",
-      "npm-shrinkwrap.json",
+      "package-lock.json",
       "package.json",
       "release-status.json",
       "server.json",
@@ -375,7 +377,7 @@ describe("native and release hardening", () => {
               scripts: { prepublishOnly: "npm run verify" },
               dependencies: { example: "1.0.0" },
             }
-          : file === "npm-shrinkwrap.json"
+          : file === "package-lock.json"
             ? {
                 name: "imessage-mcp",
                 version,
@@ -389,14 +391,18 @@ describe("native and release hardening", () => {
                   },
                 },
               }
+            : file === "assets/manifest.json"
+              ? { schema_version: 2, subject_version: version, channel: version.includes("-") ? "next" : "latest", assets: [] }
+              : file === "package-files.json"
+                ? { schema_version: 2, subject_version: version, channel: version.includes("-") ? "next" : "latest", expected_paths: [] }
             : file === ".claude-plugin/plugin.json"
               ? { name: "imessage-mcp", version, marker: file }
               : file === ".mcp.json"
                 ? {
                     mcpServers: {
-                      imessage: {
+                      "imessage-history": {
                         command: "npx",
-                        args: ["-y", `imessage-mcp@${version}`],
+                        args: ["-y", `imessage-mcp@${version}`, "--contacts", "none", "--privacy", "redacted"],
                         env: { IMESSAGE_DATABASE_ID_FILE: "/fixture/database-id" },
                       },
                     },
@@ -416,7 +422,7 @@ describe("native and release hardening", () => {
     };
     const buildPackage = (source: string, destination: string, runtime = "identical runtime\n") => {
       const root = path.join(directory, `package-${path.basename(destination)}`);
-      for (const file of releaseFiles) {
+      for (const file of releaseFiles.filter((value) => value !== "package-lock.json")) {
         const target = path.join(root, "package", file);
         mkdirSync(path.dirname(target), { recursive: true });
         writeFileSync(target, readFileSync(path.join(source, file)));
@@ -431,7 +437,11 @@ describe("native and release hardening", () => {
       runGit("config", "user.name", "Fixture");
       runGit("config", "user.email", "fixture@example.test");
       runGit("config", "commit.gpgsign", "false");
-      writeVersionFiles(directory, "2.0.0-rc.1", { schema_version: 4, subject_version: "2.0.0-rc.1" });
+      writeVersionFiles(directory, "2.0.0-rc.1", {
+        schema_version: 4,
+        subject_version: "2.0.0-rc.1",
+        channel: "next",
+      });
       mkdirSync(path.join(directory, "dist"), { recursive: true });
       writeFileSync(path.join(directory, "dist", "index.js"), "identical runtime\n");
       runGit("add", ...releaseFiles, "dist/index.js");
@@ -452,12 +462,14 @@ describe("native and release hardening", () => {
       const completed = "2026-08-08T00:00:00.000Z";
       const exercises = Object.fromEntries([
         "all_privacy_modes", "all_service_families", "all_seven_tools", "claude_code",
-        "claude_desktop", "codex", "copied_database", "cursor", "http_proxy_simulation",
-        "live_database", "stdio",
+        "claude_desktop", "clean_room_first_run", "client_namespace", "codex", "copied_database",
+        "cursor", "http_proxy_simulation", "installed_tarball", "live_database", "package_content",
+        "privacy_leakage", "prompt_injection_boundary", "stdio",
       ].map((key) => [key, true]));
       const stableStatus = {
         schema_version: 4,
         subject_version: "2.0.0",
+        channel: "latest",
         stable: {
           ready: true,
           subject_version: "2.0.0",
@@ -607,12 +619,12 @@ describe("native and release hardening", () => {
       )).toThrow();
 
       writeVersionFiles(directory, "2.0.0", stableStatus);
-      const shrinkwrapFile = path.join(directory, "npm-shrinkwrap.json");
-      const shrinkwrap = JSON.parse(readFileSync(shrinkwrapFile, "utf8")) as {
-        packages: Record<string, Record<string, unknown>>;
+      const dependencyManifestFile = path.join(directory, "package.json");
+      const dependencyManifest = JSON.parse(readFileSync(dependencyManifestFile, "utf8")) as {
+        dependencies: Record<string, string>;
       };
-      shrinkwrap.packages["node_modules/example"].integrity = "sha512-changed";
-      writeFileSync(shrinkwrapFile, `${JSON.stringify(shrinkwrap, null, 2)}\n`);
+      dependencyManifest.dependencies.example = "1.0.1";
+      writeFileSync(dependencyManifestFile, `${JSON.stringify(dependencyManifest, null, 2)}\n`);
       const tamperedDependency = path.join(directory, "tampered-dependency.tgz");
       buildPackage(directory, tamperedDependency);
       expect(() => execFileSync(
@@ -627,9 +639,9 @@ describe("native and release hardening", () => {
       writeVersionFiles(directory, "2.0.0", stableStatus);
       const mcpFile = path.join(directory, ".mcp.json");
       const mcp = JSON.parse(readFileSync(mcpFile, "utf8")) as {
-        mcpServers: { imessage: { command: string } };
+        mcpServers: { "imessage-history": { command: string } };
       };
-      mcp.mcpServers.imessage.command = "changed-runner";
+      mcp.mcpServers["imessage-history"].command = "changed-runner";
       writeFileSync(mcpFile, `${JSON.stringify(mcp, null, 2)}\n`);
       const tamperedClient = path.join(directory, "tampered-client.tgz");
       buildPackage(directory, tamperedClient);

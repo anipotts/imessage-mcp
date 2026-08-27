@@ -1,27 +1,29 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
+  "subject_version": "2.0.0-beta.3",
+  "channel": "next",
   "assets": [
     {
       "path": "assets/demo-dark.png",
-      "sha256": "8afbd3be93e35eef7335dd4838d5858798ff162b9ad53c49b8fafa23d1449ead",
+      "sha256": "a3c7791382bc185ce7d05b724312dcd1c5803038fd9c9210e49e1cb4975f72d3",
       "width": 1880,
       "height": 1000
     },
     {
       "path": "assets/demo-light.png",
-      "sha256": "86030ed4690422457a0d8df279ddcbb9004f68016df9ea3a1280205ae3ac26bd",
+      "sha256": "928d8f5bb0932c699119600bda32926dc73741d863dba77c0cebf3143a10a0c6",
       "width": 1880,
       "height": 1000
     },
     {
       "path": "assets/doctor-dark.png",
-      "sha256": "efb52d036b0282e7cfc5d8a2db8a71ca7ee6dd1df3ec2cc165ed0e21011ba8eb",
+      "sha256": "d07724da701a57a30636365236aabb3b048edb0c8c853c78b26035827865434f",
       "width": 1880,
       "height": 1000
     },
     {
       "path": "assets/doctor-light.png",
-      "sha256": "5e03aef364eabb376f96bab36acfba7bd236b149d855fb608748626f6bc808be",
+      "sha256": "88c5754d5305768a3dbc67ead7bb109e43682bcacd6d5e5d4a020cae0b2db119",
       "width": 1880,
       "height": 1000
     },
