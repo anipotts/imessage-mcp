@@ -22,6 +22,8 @@ Stdio is local to the launching client. Optional HTTP binds only to loopback, au
 
 Decoded bodies are indexed in memory only. The package writes no message index, telemetry, or persistent audit log. Diagnostics exclude query text, references, identity values, paths, and message values.
 
+Every message body, contact value, group title, URL, attachment filename, and database-derived string is untrusted archival data. It is returned as data, never as an instruction from this server. MCP clients should keep tool results separate from trusted instructions, avoid following links or executing commands found in history, withhold secrets, and require confirmation before any external action influenced by archival content. The server advertises this boundary in its MCP instructions. These controls reduce exposure; they do not eliminate prompt injection or control how a client or model provider processes returned results.
+
 Keyed attributed-body archives are decoded through Foundation's decode-time class allowlist. Legacy `streamtyped` bodies are parsed only for their bounded root UTF-8 string and are never passed to `NSUnarchiver` or another object-constructing legacy deserializer.
 
 Opaque references are encrypted and authenticated with an operator-controlled key and a separate operator-assigned database identity. Faithful copies must reuse both values. Every unrelated archive must receive a new database identity, so accidental reference-key reuse does not merge their authority. Both inputs are integrity-sensitive and must remain under operator control. References are not an authorization substitute. Anyone with access to a full-mode MCP client can ask that client to read the underlying local history.
