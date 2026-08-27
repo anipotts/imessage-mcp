@@ -2,6 +2,8 @@
 
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { Client } from "@modelcontextprotocol/client";
+import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -39,6 +41,62 @@ function dependencyNodes(value: { dependencies?: Record<string, unknown> }): num
     (total, dependency) => total + 1 + dependencyNodes(dependency as { dependencies?: Record<string, unknown> }),
     0,
   );
+}
+
+function cleanEnvironment(extra: Record<string, string>): Record<string, string> {
+  const blocked = new Set([
+    "IMESSAGE_REFERENCE_KEY",
+    "IMESSAGE_REFERENCE_KEY_FILE",
+    "IMESSAGE_DATABASE_ID",
+    "IMESSAGE_DATABASE_ID_FILE",
+  ]);
+  return {
+    ...Object.fromEntries(
+      Object.entries(process.env).filter(
+        (entry): entry is [string, string] => entry[1] !== undefined && !blocked.has(entry[0]),
+      ),
+    ),
+    ...extra,
+  };
+}
+
+async function runCleanRoomFirstRequest(binary: string, fixture: ReturnType<typeof createFixture>, scratch: string): Promise<void> {
+  const referenceKeyFile = path.join(scratch, "reference-key");
+  const databaseIdFile = path.join(scratch, "database-id");
+  writeFileSync(referenceKeyFile, "synthetic-reference-key-".padEnd(48, "x"), { mode: 0o600 });
+  writeFileSync(databaseIdFile, "synthetic-database-lineage-".padEnd(48, "x"), { mode: 0o600 });
+  assert.equal(lstatSync(referenceKeyFile).mode & 0o777, 0o600);
+  assert.equal(lstatSync(databaseIdFile).mode & 0o777, 0o600);
+
+  const transport = new StdioClientTransport({
+    command: binary,
+    args: ["--database", fixture.databasePath, "--contacts", "none", "--privacy", "redacted"],
+    cwd: scratch,
+    env: cleanEnvironment({
+      IMESSAGE_REFERENCE_KEY_FILE: referenceKeyFile,
+      IMESSAGE_DATABASE_ID_FILE: databaseIdFile,
+    }),
+    stderr: "pipe",
+  });
+  const client = new Client({ name: "clean-room-first-run", version: "1.0.0" });
+  try {
+    await client.connect(transport);
+    const status = await client.callTool({
+      name: "server_status",
+      arguments: { privacy_mode: "redacted" },
+    });
+    assert.equal(status.isError, undefined);
+    const conversations = await client.callTool({
+      name: "list_conversations",
+      arguments: { limit: 10, privacy_mode: "redacted" },
+    });
+    assert.equal(conversations.isError, undefined);
+    const output = JSON.stringify([status, conversations]);
+    assert.doesNotMatch(output, /blob exact|thread reply|photo\.png|\+1555000000|unknown@example/u);
+    assert.doesNotMatch(output, /T\d{2}:\d{2}:\d{2}/u);
+  } finally {
+    await client.close();
+  }
 }
 
 async function main(): Promise<void> {
@@ -121,15 +179,19 @@ async function main(): Promise<void> {
     });
     assert.match(doctorHelp, /Read-only diagnostics/u);
     assert.match(doctorHelp, /never opens settings or changes permissions/u);
-    execFileSync(binary, ["doctor", "--database", fixture.databasePath, "--contacts", "none", "--json"], {
+    const firstRunReferenceKey = path.join(scratch, "doctor-reference-key");
+    const firstRunDatabaseId = path.join(scratch, "doctor-database-id");
+    writeFileSync(firstRunReferenceKey, "synthetic-reference-key-".padEnd(48, "x"), { mode: 0o600 });
+    writeFileSync(firstRunDatabaseId, "synthetic-database-lineage-".padEnd(48, "x"), { mode: 0o600 });
+    execFileSync(binary, ["doctor", "--database", fixture.databasePath, "--contacts", "none", "--privacy", "redacted", "--json"], {
       cwd: install,
-      env: {
-        ...process.env,
-        IMESSAGE_REFERENCE_KEY: "synthetic-reference-key-".padEnd(48, "x"),
-        IMESSAGE_DATABASE_ID: "synthetic-database-lineage-".padEnd(48, "x"),
-      },
-      stdio: "ignore",
+      env: cleanEnvironment({
+        IMESSAGE_REFERENCE_KEY_FILE: firstRunReferenceKey,
+        IMESSAGE_DATABASE_ID_FILE: firstRunDatabaseId,
+      }),
+      encoding: "utf8",
     });
+    await runCleanRoomFirstRequest(binary, fixture, scratch);
     await runStdio(binary, [], fixture);
 
     const clientConfig = {
@@ -154,7 +216,8 @@ async function main(): Promise<void> {
     }
     process.stdout.write(
       `installed tarball verification passed: ${installedNodes} dependency nodes, ` +
-      `${(installedBytes / (1024 * 1024)).toFixed(1)} MiB, package contents, help, doctor, stdio, and isolated clients\n`,
+      `${(installedBytes / (1024 * 1024)).toFixed(1)} MiB, package contents, help, doctor, ` +
+      `clean-room redacted first run, stdio, and isolated clients\n`,
     );
   } finally {
     fixture.cleanup();

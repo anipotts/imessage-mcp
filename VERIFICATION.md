@@ -118,4 +118,4 @@ No Tailscale Serve route was created. Endpoint mutation requires separate approv
 
 Certification excludes iPhone backup manifests, Linux, containers, Docker, public-internet HTTP, Tailscale Funnel, OAuth, multiple client tokens, persistent decoded-body indexes, semantic search, watchers, stateful sessions, old edited text, recovered unsent text, removed-reaction history, every send capability, and adversarial database-path replacement by another process running as the same macOS account.
 
-Stable promotion remains blocked until a public release candidate exercises every tool, privacy mode, service family, transport, source mode, and named client for seven unchanged days.
+Stable promotion remains blocked until a public release candidate exercises every tool, privacy mode, service family, transport, source mode, and named client for seven unchanged days. The final promotion gate reruns the installed tarball, privacy leakage, archival prompt-injection boundary, client namespace, exact package contents, and clean-room privacy-first setup.

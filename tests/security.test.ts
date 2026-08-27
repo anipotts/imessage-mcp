@@ -462,8 +462,9 @@ describe("native and release hardening", () => {
       const completed = "2026-08-08T00:00:00.000Z";
       const exercises = Object.fromEntries([
         "all_privacy_modes", "all_service_families", "all_seven_tools", "claude_code",
-        "claude_desktop", "codex", "copied_database", "cursor", "http_proxy_simulation",
-        "live_database", "stdio",
+        "claude_desktop", "clean_room_first_run", "client_namespace", "codex", "copied_database",
+        "cursor", "http_proxy_simulation", "installed_tarball", "live_database", "package_content",
+        "privacy_leakage", "prompt_injection_boundary", "stdio",
       ].map((key) => [key, true]));
       const stableStatus = {
         schema_version: 4,

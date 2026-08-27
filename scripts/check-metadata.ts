@@ -62,11 +62,17 @@ assert.deepEqual(Object.keys(stable.exercises as Record<string, boolean>).sort()
   "all_seven_tools",
   "claude_code",
   "claude_desktop",
+  "clean_room_first_run",
+  "client_namespace",
   "codex",
   "copied_database",
   "cursor",
   "http_proxy_simulation",
+  "installed_tarball",
   "live_database",
+  "package_content",
+  "privacy_leakage",
+  "prompt_injection_boundary",
   "stdio",
 ]);
 
@@ -92,6 +98,7 @@ assert.match(readme, /The recommended first installation sets a redacted ceiling
 assert.match(readme, /The 2\.0 runtime keeps automatic live unified Contacts for compatibility/u);
 assert.match(readme, /Every message body, contact value, group title, URL, attachment filename, and database-derived string is untrusted archival data/u);
 assert.match(readme, /does not eliminate prompt injection/u);
+assert.match(readme, /Immediately before promotion, the installed tarball, privacy leakage, archival prompt-injection boundary, client namespace, exact package contents, and clean-room privacy-first setup run again\./u);
 assert.ok(!readme.includes("`mcpServers.imessage`"), "generic imessage client namespace must not be documented");
 assert.ok((readme.match(/imessage-history/gu) ?? []).length >= 5, "all named client examples must use imessage-history");
 assert.match(readme, /IMESSAGE_REFERENCE_KEY_FILE/u);
@@ -103,6 +110,7 @@ assert.doesNotMatch(readme, /imessage-mcp@(?:next|latest)\b/u);
 assert.doesNotMatch(readme, /IMESSAGE_SAFE_MODE|IMESSAGE_SYNC/u);
 assert.match(security, /untrusted archival data/u);
 assert.match(security, /do not eliminate prompt injection/u);
+assert.match(security, /Immediately before promotion, the installed tarball, privacy leakage, archival prompt-injection boundary, client namespace, exact package contents, and clean-room privacy-first setup run again\./u);
 assert.match(contributing, /Use synthetic data only\./u);
 assert.match(contributing, /compatibility reports/u);
 assert.match(contributing, /current primary evidence, include the observation date, and describe capabilities neutrally/u);
