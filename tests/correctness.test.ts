@@ -337,6 +337,38 @@ describe("2.0 data and query core", () => {
     }
   });
 
+  it("establishes the cached-watermark read snapshot before returning a request", () => {
+    const isolated = createFixture();
+    const setup = new Database(isolated.databasePath);
+    setup.pragma("journal_mode = WAL");
+    const before = setup.prepare("SELECT text FROM message WHERE ROWID = 1").pluck().get();
+    setup.close();
+    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID, "live");
+    try {
+      // Warm the cached-watermark path, then open a request whose first
+      // consumer query is deliberately delayed until after another connection
+      // commits. The request must retain the earlier SQLite snapshot.
+      const warm = isolatedContext.request();
+      warm.close();
+      const request = isolatedContext.request();
+
+      const writer = new Database(isolated.databasePath);
+      writer.prepare("UPDATE message SET text = ? WHERE ROWID = 1").run("committed after request creation");
+      writer.close();
+
+      expect(request.db.prepare("SELECT text FROM message WHERE ROWID = 1").pluck().get()).toBe(before);
+      request.close();
+
+      const next = isolatedContext.request();
+      expect(next.db.prepare("SELECT text FROM message WHERE ROWID = 1").pluck().get())
+        .toBe("committed after request creation");
+      next.close();
+    } finally {
+      isolatedContext.close();
+      isolated.cleanup();
+    }
+  });
+
   it("binds request snapshots to one canonical regular-file identity", () => {
     const isolated = createFixture();
     const link = path.join(isolated.directory, "selected.db");
