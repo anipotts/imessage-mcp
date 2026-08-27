@@ -1,8 +1,11 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
+  "subject_version": "2.0.0-beta.2",
+  "channel": "next",
   "expected_paths": [
     ".claude-plugin/plugin.json",
     ".mcp.json",
+    "CONTRIBUTING.md",
     "LICENSE",
     "README.md",
     "SECURITY.md",

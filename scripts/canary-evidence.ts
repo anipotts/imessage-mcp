@@ -18,15 +18,20 @@ const SCAN_PATHS = [
   "security/scan/findings.json",
   "security/scan/scan-manifest.json",
 ] as const;
-const STABLE_DERIVATION_FILES = [
+const STABLE_PACKAGE_DERIVATION_FILES = [
   ".claude-plugin/plugin.json",
   ".mcp.json",
+  "assets/manifest.json",
+  "package-files.json",
   "README.md",
   "VERIFICATION.md",
-  "package-lock.json",
   "package.json",
   "release-status.json",
   "server.json",
+] as const;
+const STABLE_SOURCE_DERIVATION_FILES = [
+  ...STABLE_PACKAGE_DERIVATION_FILES,
+  "package-lock.json",
 ] as const;
 const EXERCISE_KEYS = [
   "all_privacy_modes",
@@ -45,6 +50,7 @@ const EXERCISE_KEYS = [
 interface ReleaseStatus {
   schema_version: number;
   subject_version: string;
+  channel: "next" | "latest";
   stable: {
     ready: boolean;
     subject_version: string | null;
@@ -379,7 +385,7 @@ function withoutKeys(value: Record<string, unknown>, keys: string[]): Record<str
 }
 
 function assertReviewedDerivation(
-  file: typeof STABLE_DERIVATION_FILES[number],
+  file: typeof STABLE_SOURCE_DERIVATION_FILES[number],
   candidateBytes: Buffer,
   stableBytes: Buffer,
   candidateVersion: string,
@@ -406,10 +412,25 @@ function assertReviewedDerivation(
     assert.equal(stable.schema_version, 4);
     assert.equal(candidate.subject_version, candidateVersion);
     assert.equal(stable.subject_version, stableVersion);
+    assert.equal(candidate.channel, "next");
+    assert.equal(stable.channel, "latest");
     assert.deepEqual(
-      withoutKeys(stable, ["subject_version", "prerelease_ready", "stable"]),
-      withoutKeys(candidate, ["subject_version", "prerelease_ready", "stable"]),
+      withoutKeys(stable, ["subject_version", "channel", "prerelease_ready", "stable"]),
+      withoutKeys(candidate, ["subject_version", "channel", "prerelease_ready", "stable"]),
       "release-status.json may change only version and canary state",
+    );
+    return;
+  }
+
+  if (file === "assets/manifest.json" || file === "package-files.json") {
+    assert.equal(candidate.subject_version, candidateVersion, `${file} must name the release-candidate version`);
+    assert.equal(stable.subject_version, stableVersion, `${file} must name the stable version`);
+    assert.equal(candidate.channel, "next", `${file} release-candidate channel must be next`);
+    assert.equal(stable.channel, "latest", `${file} stable channel must be latest`);
+    assert.deepEqual(
+      withoutKeys(stable, ["subject_version", "channel"]),
+      withoutKeys(candidate, ["subject_version", "channel"]),
+      `${file} may change only its exact version and channel fields`,
     );
     return;
   }
@@ -417,14 +438,14 @@ function assertReviewedDerivation(
   const expected = structuredClone(candidate);
   if (file === ".mcp.json") {
     const servers = record(expected.mcpServers, ".mcp.json servers");
-    const server = record(servers.imessage, ".mcp.json imessage server");
+    const server = record(servers["imessage-history"], ".mcp.json imessage-history server");
     assert.ok(Array.isArray(server.args) && server.args.every((entry) => typeof entry === "string"),
-      ".mcp.json imessage args must be a string array");
+      ".mcp.json imessage-history args must be a string array");
     const args = server.args as string[];
     assert.ok(args.length > 0);
-    assert.equal(args.at(-1), `imessage-mcp@${candidateVersion}`,
+    assert.equal(args[1], `imessage-mcp@${candidateVersion}`,
       ".mcp.json must pin the release-candidate package exactly");
-    args[args.length - 1] = `imessage-mcp@${stableVersion}`;
+    args[1] = `imessage-mcp@${stableVersion}`;
     assert.deepEqual(stable, expected, ".mcp.json may change only its exact package version argument");
     return;
   }
@@ -468,9 +489,9 @@ function stableDerivation(
       return match[1];
     })
     .sort();
-  assert.deepEqual(changed, [...STABLE_DERIVATION_FILES].sort(),
+  assert.deepEqual(changed, [...STABLE_SOURCE_DERIVATION_FILES].sort(),
     "stable derivation must modify exactly the reviewed version and verification metadata");
-  for (const file of STABLE_DERIVATION_FILES) {
+  for (const file of STABLE_SOURCE_DERIVATION_FILES) {
     assertReviewedDerivation(
       file,
       gitBytes("show", `${candidateCommit}:${file}`),
@@ -491,7 +512,7 @@ function comparePackages(
   const candidatePaths = packagePaths(candidatePackage);
   const stablePaths = packagePaths(stablePackage);
   assert.deepEqual(stablePaths, candidatePaths, "stable and release-candidate packages must contain identical paths");
-  const allowed = new Set(STABLE_DERIVATION_FILES.map((file) => `package/${file}`));
+  const allowed = new Set(STABLE_PACKAGE_DERIVATION_FILES.map((file) => `package/${file}`));
   const differences: string[] = [];
   let comparedBytes = 0;
   for (const entry of candidatePaths) {
@@ -505,7 +526,7 @@ function comparePackages(
       assert.equal(same, true, `${entry} changed after the release-candidate canary`);
     } else {
       assertReviewedDerivation(
-        entry.slice("package/".length) as typeof STABLE_DERIVATION_FILES[number],
+        entry.slice("package/".length) as typeof STABLE_PACKAGE_DERIVATION_FILES[number],
         candidate,
         stable,
         candidateVersion,
@@ -533,6 +554,7 @@ function expectedEvidence(
   const status = commitFile<ReleaseStatus>(stableCommit, "release-status.json");
   assert.equal(status.schema_version, 4);
   assert.equal(status.subject_version, stablePackageJson.version);
+  assert.equal(status.channel, "latest");
   assert.match(stablePackageJson.version, /^\d+\.\d+\.\d+$/u, "stable package version must not be a prerelease");
   assert.equal(status.stable.ready, true, "stable release state must be explicitly ready");
   assert.equal(status.stable.subject_version, stablePackageJson.version);

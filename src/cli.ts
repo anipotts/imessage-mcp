@@ -25,7 +25,7 @@ Options:
   -t, --transport <mode>      stdio (default) or authenticated loopback http
   -p, --port <number>         HTTP port (default: 3000)
       --database <path>       Live Mac chat.db or a faithful Mac database copy
-      --contacts <mode>       unified (default) or none
+      --contacts <mode>       live unified Contacts (default) or none
       --privacy <mode>        full (runtime default), redacted, or aggregate
       --attachment-paths      Permit absolute attachment paths at a full ceiling
       --json                  JSON output for doctor
@@ -45,7 +45,7 @@ Read-only diagnostics for Node, Messages database/WAL access, schema support,
 Contacts mode, native decoding, secret files, and transport configuration.
 
 Usage:
-  imessage-mcp doctor [--database <path>] [--contacts unified|none]
+  imessage-mcp doctor [--database <path>] [--contacts live|none]
                       [--privacy full|redacted|aggregate] [--json]
 
 Doctor prints remediation and never opens settings or changes permissions.

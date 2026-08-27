@@ -119,9 +119,9 @@ async function main(): Promise<void> {
 
     const clientConfig = {
       mcpServers: {
-        imessage: {
+        "imessage-history": {
           command: binary,
-          args: ["--database", fixture.databasePath, "--contacts", "none"],
+          args: ["--database", fixture.databasePath, "--contacts", "none", "--privacy", "redacted"],
           env: {
             IMESSAGE_REFERENCE_KEY_FILE: "/operator-owned/path/to/imessage-reference-key",
             IMESSAGE_DATABASE_ID_FILE: "/operator-owned/path/to/imessage-database-id",
@@ -132,7 +132,10 @@ async function main(): Promise<void> {
     for (const client of ["codex", "claude-desktop", "claude-code", "cursor"]) {
       const file = path.join(scratch, `${client}.json`);
       writeFileSync(file, JSON.stringify(clientConfig));
-      assert.equal(JSON.parse(readFileSync(file, "utf8")).mcpServers.imessage.command, binary);
+      const configured = JSON.parse(readFileSync(file, "utf8")) as typeof clientConfig;
+      assert.equal(configured.mcpServers["imessage-history"].command, binary);
+      assert.deepEqual(configured.mcpServers["imessage-history"].args.slice(-4),
+        ["--contacts", "none", "--privacy", "redacted"]);
     }
     process.stdout.write(
       `installed tarball verification passed: ${installedNodes} dependency nodes, ` +
