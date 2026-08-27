@@ -505,9 +505,7 @@ jobs:
               '
           fi
           echo "tarball=$(basename "$TARBALL")" >> "$GITHUB_OUTPUT"
-      - name: verify npm metadata, provenance, tarball identity, and production graph
-        shell: bash
-        run: |
+          # Keep verification in this step so downloaded release bytes never cross into a later shell boundary.
           npm view "imessage-mcp@${TARGET_VERSION}" --json | node -e '
             let body = "";
             process.stdin.on("data", (chunk) => {
@@ -548,7 +546,7 @@ jobs:
             "$PUBLIC_URL" --output "$RUNNER_TEMP/public.tgz"
           curl --fail --location --silent --show-error --max-filesize 4194304 \
             "$ATTESTATION_URL" --output "$RUNNER_TEMP/npm-attestations.json"
-          cmp "release-artifact/${{ steps.artifact.outputs.tarball }}" "$RUNNER_TEMP/public.tgz"
+          cmp "$TARBALL" "$RUNNER_TEMP/public.tgz"
           node -e '
             const fs = require("fs"), crypto = require("crypto");
             const document = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
