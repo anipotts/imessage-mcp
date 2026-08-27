@@ -1,6 +1,6 @@
 {
   "schema_version": 4,
-  "subject_version": "2.0.0-beta.3",
+  "subject_version": "2.0.0-rc.1",
   "channel": "next",
   "prerelease_ready": true,
   "security_scan": {

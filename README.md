@@ -41,7 +41,7 @@ Confirm a supported Node major, then verify the exact prerelease. No global inst
 
 ```sh
 node --version
-npx -y imessage-mcp@2.0.0-beta.3 --version
+npx -y imessage-mcp@2.0.0-rc.1 --version
 ```
 
 Create two independent operator-owned secret files:
@@ -52,7 +52,7 @@ openssl rand -base64 32 > "$HOME/.imessage-mcp-reference-key"
 openssl rand -base64 32 > "$HOME/.imessage-mcp-database-id"
 export IMESSAGE_REFERENCE_KEY_FILE="$HOME/.imessage-mcp-reference-key"
 export IMESSAGE_DATABASE_ID_FILE="$HOME/.imessage-mcp-database-id"
-npx -y imessage-mcp@2.0.0-beta.3 doctor --contacts none --privacy redacted
+npx -y imessage-mcp@2.0.0-rc.1 doctor --contacts none --privacy redacted
 ```
 
 The files must remain regular, non-symlink files owned by the operator with mode `0600`. If `doctor` reports `database_read` or `wal_read`, grant Full Disk Access to the application or shell that launched that exact process, restart it, and rerun the same command. If it reports `node`, use Node 22, 24, or 26. If it reports `reference_key` or `database_id`, confirm the exported paths and file modes. Other failures include precise remediation in the matching check.
@@ -64,7 +64,7 @@ Register the server as `imessage-history`, start with handles-only Contacts and 
   "mcpServers": {
     "imessage-history": {
       "command": "npx",
-      "args": ["-y", "imessage-mcp@2.0.0-beta.3", "--contacts", "none", "--privacy", "redacted"],
+      "args": ["-y", "imessage-mcp@2.0.0-rc.1", "--contacts", "none", "--privacy", "redacted"],
       "env": {
         "IMESSAGE_REFERENCE_KEY_FILE": "/Users/you/.imessage-mcp-reference-key",
         "IMESSAGE_DATABASE_ID_FILE": "/Users/you/.imessage-mcp-database-id"
@@ -107,7 +107,7 @@ Set a stricter ceiling at startup:
   "mcpServers": {
     "imessage-history": {
       "command": "npx",
-      "args": ["-y", "imessage-mcp@2.0.0-beta.3", "--contacts", "none", "--privacy", "redacted"],
+      "args": ["-y", "imessage-mcp@2.0.0-rc.1", "--contacts", "none", "--privacy", "redacted"],
       "env": {
         "IMESSAGE_REFERENCE_KEY_FILE": "/Users/you/.imessage-mcp-reference-key",
         "IMESSAGE_DATABASE_ID_FILE": "/Users/you/.imessage-mcp-database-id"
@@ -148,7 +148,7 @@ Add the server through Codex MCP settings or the CLI:
 ```sh
 codex mcp add --env IMESSAGE_REFERENCE_KEY_FILE="$HOME/.imessage-mcp-reference-key" \
   --env IMESSAGE_DATABASE_ID_FILE="$HOME/.imessage-mcp-database-id" \
-  imessage-history -- npx -y imessage-mcp@2.0.0-beta.3 --contacts none --privacy redacted
+  imessage-history -- npx -y imessage-mcp@2.0.0-rc.1 --contacts none --privacy redacted
 ```
 
 Grant Full Disk Access to the Codex application that launches the process, then restart that application.
@@ -162,7 +162,7 @@ Add this entry to Claude Desktop's MCP configuration:
   "mcpServers": {
     "imessage-history": {
       "command": "npx",
-      "args": ["-y", "imessage-mcp@2.0.0-beta.3", "--contacts", "none", "--privacy", "redacted"],
+      "args": ["-y", "imessage-mcp@2.0.0-rc.1", "--contacts", "none", "--privacy", "redacted"],
       "env": {
         "IMESSAGE_REFERENCE_KEY_FILE": "/Users/you/.imessage-mcp-reference-key",
         "IMESSAGE_DATABASE_ID_FILE": "/Users/you/.imessage-mcp-database-id"
@@ -179,7 +179,7 @@ Grant Full Disk Access to Claude Desktop, restart it, and run `server_status`.
 ```sh
 claude mcp add imessage-history -e IMESSAGE_REFERENCE_KEY_FILE="$HOME/.imessage-mcp-reference-key" \
   -e IMESSAGE_DATABASE_ID_FILE="$HOME/.imessage-mcp-database-id" \
-  -- npx -y imessage-mcp@2.0.0-beta.3 --contacts none --privacy redacted
+  -- npx -y imessage-mcp@2.0.0-rc.1 --contacts none --privacy redacted
 ```
 
 ### cursor

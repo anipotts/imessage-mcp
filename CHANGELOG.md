@@ -1,5 +1,11 @@
 # Changelog
 
+## [2.0.0-rc.1] - 2026-08-27
+
+- Promotes the accepted seven-tool read-only API to its first release candidate.
+- Makes privacy-first `--contacts none` diagnostics pass explicitly instead of showing an expected warning.
+- Clarifies the version-pinned first run and fail-closed search recovery without requiring a global install.
+
 ## [2.0.0-beta.3] - 2026-08-27
 
 - Pinned every SQLite request snapshot before validating cached cursor watermarks, with a deterministic concurrent-WAL regression.
