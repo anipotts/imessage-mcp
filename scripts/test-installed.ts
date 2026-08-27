@@ -58,6 +58,20 @@ async function main(): Promise<void> {
     ], { cwd: install });
     const binary = path.join(install, "node_modules", ".bin", "imessage-mcp");
     assert.equal(execFileSync(binary, ["--version"], { cwd: install, encoding: "utf8" }).trim(), packageVersionValue);
+    for (const args of [["--help"], ["-h"], ["help"]]) {
+      const help = execFileSync(binary, args, { cwd: install, encoding: "utf8", env: { PATH: process.env.PATH ?? "" } });
+      assert.match(help, /First run \(privacy-first\):/u);
+      assert.match(help, /--contacts <mode>/u);
+      assert.match(help, /--privacy <mode>/u);
+      assert.match(help, /Full Disk Access belongs to the launching MCP client/u);
+    }
+    const doctorHelp = execFileSync(binary, ["doctor", "--help"], {
+      cwd: install,
+      encoding: "utf8",
+      env: { PATH: process.env.PATH ?? "" },
+    });
+    assert.match(doctorHelp, /Read-only diagnostics/u);
+    assert.match(doctorHelp, /never opens settings or changes permissions/u);
     execFileSync(binary, ["doctor", "--database", fixture.databasePath, "--contacts", "none", "--json"], {
       cwd: install,
       env: {
