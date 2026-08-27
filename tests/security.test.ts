@@ -223,8 +223,8 @@ describe("native and release hardening", () => {
     expect(verify).toContain("scripts/security-evidence.ts verify");
     expect(verify).toContain('workflow.path !== ".github/workflows/release.yml"');
     expect(verify).toContain("--omit=dev");
-    expect(verify).toContain("--ignore-scripts");
     expect(verify).toContain("src/verify-installed-graph.ts");
+    expect(verify).toContain('node_modules/.bin/imessage-mcp" --version');
     expect(verify).not.toContain("package/dist/verify-installed-graph.js");
     expect(verify).toContain("audit signatures");
 

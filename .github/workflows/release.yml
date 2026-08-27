@@ -583,13 +583,9 @@ jobs:
                 !details.metadata.invocationId.includes("/actions/runs/" + runId + "/")) process.exit(1);
           ' "$RUNNER_TEMP/npm-attestations.json" "$RUNNER_TEMP/public.tgz"
           SCRATCH=$(mktemp -d)
-          npm install --prefix "$SCRATCH" --omit=dev --ignore-scripts --no-audit --no-fund \
+          npm install --prefix "$SCRATCH" --omit=dev --no-audit --no-fund \
             "imessage-mcp@${TARGET_VERSION}"
-          INSTALLED_VERSION=$(node -e '
-            const fs = require("fs");
-            process.stdout.write(JSON.parse(fs.readFileSync(process.argv[1], "utf8")).version);
-          ' "$SCRATCH/node_modules/imessage-mcp/package.json")
-          test "$INSTALLED_VERSION" = "$TARGET_VERSION"
+          test "$("$SCRATCH/node_modules/.bin/imessage-mcp" --version)" = "$TARGET_VERSION"
           tar -xOf "$RUNNER_TEMP/public.tgz" package/npm-shrinkwrap.json \
             > "$RUNNER_TEMP/published-shrinkwrap.json"
           npx tsx src/verify-installed-graph.ts "$SCRATCH" "$RUNNER_TEMP/published-shrinkwrap.json"
