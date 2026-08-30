@@ -22,6 +22,19 @@ interface ReviewReceipt {
   no_audio: true;
 }
 
+interface AutomatedScanReceipt {
+  schema_version: 1;
+  scanner: "ffmpeg-all-frames+tesseract-5";
+  stores_recognized_text: false;
+  media: Array<{
+    name: string;
+    sha256: string;
+    decoded_frames: number;
+    ocr_frames: number;
+    unresolved_pattern_frames: Record<string, number>;
+  }>;
+}
+
 interface Stream {
   codec_name?: string;
   codec_type?: string;
@@ -178,10 +191,33 @@ function review(file: string): ReviewReceipt {
   return value;
 }
 
-const [mode, mediaDirectory, version, reviewFile, evidenceFile = "demo-evidence.json"] = process.argv.slice(2);
+function automatedScan(file: string, media: Array<{ name: string; sha256: string }>): AutomatedScanReceipt {
+  const stat = lstatSync(file);
+  assert.ok(stat.isFile() && !stat.isSymbolicLink() && stat.size > 0 && stat.size <= 128 * 1024,
+    "automated scan receipt must be a small regular file");
+  const value = JSON.parse(readFileSync(file, "utf8")) as AutomatedScanReceipt;
+  assert.equal(value.schema_version, 1);
+  assert.equal(value.scanner, "ffmpeg-all-frames+tesseract-5");
+  assert.equal(value.stores_recognized_text, false);
+  assert.equal(value.media.length, media.length);
+  for (const expected of media) {
+    const entry = value.media.find((candidate) => candidate.name === expected.name);
+    assert.ok(entry, `automated scan is missing ${expected.name}`);
+    assert.equal(entry.sha256, expected.sha256, `${expected.name} scan hash does not match reviewed media`);
+    assert.ok(Number.isInteger(entry.decoded_frames) && entry.decoded_frames > 0);
+    assert.equal(entry.ocr_frames, entry.decoded_frames, `${expected.name} must OCR every decoded frame`);
+    assert.ok(Object.keys(entry.unresolved_pattern_frames).length > 0);
+    assert.ok(Object.values(entry.unresolved_pattern_frames).every((count) => count === 0),
+      `${expected.name} has unresolved automated scan findings`);
+  }
+  return value;
+}
+
+const [mode, mediaDirectory, version, reviewFile, automatedScanFile, evidenceFile = "demo-evidence.json"] =
+  process.argv.slice(2);
 assert.ok(mode === "create" || mode === "verify",
-  "usage: demo-evidence.ts create|verify <media-directory> <version> <review-receipt> [evidence-file]");
-assert.ok(mediaDirectory && version && reviewFile);
+  "usage: demo-evidence.ts create|verify <media-directory> <version> <review-receipt> <automated-scan> [evidence-file]");
+assert.ok(mediaDirectory && version && reviewFile && automatedScanFile);
 assert.match(version, /^\d+\.\d+\.\d+(?:-(?:beta|rc)\.\d+)?$/u);
 const packageVersion = JSON.parse(readFileSync("package.json", "utf8")) as { version: string };
 assert.equal(packageVersion.version, version, "demo evidence must name the current package version");
@@ -193,9 +229,10 @@ const evidence = {
   client: "Claude Code",
   terminal: "Ghostty",
   source: "live Apple Messages database",
-  privacy_mode: "full",
+  privacy_modes: ["full", "redacted"],
   release_assets_only: true,
   review: review(reviewFile),
+  automated_scan: automatedScan(automatedScanFile, media),
   media,
 };
 if (mode === "create") {

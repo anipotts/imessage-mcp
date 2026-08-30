@@ -168,6 +168,7 @@ describe("native and release hardening", () => {
     expect(release).toContain("scripts/canary-evidence.ts verify");
     expect(release).toContain("scripts/check-runtime-equality.ts");
     expect(release).toContain("imessage-mcp-2.0.0-rc.1.tgz");
+    expect(release).toContain("demo-automated-scan.json");
     const releaseGate = readFileSync(new URL("../scripts/check-release-gate.ts", import.meta.url), "utf8");
     expect(releaseGate).toContain("releaseSection(expected)");
     expect(release).toContain("candidate-attestations.json");

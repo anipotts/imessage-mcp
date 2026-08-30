@@ -46,7 +46,7 @@ Require `message_count`, `initiation`, and `response_time` results grounded in t
 - Capture the Ghostty window only at Retina resolution with no audio.
 - Hero: 1280x800 GIF, 12–15 fps, under 9.5 MB.
 - Other clips: 1440x900 H.264, 30 fps, `yuv420p`, fast-start, under 10 MB each.
-- Run the automated OCR-sensitive-data scan and a manual frame review at original resolution.
-- Create and verify `demo-evidence.json` with `scripts/demo-evidence.ts`.
+- Extract and OCR every decoded frame with `npx tsx scripts/scan-demo-frames.ts <media-dir> <automated-scan.json>`, resolve every flagged category, and then complete a manual frame review at original resolution.
+- Create and verify `demo-evidence.json` with `scripts/demo-evidence.ts`, passing both the manual aggregate review receipt and the automated scan receipt.
 - Upload only the four delivery files and evidence to the versioned draft GitHub release.
 - After immutable public verification, move raw task-owned captures to Trash.
