@@ -1,8 +1,8 @@
 {
   "schema_version": 4,
-  "subject_version": "2.0.0-rc.1",
+  "subject_version": "2.0.0-rc.2",
   "channel": "next",
-  "prerelease_ready": true,
+  "prerelease_ready": false,
   "security_scan": {
     "authority": "signed_evidence_commit",
     "status": "enforced_by_release_workflow"
@@ -14,7 +14,10 @@
     "installed_clients": true,
     "million_message_performance": true,
     "dependency_and_secret_audit": true,
-    "protocol_security": true
+    "protocol_security": true,
+    "runtime_equality": true,
+    "concise_documentation": true,
+    "real_media_review": false
   },
   "stable": {
     "ready": false,

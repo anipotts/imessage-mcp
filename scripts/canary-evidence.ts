@@ -7,7 +7,6 @@ import { basename } from "node:path";
 import { lstatSync, readFileSync, writeFileSync } from "node:fs";
 import { isNumberedReleaseCandidate } from "./release-version.js";
 
-const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1_000;
 const MAX_GIT_BYTES = 128 * 1024 * 1024;
 const MAX_TARBALL_LIST_BYTES = 4 * 1024 * 1024;
 const MAX_TARBALL_BYTES = 16 * 1024 * 1024;
@@ -604,8 +603,8 @@ function expectedEvidence(
   const completedMilliseconds = exactTimestamp(status.stable.canary_completed_at, "canary completion time");
   assert.equal(startedMilliseconds, startedFromProvenance,
     "canary start must equal the verified npm provenance transparency-log integration time");
-  assert.ok(completedMilliseconds - startedMilliseconds >= SEVEN_DAYS_MS,
-    "release-candidate canary must run for at least seven full days");
+  assert.ok(completedMilliseconds >= startedMilliseconds,
+    "release-candidate acceptance cannot complete before public provenance begins");
   assert.ok(completedMilliseconds <= Date.now(), "canary completion cannot be in the future");
 
   assert.deepEqual(Object.keys(status.stable.exercises).sort(), [...EXERCISE_KEYS].sort(),

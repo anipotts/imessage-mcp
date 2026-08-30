@@ -1,5 +1,11 @@
 # Changelog
 
+## [2.0.0-rc.2] - 2026-08-29
+
+- Replaced synthetic screenshots with versioned real-use release media.
+- Reduced the README to a product-first quick start and moved operational detail into `docs/GUIDE.md`.
+- Kept the seven-tool runtime and executable package content unchanged from rc.1.
+
 ## [2.0.0-rc.1] - 2026-08-27
 
 - Promotes the accepted seven-tool read-only API to its first release candidate.

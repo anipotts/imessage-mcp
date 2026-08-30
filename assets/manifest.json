@@ -1,37 +1,45 @@
 {
   "schema_version": 2,
-  "subject_version": "2.0.0-rc.1",
+  "subject_version": "2.0.0-rc.2",
   "channel": "next",
   "assets": [
-    {
-      "path": "assets/demo-dark.png",
-      "sha256": "a3c7791382bc185ce7d05b724312dcd1c5803038fd9c9210e49e1cb4975f72d3",
-      "width": 1880,
-      "height": 1000
-    },
-    {
-      "path": "assets/demo-light.png",
-      "sha256": "928d8f5bb0932c699119600bda32926dc73741d863dba77c0cebf3143a10a0c6",
-      "width": 1880,
-      "height": 1000
-    },
-    {
-      "path": "assets/doctor-dark.png",
-      "sha256": "d07724da701a57a30636365236aabb3b048edb0c8c853c78b26035827865434f",
-      "width": 1880,
-      "height": 1000
-    },
-    {
-      "path": "assets/doctor-light.png",
-      "sha256": "88c5754d5305768a3dbc67ead7bb109e43682bcacd6d5e5d4a020cae0b2db119",
-      "width": 1880,
-      "height": 1000
-    },
     {
       "path": "assets/logo.png",
       "sha256": "965a3ac964bce226be9818d2d8f07743bd75a52c42673feb1f6aaddf9894814a",
       "width": 400,
       "height": 400
+    }
+  ],
+  "release_media": [
+    {
+      "name": "imessage-mcp-demo.gif",
+      "kind": "hero",
+      "embedded": true,
+      "url": "https://github.com/anipotts/imessage-mcp/releases/download/v2.0.0-rc.2/imessage-mcp-demo.gif"
+    },
+    {
+      "name": "imessage-mcp-setup.mp4",
+      "kind": "setup",
+      "embedded": false,
+      "url": "https://github.com/anipotts/imessage-mcp/releases/download/v2.0.0-rc.2/imessage-mcp-setup.mp4"
+    },
+    {
+      "name": "imessage-mcp-live-sync.mp4",
+      "kind": "live_sync",
+      "embedded": false,
+      "url": "https://github.com/anipotts/imessage-mcp/releases/download/v2.0.0-rc.2/imessage-mcp-live-sync.mp4"
+    },
+    {
+      "name": "imessage-mcp-analytics.mp4",
+      "kind": "analytics",
+      "embedded": false,
+      "url": "https://github.com/anipotts/imessage-mcp/releases/download/v2.0.0-rc.2/imessage-mcp-analytics.mp4"
+    },
+    {
+      "name": "demo-evidence.json",
+      "kind": "evidence",
+      "embedded": false,
+      "url": "https://github.com/anipotts/imessage-mcp/releases/download/v2.0.0-rc.2/demo-evidence.json"
     }
   ]
 }

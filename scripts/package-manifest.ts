@@ -47,10 +47,10 @@ export function assertPackedPackage(actualPaths: string[]): void {
   assert.equal(assets.subject_version, version);
   assert.equal(assets.channel, channel);
   const assetPaths = actualPaths.filter((value) => value.startsWith("assets/") && value !== "assets/manifest.json").sort();
-  assert.deepEqual(assetPaths, assets.assets.map((asset) => asset.path).sort(), "packed assets differ from the synthetic asset manifest");
+  assert.deepEqual(assetPaths, assets.assets.map((asset) => asset.path).sort(), "packed assets differ from the reviewed asset manifest");
   for (const asset of assets.assets) {
     assert.match(asset.sha256, /^[a-f0-9]{64}$/u);
-    assert.equal(sha256(asset.path), asset.sha256, `${asset.path} differs from its reviewed synthetic hash`);
+    assert.equal(sha256(asset.path), asset.sha256, `${asset.path} differs from its reviewed hash`);
     assert.deepEqual(pngDimensions(asset.path), { width: asset.width, height: asset.height });
   }
 }

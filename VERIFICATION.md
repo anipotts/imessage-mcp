@@ -2,7 +2,7 @@
 
 This report contains only synthetic, aggregate, or redacted evidence. It retains no live message text, contact values, database paths, tokens, or screenshots.
 
-Last updated: 2026-08-27
+Last updated: 2026-08-29
 
 ## release state
 
@@ -12,8 +12,19 @@ Last updated: 2026-08-27
 | `2.0.0-beta.1` | tagged, not published | npm rejected the relative tarball argument before upload; the signed tag and failed workflow remain immutable historical evidence |
 | `2.0.0-beta.2` | published and verified | npm `next`, MCP Registry, and an immutable GitHub prerelease agree on the signed evidence lineage and exact package |
 | `2.0.0-beta.3` | published and verified | npm `next`, MCP Registry, and the immutable GitHub prerelease agree on the signed evidence lineage and exact package |
-| `2.0.0-rc.1` | release subject | npm `next`; publication requires exact-source scan evidence and protected package/provider gates |
-| `2.0.0` | blocked by design gate | requires an unchanged release candidate to pass the seven-day canary |
+| `2.0.0-rc.1` | published and verified | npm `next`, MCP Registry, and immutable GitHub prerelease agreed on the signed evidence lineage and exact package |
+| `2.0.0-rc.2` | release subject | npm `next` target; publication requires exact runtime equality, real-media review, exact-source evidence, and protected package/provider gates |
+| `2.0.0` | pending rc.2 acceptance | requires executable runtime equality plus all correctness, privacy, client, package, and real-media gates; no elapsed-time proxy |
+
+## `2.0.0-rc.2` release evidence
+
+RC.2 changes documentation, reviewed package manifests, real-use release-media integration, and release evidence only. The seven tool names, tool schemas, source runtime, native helpers, production dependencies, and lockfile dependency graph remain bound to the verified RC.1 executable baseline. Any executable drift stops the expedited release path.
+
+The README is bounded to 180 lines, starts setup within 40 lines, removes all four generated screenshots, and keeps the privacy-first `--contacts none --privacy redacted` configuration. The npm package carries only the reviewed logo; real recordings are versioned GitHub release assets rather than install payload.
+
+Real-media evidence remains pending until the privacy-reviewed Claude Code recordings, frame scan, codec inspection, public asset hashes, and installed-public-package reproduction complete. No live message text, contact value, handle, database path, or recording frame is retained in this report.
+
+Prerelease release gate: pending exact verification.
 
 ## `2.0.0-rc.1` release evidence
 

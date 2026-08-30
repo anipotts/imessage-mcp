@@ -1,4 +1,4 @@
-name: attest release candidate canary
+name: attest release candidate acceptance
 
 on:
   workflow_dispatch:
@@ -8,7 +8,7 @@ permissions:
 
 jobs:
   attest:
-    name: verify and attest seven-day canary
+    name: verify and attest candidate acceptance
     runs-on: macos-26
     timeout-minutes: 25
     environment: canary-attestation
@@ -90,7 +90,7 @@ jobs:
             --json conclusion,databaseId,event,headBranch,headSha,url,workflowName \
             > evidence/candidate-release-run.json
           echo "candidate_version=$CANDIDATE_VERSION" >> "$GITHUB_OUTPUT"
-      - name: create protected canary evidence
+      - name: create protected candidate-acceptance evidence
         run: |
           npx tsx scripts/canary-evidence.ts create \
             "evidence/${{ steps.release.outputs.stable_tarball }}" \
@@ -100,7 +100,7 @@ jobs:
             evidence/candidate-attestations.json \
             evidence/candidate-release-run.json \
             evidence/canary-evidence.json
-      - name: attest immutable canary evidence
+      - name: attest immutable candidate-acceptance evidence
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-path: evidence/canary-evidence.json

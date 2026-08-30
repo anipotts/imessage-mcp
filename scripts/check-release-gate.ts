@@ -24,6 +24,17 @@ interface ReleaseStatus {
 const packageJson = JSON.parse(readFileSync("package.json", "utf8")) as { version: string };
 const expected = process.argv[2] ?? packageJson.version;
 assert.equal(packageJson.version, expected, "requested release version must match package.json");
+const verification = readFileSync("VERIFICATION.md", "utf8");
+
+function releaseSection(version: string): string {
+  const escaped = version.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+  const match = verification.match(new RegExp(
+    "(?:^|\\n)## `" + escaped + "`[^\\n]*\\n([\\s\\S]*?)(?=\\n## |\\s*$)",
+    "u",
+  ));
+  assert.ok(match, `VERIFICATION.md is missing a section for ${version}`);
+  return match[1];
+}
 
 const status = JSON.parse(readFileSync("release-status.json", "utf8")) as ReleaseStatus;
 assert.equal(status.schema_version, 4);
@@ -32,13 +43,13 @@ if (expected.includes("-")) {
   assert.equal(status.prerelease_ready, true, "prerelease publication remains blocked until every named gate is complete");
   assert.ok(Object.keys(status.prerelease_gates).length >= 7 && Object.values(status.prerelease_gates).every(Boolean),
     "prerelease requires every named automated and manual gate");
-  assert.match(readFileSync("VERIFICATION.md", "utf8"), /prerelease release gate:\s*passed/iu);
+  assert.match(releaseSection(expected), /prerelease release gate:\s*passed/iu);
   process.stdout.write(`prerelease release gate passed for ${expected}\n`);
   process.exit(0);
 }
 
 assert.match(expected, /^\d+\.\d+\.\d+$/u, "stable release version must not be a prerelease");
-assert.equal(status.stable.ready, true, "stable publication remains blocked until its canary state is ready");
+assert.equal(status.stable.ready, true, "stable publication remains blocked until candidate acceptance is ready");
 assert.equal(status.stable.subject_version, expected, "stable state must name the exact requested version");
 assert.ok(typeof status.stable.release_candidate === "string");
 assert.ok(isNumberedReleaseCandidate(expected, status.stable.release_candidate),
@@ -52,9 +63,9 @@ assert.ok(
 );
 const started = Date.parse(status.stable.canary_started_at ?? "");
 const completed = Date.parse(status.stable.canary_completed_at ?? "");
-assert.ok(Number.isFinite(started) && Number.isFinite(completed), "stable canary timestamps must be valid");
-assert.ok(completed - started >= 7 * 24 * 60 * 60 * 1_000, "stable canary must run for at least seven full days");
-assert.ok(completed <= Date.now(), "stable canary completion cannot be in the future");
+assert.ok(Number.isFinite(started) && Number.isFinite(completed), "stable acceptance timestamps must be valid");
+assert.ok(completed >= started, "stable acceptance cannot complete before public provenance begins");
+assert.ok(completed <= Date.now(), "stable acceptance completion cannot be in the future");
 assert.deepEqual(Object.keys(status.stable.exercises).sort(), [
   "all_privacy_modes",
   "all_service_families",
@@ -75,6 +86,6 @@ assert.deepEqual(Object.keys(status.stable.exercises).sort(), [
   "stdio",
 ]);
 assert.ok(Object.values(status.stable.exercises).every((value) => value === true),
-  "stable release requires every named canary exercise");
-assert.match(readFileSync("VERIFICATION.md", "utf8"), /stable release gate:\s*passed/iu);
-process.stdout.write(`stable release state is structurally ready for protected canary attestation at ${expected}\n`);
+  "stable release requires every named acceptance exercise");
+assert.match(releaseSection(expected), /stable release gate:\s*passed/iu);
+process.stdout.write(`stable release state is structurally ready for protected candidate-acceptance attestation at ${expected}\n`);

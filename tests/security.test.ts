@@ -166,6 +166,10 @@ describe("native and release hardening", () => {
     expect(release).toContain("--source-digest \"$GITHUB_SHA\"");
     expect(release).toContain("--signer-workflow anipotts/imessage-mcp/.github/workflows/attest-canary.yml");
     expect(release).toContain("scripts/canary-evidence.ts verify");
+    expect(release).toContain("scripts/check-runtime-equality.ts");
+    expect(release).toContain("imessage-mcp-2.0.0-rc.1.tgz");
+    const releaseGate = readFileSync(new URL("../scripts/check-release-gate.ts", import.meta.url), "utf8");
+    expect(releaseGate).toContain("releaseSection(expected)");
     expect(release).toContain("candidate-attestations.json");
     expect(release).toContain("--ignore-scripts --access public --provenance");
     const verifyJob = release.slice(release.indexOf("  verify-release:"), release.indexOf("  release-secret-scan:"));
@@ -460,7 +464,7 @@ describe("native and release hardening", () => {
       buildPackage(directory, candidatePackage);
       const candidateDigest = createHash("sha256").update(readFileSync(candidatePackage)).digest("hex");
       const started = "2026-08-01T00:00:00.000Z";
-      const completed = "2026-08-08T00:00:00.000Z";
+      const completed = started;
       const exercises = Object.fromEntries([
         "all_privacy_modes", "all_service_families", "all_seven_tools", "claude_code",
         "claude_desktop", "clean_room_first_run", "client_namespace", "codex", "copied_database",
@@ -589,7 +593,7 @@ describe("native and release hardening", () => {
       expect(value.release_candidate.commit).toBe(candidateCommit);
       expect(value.release_candidate.provenance.transparency_log_integrated_at).toBe(started);
       expect(value.canary.started_at).toBe(started);
-      expect(value.canary.elapsed_seconds).toBe(604_800);
+      expect(value.canary.elapsed_seconds).toBe(0);
       expect(value.stable_derivation.changed_files).toEqual([...releaseFiles].sort());
       expect(value.stable_derivation.other_package_files_identical).toBe(true);
 

@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "subject_version": "2.0.0-rc.1",
+  "subject_version": "2.0.0-rc.2",
   "channel": "next",
   "expected_paths": [
     ".claude-plugin/plugin.json",
@@ -10,10 +10,6 @@
     "README.md",
     "SECURITY.md",
     "VERIFICATION.md",
-    "assets/demo-dark.png",
-    "assets/demo-light.png",
-    "assets/doctor-dark.png",
-    "assets/doctor-light.png",
     "assets/logo.png",
     "assets/manifest.json",
     "bin/imessage-mcp.js",
@@ -125,6 +121,7 @@
     "dist/verify-installed-graph.d.ts.map",
     "dist/verify-installed-graph.js",
     "dist/verify-installed-graph.js.map",
+    "docs/GUIDE.md",
     "docs/ROADMAP-3.0.md",
     "native/contact-resolver.js",
     "native/message-text-decoder.js",

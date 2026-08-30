@@ -1,6 +1,6 @@
 {
   "name": "imessage-mcp",
-  "version": "2.0.0-rc.1",
+  "version": "2.0.0-rc.2",
   "mcpName": "io.github.anipotts/imessage-mcp",
   "description": "Read-only MCP for iMessage, SMS, MMS, and RCS history in Apple Messages on Mac",
   "author": "Ani Potts",
@@ -39,7 +39,6 @@
     "test:performance": "npm run build && tsx scripts/test-performance.ts",
     "test:protocol": "tsx scripts/test-protocol.ts",
     "test:privacy": "vitest run tests/privacy.test.ts tests/security.test.ts",
-    "screenshots": "tsx scripts/screenshots.ts",
     "check:metadata": "tsx scripts/check-metadata.ts",
     "check:release": "tsx scripts/check-release-gate.ts",
     "verify": "npm run build && npm run typecheck && npm test && npm run test:protocol && npm run test:installed && npm run check:metadata && npm audit --audit-level=high && npm pack --dry-run",

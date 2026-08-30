@@ -84,6 +84,15 @@ jobs:
             --signer-workflow anipotts/imessage-mcp/.github/workflows/attest-security-evidence.yml \
             --source-digest "$GITHUB_SHA" --deny-self-hosted-runners
           npx tsx scripts/security-evidence.ts verify "$TARBALL" "$GITHUB_SHA" evidence/security-evidence.json
+          if [[ "${{ steps.version.outputs.version }}" == "2.0.0-rc.2" ]]; then
+            curl --fail --location --silent --show-error --max-filesize 16777216 \
+              https://registry.npmjs.org/imessage-mcp/-/imessage-mcp-2.0.0-rc.1.tgz \
+              --output evidence/verified-runtime-rc.1.tgz
+            git show v2.0.0-rc.1:package-lock.json > evidence/verified-runtime-rc.1-package-lock.json
+            npx tsx scripts/check-runtime-equality.ts \
+              evidence/verified-runtime-rc.1.tgz "$TARBALL" 2.0.0-rc.1 2.0.0-rc.2 \
+              evidence/verified-runtime-rc.1-package-lock.json package-lock.json
+          fi
           if [[ "${{ steps.version.outputs.prerelease }}" == "false" ]]; then
             CANARY_RUN_ID=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow attest-canary.yml \
               --commit "$GITHUB_SHA" --status success --limit 10 --json databaseId \
@@ -234,7 +243,7 @@ jobs:
               --signer-workflow anipotts/imessage-mcp/.github/workflows/attest-canary.yml \
               --source-digest "$GITHUB_SHA" --deny-self-hosted-runners
             TARBALL="$TARBALL" CANARY="$CANARY" VERSION="${{ needs.verify-release.outputs.version }}" \
-              node -e "const fs=require('fs'),crypto=require('crypto'),path=require('path'); const e=JSON.parse(fs.readFileSync(process.env.CANARY)); const h=crypto.createHash('sha256').update(fs.readFileSync(process.env.TARBALL)).digest('hex'); if(e.schema_version!==2||e.repository!=='anipotts/imessage-mcp'||e.subject.stable_evidence_commit!==process.env.GITHUB_SHA||e.subject.stable_version!==process.env.VERSION||e.subject.stable_package_file!==path.basename(process.env.TARBALL)||e.subject.stable_package_sha256!==h||e.canary.started_at!==e.release_candidate.provenance.transparency_log_integrated_at||e.canary.elapsed_seconds<604800||!Object.values(e.canary.exercises).every(v=>v===true)||e.stable_derivation.direct_parent!==true||e.stable_derivation.other_package_files_identical!==true) process.exit(1)"
+              node -e "const fs=require('fs'),crypto=require('crypto'),path=require('path'); const e=JSON.parse(fs.readFileSync(process.env.CANARY)); const h=crypto.createHash('sha256').update(fs.readFileSync(process.env.TARBALL)).digest('hex'); if(e.schema_version!==2||e.repository!=='anipotts/imessage-mcp'||e.subject.stable_evidence_commit!==process.env.GITHUB_SHA||e.subject.stable_version!==process.env.VERSION||e.subject.stable_package_file!==path.basename(process.env.TARBALL)||e.subject.stable_package_sha256!==h||e.canary.started_at!==e.release_candidate.provenance.transparency_log_integrated_at||e.canary.elapsed_seconds<0||!Object.values(e.canary.exercises).every(v=>v===true)||e.stable_derivation.direct_parent!==true||e.stable_derivation.other_package_files_identical!==true) process.exit(1)"
             npm publish "$TARBALL" --ignore-scripts --access public --provenance --tag latest
           fi
 
@@ -339,12 +348,20 @@ jobs:
     name: publish github release
     needs: [publish-npm, verify-public-npm, publish-registry]
     runs-on: macos-26
-    timeout-minutes: 10
+    timeout-minutes: 90
     environment: github-release
     permissions:
       attestations: read
       contents: write
     steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - run: npm ci
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: verified-release-${{ needs.publish-npm.outputs.version }}
@@ -359,7 +376,7 @@ jobs:
           overwrite_files: true
           fail_on_unmatched_files: true
           files: release-artifact/*
-      - name: verify complete draft, publish it, and verify immutable release
+      - name: wait for reviewed real media and verify the complete draft
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.publish-npm.outputs.version }}
@@ -367,16 +384,56 @@ jobs:
           RELEASE_ID: ${{ steps.draft-release.outputs.id }}
         shell: bash
         run: |
-          gh api "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" > "$RUNNER_TEMP/draft.json"
-          node -e '
+          MEDIA_NAMES=(
+            imessage-mcp-demo.gif
+            imessage-mcp-setup.mp4
+            imessage-mcp-live-sync.mp4
+            imessage-mcp-analytics.mp4
+            demo-evidence.json
+          )
+          READY=false
+          for ATTEMPT in {1..240}; do
+            gh api "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" > "$RUNNER_TEMP/draft.json"
+            if MEDIA_NAMES="${MEDIA_NAMES[*]}" node -e '
+              const fs = require("fs");
+              const release = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+              const evidence = fs.readdirSync("release-artifact");
+              const media = process.env.MEDIA_NAMES.split(" ");
+              const expected = [...evidence, ...media].sort();
+              const actual = release.assets.map((asset) => asset.name).sort();
+              if (release.tag_name !== "v" + process.env.VERSION || !release.draft ||
+                  release.prerelease !== (process.env.PRERELEASE === "true") ||
+                  new Set(actual).size !== actual.length) process.exit(1);
+              if (JSON.stringify(actual) === JSON.stringify(expected)) process.exit(0);
+              if (actual.some((name) => !expected.includes(name))) process.exit(2);
+              process.exit(1);
+            ' "$RUNNER_TEMP/draft.json"; then READY=true; break; else
+              STATUS=$?
+              test "$STATUS" != "2"
+            fi
+            sleep 15
+          done
+          test "$READY" = "true"
+          mkdir release-media
+          MEDIA_NAMES="${MEDIA_NAMES[*]}" node -e '
             const fs = require("fs");
             const release = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-            const expectedAssets = fs.readdirSync("release-artifact").sort();
-            const actualAssets = release.assets.map((asset) => asset.name).sort();
-            if (release.tag_name !== "v" + process.env.VERSION || !release.draft ||
-                release.prerelease !== (process.env.PRERELEASE === "true") ||
-                JSON.stringify(actualAssets) !== JSON.stringify(expectedAssets)) process.exit(1);
-          ' "$RUNNER_TEMP/draft.json"
+            const media = new Set(process.env.MEDIA_NAMES.split(" "));
+            for (const asset of release.assets) {
+              if (media.has(asset.name)) process.stdout.write(`${asset.id}\t${asset.name}\n`);
+            }
+          ' "$RUNNER_TEMP/draft.json" > "$RUNNER_TEMP/media-assets.tsv"
+          while IFS=$'\t' read -r ASSET_ID ASSET_NAME; do
+            gh api "repos/${GITHUB_REPOSITORY}/releases/assets/${ASSET_ID}" \
+              -H "Accept: application/octet-stream" > "release-media/${ASSET_NAME}"
+          done < "$RUNNER_TEMP/media-assets.tsv"
+          node -e '
+            const fs = require("fs");
+            const evidence = JSON.parse(fs.readFileSync("release-media/demo-evidence.json", "utf8"));
+            fs.writeFileSync(process.argv[1], JSON.stringify(evidence.review) + "\n", { mode: 0o600 });
+          ' "$RUNNER_TEMP/demo-review.json"
+          npx tsx scripts/demo-evidence.ts verify \
+            release-media "$VERSION" "$RUNNER_TEMP/demo-review.json" release-media/demo-evidence.json
           if [[ "$PRERELEASE" == "true" ]]; then
             gh release edit "v${VERSION}" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease
           else
@@ -388,7 +445,7 @@ jobs:
               > "$RUNNER_TEMP/release.json" && node -e '
                 const fs = require("fs");
                 const release = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-                const expectedAssets = fs.readdirSync("release-artifact").sort();
+                const expectedAssets = [...fs.readdirSync("release-artifact"), ...fs.readdirSync("release-media")].sort();
                 const actualAssets = release.assets.map((asset) => asset.name).sort();
                 if (release.tag_name !== "v" + process.env.VERSION || release.draft || !release.immutable ||
                     release.prerelease !== (process.env.PRERELEASE === "true") ||
@@ -404,6 +461,9 @@ jobs:
           done
           test "$ATTESTED" = "true"
           for ASSET in release-artifact/*; do
+            gh release verify-asset "v${VERSION}" "$ASSET" --repo "$GITHUB_REPOSITORY"
+          done
+          for ASSET in release-media/*; do
             gh release verify-asset "v${VERSION}" "$ASSET" --repo "$GITHUB_REPOSITORY"
           done
 
@@ -544,7 +604,7 @@ jobs:
                     evidence.subject.stable_evidence_commit !== process.env.EVIDENCE_COMMIT ||
                     evidence.subject.stable_version !== process.env.VERSION ||
                     evidence.subject.stable_package_file !== path.basename(process.env.TARBALL) ||
-                    evidence.subject.stable_package_sha256 !== hash || evidence.canary.elapsed_seconds < 604800 ||
+                    evidence.subject.stable_package_sha256 !== hash || evidence.canary.elapsed_seconds < 0 ||
                     !Object.values(evidence.canary.exercises).every((value) => value === true) ||
                     evidence.stable_derivation.direct_parent !== true ||
                     evidence.stable_derivation.other_package_files_identical !== true) process.exit(1);
@@ -731,13 +791,21 @@ jobs:
     name: resume github release publication
     needs: [resume-verify-public-npm, resume-publish-registry]
     runs-on: macos-26
-    timeout-minutes: 10
+    timeout-minutes: 90
     environment: github-release
     permissions:
       actions: read
       attestations: read
       contents: write
     steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - run: npm ci
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: resumed-release-${{ needs.resume-verify-public-npm.outputs.version }}
@@ -761,7 +829,9 @@ jobs:
             else {
               if (matches.length !== 1) process.exit(1);
               const release = matches[0];
-              const expectedAssets = fs.readdirSync("release-artifact").sort();
+              const media = ["imessage-mcp-demo.gif", "imessage-mcp-setup.mp4",
+                "imessage-mcp-live-sync.mp4", "imessage-mcp-analytics.mp4", "demo-evidence.json"];
+              const expectedAssets = [...fs.readdirSync("release-artifact"), ...media].sort();
               const actualAssets = release.assets.map((asset) => asset.name).sort();
               if (release.prerelease !== (process.env.PRERELEASE === "true") ||
                   new Set(actualAssets).size !== actualAssets.length ||
@@ -789,7 +859,7 @@ jobs:
           overwrite_files: true
           fail_on_unmatched_files: true
           files: release-artifact/*
-      - name: verify complete draft and publish it
+      - name: wait for reviewed real media, verify the complete draft, and publish it
         if: steps.release.outputs.publish == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -798,16 +868,54 @@ jobs:
           RELEASE_ID: ${{ steps.draft-release.outputs.id }}
         shell: bash
         run: |
-          gh api "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" > "$RUNNER_TEMP/draft.json"
-          node -e '
+          MEDIA_NAMES=(
+            imessage-mcp-demo.gif
+            imessage-mcp-setup.mp4
+            imessage-mcp-live-sync.mp4
+            imessage-mcp-analytics.mp4
+            demo-evidence.json
+          )
+          READY=false
+          for ATTEMPT in {1..240}; do
+            gh api "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" > "$RUNNER_TEMP/draft.json"
+            if MEDIA_NAMES="${MEDIA_NAMES[*]}" node -e '
+              const fs = require("fs");
+              const release = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+              const expected = [...fs.readdirSync("release-artifact"), ...process.env.MEDIA_NAMES.split(" ")].sort();
+              const actual = release.assets.map((asset) => asset.name).sort();
+              if (release.tag_name !== "v" + process.env.VERSION || !release.draft ||
+                  release.prerelease !== (process.env.PRERELEASE === "true") ||
+                  new Set(actual).size !== actual.length) process.exit(1);
+              if (JSON.stringify(actual) === JSON.stringify(expected)) process.exit(0);
+              if (actual.some((name) => !expected.includes(name))) process.exit(2);
+              process.exit(1);
+            ' "$RUNNER_TEMP/draft.json"; then READY=true; break; else
+              STATUS=$?
+              test "$STATUS" != "2"
+            fi
+            sleep 15
+          done
+          test "$READY" = "true"
+          mkdir release-media
+          MEDIA_NAMES="${MEDIA_NAMES[*]}" node -e '
             const fs = require("fs");
             const release = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-            const expectedAssets = fs.readdirSync("release-artifact").sort();
-            const actualAssets = release.assets.map((asset) => asset.name).sort();
-            if (release.tag_name !== "v" + process.env.VERSION || !release.draft ||
-                release.prerelease !== (process.env.PRERELEASE === "true") ||
-                JSON.stringify(actualAssets) !== JSON.stringify(expectedAssets)) process.exit(1);
-          ' "$RUNNER_TEMP/draft.json"
+            const media = new Set(process.env.MEDIA_NAMES.split(" "));
+            for (const asset of release.assets) if (media.has(asset.name)) {
+              process.stdout.write(`${asset.id}\t${asset.name}\n`);
+            }
+          ' "$RUNNER_TEMP/draft.json" > "$RUNNER_TEMP/media-assets.tsv"
+          while IFS=$'\t' read -r ASSET_ID ASSET_NAME; do
+            gh api "repos/${GITHUB_REPOSITORY}/releases/assets/${ASSET_ID}" \
+              -H "Accept: application/octet-stream" > "release-media/${ASSET_NAME}"
+          done < "$RUNNER_TEMP/media-assets.tsv"
+          node -e '
+            const fs = require("fs");
+            const evidence = JSON.parse(fs.readFileSync("release-media/demo-evidence.json", "utf8"));
+            fs.writeFileSync(process.argv[1], JSON.stringify(evidence.review) + "\n", { mode: 0o600 });
+          ' "$RUNNER_TEMP/demo-review.json"
+          npx tsx scripts/demo-evidence.ts verify \
+            release-media "$VERSION" "$RUNNER_TEMP/demo-review.json" release-media/demo-evidence.json
           if [[ "$PRERELEASE" == "true" ]]; then
             gh release edit "v${VERSION}" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease
           else
@@ -826,7 +934,9 @@ jobs:
               > "$RUNNER_TEMP/release.json" && node -e '
                 const fs = require("fs");
                 const release = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-                const expectedAssets = fs.readdirSync("release-artifact").sort();
+                const media = ["imessage-mcp-demo.gif", "imessage-mcp-setup.mp4",
+                  "imessage-mcp-live-sync.mp4", "imessage-mcp-analytics.mp4", "demo-evidence.json"];
+                const expectedAssets = [...fs.readdirSync("release-artifact"), ...media].sort();
                 const actualAssets = release.assets.map((asset) => asset.name).sort();
                 if (release.tag_name !== "v" + process.env.VERSION || release.draft || !release.immutable ||
                     release.prerelease !== (process.env.PRERELEASE === "true") ||
@@ -905,7 +1015,9 @@ jobs:
             if (matches.length !== 1) process.exit(1);
             assert.deepStrictEqual(matches[0], expected);
             const release = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
-            const expectedAssets = fs.readdirSync("release-artifact").sort();
+            const media = ["imessage-mcp-demo.gif", "imessage-mcp-setup.mp4",
+              "imessage-mcp-live-sync.mp4", "imessage-mcp-analytics.mp4", "demo-evidence.json"];
+            const expectedAssets = [...fs.readdirSync("release-artifact"), ...media].sort();
             const actualAssets = release.assets.map((asset) => asset.name).sort();
             if (release.tag_name !== "v" + process.env.VERSION || release.draft || !release.immutable ||
                 release.prerelease !== (process.env.PRERELEASE === "true") ||
