@@ -278,7 +278,7 @@ describe("native and release hardening", () => {
         schemaVersion: "1.0",
         scan: {
           id: scanId,
-          producer: { name: "codex-security-plugin", version: "0.1.22" },
+          producer: { name: "codex-security-plugin", version: "0.1.23" },
           status: "completed",
           startedAt: "2026-08-11T00:00:00.000Z",
           completedAt: "2026-08-11T00:01:00.000Z",
@@ -321,6 +321,21 @@ describe("native and release hardening", () => {
       expect(evidence.subject.commit).toBe(evidenceCommit);
       expect(evidence.subject.scanned_commit).toBe(scanned);
       expect(evidence.security_scan).toMatchObject({ scan_revision: scanned, finding_count: 0, coverage: "complete" });
+
+      for (const producerVersion of ["0.1.22", "0.1.24"]) {
+        const rejectedManifest = JSON.parse(manifest);
+        rejectedManifest.scan.producer.version = producerVersion;
+        writeFileSync(path.join(scanDirectory, "scan-manifest.json"), JSON.stringify(rejectedManifest));
+        runGit("add", "security/scan/scan-manifest.json");
+        runGit("commit", "--amend", "--no-edit", "--quiet");
+        expect(() => execFileSync(tsx, [script, "create", "package.tgz", runGit("rev-parse", "HEAD"), "invalid.json"], {
+          cwd: directory,
+          stdio: "ignore",
+        })).toThrow();
+      }
+      writeFileSync(path.join(scanDirectory, "scan-manifest.json"), manifest);
+      runGit("add", "security/scan/scan-manifest.json");
+      runGit("commit", "--amend", "--no-edit", "--quiet");
 
       runGit("commit", "--allow-empty", "--quiet", "-m", "unscanned child");
       const unscanned = runGit("rev-parse", "HEAD");
