@@ -10,40 +10,348 @@
   "inventoryStrategy": "repository",
   "mode": "repository",
   "openQuestions": [],
-  "scanId": "ecdc5ce0-c355-4292-a182-4c5d129e425c",
+  "scanId": "9886bf82-e17d-47eb-a144-67a0552106d1",
   "schemaVersion": "1.0",
   "surfaces": [
     {
       "disposition": "no_issue_found",
-      "id": "surface_runtime-cli-configuration-and-native-subprocess-boundaries",
-      "label": "Runtime, CLI, configuration, and native subprocess boundaries",
-      "notes": "Exact current source plus independent baseline review found no reportable write, unsafe subprocess, configuration, or worker boundary.",
-      "paths": [
+      "evidence": [
+        "src/privacy.ts:38-46",
+        "src/tools.ts:391-405",
+        "src/tool-local.ts:127-140",
+        "src/result.ts:14-155",
+        "tests/privacy.test.ts:27-137",
+        "scripts/test-installed.ts:65-137"
+      ],
+      "id": "surface_tool-and-direct-library-privacy-enforcement",
+      "label": "Tool and direct-library privacy enforcement",
+      "notes": "Exact primitive full/redacted/aggregate modes are validated before both dispatch routes; invalid values return sanitized errors using startup ceiling. Central success and error projection handles all seven read-only operations and their textual summaries. Aggregate results omit identities/content and retain supported counts; redacted keeps names by design. Direct-public-runtime and MCP-installed regression source covers inherited property names.",
+      "receiptRefs": []
+    },
+    {
+      "disposition": "no_issue_found",
+      "evidence": [
+        "src/decoder.ts:17-22",
+        "src/decoder.ts:93-105",
+        "src/decoder.ts:145-212",
+        "src/decoder.ts:344-384",
+        "native/message-text-decoder.js:7-149",
+        "tests/correctness.test.ts:2863-2943"
+      ],
+      "id": "surface_native-parsing-positional-reconstruction-and-child-lifecycle",
+      "label": "Native parsing, positional reconstruction and child lifecycle",
+      "notes": "Fixed bundled JXA script receives base64 JSON through stdin. Keyed archives have an explicit Foundation allowlist; legacy streamtyped uses bounded root-string parsing without NSUnarchiver. Individual bodies are capped, requests/outputs bounded, and 15-second native deadline kills the child. Position arrays retain oversized inputs in place. Node worker limits do not constitute a native process memory cap.",
+      "receiptRefs": []
+    },
+    {
+      "disposition": "no_issue_found",
+      "evidence": [
+        "src/config.ts:21-105",
+        "src/database.ts:88-105",
+        "src/database.ts:224-240",
+        "src/database.ts:385-424",
+        "src/secrets.ts:4-85",
+        "src/references.ts:16-75"
+      ],
+      "id": "surface_operator-selected-sources-credentials-and-opaque-references",
+      "label": "Operator-selected sources, credentials and opaque references",
+      "notes": "Database source comes from trusted CLI/environment and OS account home; copied-source aliases to live files are rejected. SQLite opens readonly with query_only. File-backed credentials require operator-owned 0600 regular files, O_NOFOLLOW and bounded bytes. Independent lineage identity and reference key feed authenticated encrypted opaque references with kind/lineage/size validation. No secrets were read in this audit.",
+      "receiptRefs": []
+    },
+    {
+      "disposition": "no_issue_found",
+      "evidence": [
+        "src/transport.ts:15-24",
+        "src/transport.ts:30-70",
+        "src/transport.ts:92-106",
+        "src/transport.ts:130-180",
+        "src/transport.ts:223-303",
+        "src/transport.ts:307-358"
+      ],
+      "id": "surface_authenticated-loopback-http-limits-and-browser-authority",
+      "label": "Authenticated loopback HTTP limits and browser authority",
+      "notes": "HTTP binds 127.0.0.1 only, requires bearer authentication before host/origin/rate/body processing, and uses constant-length timing-safe comparison. Host/origin allowlists remain distinct from possession of a token. Body, response, concurrent requests, sockets, incomplete headers and deadlines are bounded. Handler uses stateless JSON POST /mcp with no subscription capability.",
+      "receiptRefs": []
+    },
+    {
+      "disposition": "no_issue_found",
+      "evidence": [
+        "src/database.ts:224-240",
+        "src/search-index.ts:276-287",
+        "src/repositories/messages.ts:893-955",
+        "src/repositories/sync.ts:1118-1151",
+        "src/repositories/sync.ts:1205-1212",
+        "src/repositories/sync.ts:1314-1332",
+        "tests/search-refresh.test.ts"
+      ],
+      "id": "surface_read-only-query-search-refresh-timeline-and-sync-state",
+      "label": "Read-only query, search refresh, timeline and sync state",
+      "notes": "Independent baseline fully traced database queries, schema handling, search indexing, timeline materialization and caller-held sync cursors. Parameterized values, bounded schema identifiers, read-only source connections and in-memory search index preserve the source boundary. Search refresh receives its cold-build deadline. No reportable SQL, reference, source mutation or projection bypass was established.",
+      "receiptRefs": []
+    },
+    {
+      "disposition": "no_issue_found",
+      "evidence": [
+        "scripts/security-evidence.ts:97-202",
+        ".github/workflows/attest-security-evidence.yml",
+        ".github/workflows/release.yml",
+        "src/verify-installed-graph.ts",
+        "tests/security.test.ts",
+        "tests/release-gate.test.ts"
+      ],
+      "id": "surface_signed-source-evidence-and-protected-publication-workflow",
+      "label": "Signed source evidence and protected publication workflow",
+      "notes": "Exact producer 0.1.23, complete whole-repository coverage with zero findings, sealed artifact digests and direct-parent source binding remain required. The evidence commit may change only the three canonical JSON documents, must be operator-signed, and is verified before package/evidence attestation. Release verifies attested subjects and exact installed package graph; stable additionally requires main ancestry. Provider enforcement is an external prerequisite, not inferred from YAML.",
+      "receiptRefs": []
+    },
+    {
+      "disposition": "no_issue_found",
+      "evidence": [
+        "scripts/demo-installed.ts",
+        "scripts/screenshots.ts",
+        "scripts/test-installed.ts",
+        "scripts/package-manifest.ts",
+        "scripts/check-metadata.ts",
+        "package-lock.json",
+        "assets/manifest.json",
+        "docs/DEMO.md",
+        "docs/BENCHMARK.md"
+      ],
+      "id": "surface_developer-tools-fixtures-package-metadata-and-public-media",
+      "label": "Developer tools, fixtures, package metadata and public media",
+      "notes": "All remaining source, tests, fixtures, package lock records and documentation were read as source/data. Six image artifacts were decoded and visually inspected, including four GIF frames. Demo output is explicitly synthetic, generated from installed-package doctor and SDK requests. Four named client configurations are config-shape checks, not actual app launches. Historical checked-in scan artifacts do not certify this source and must be replaced after finalization.",
+      "receiptRefs": []
+    },
+    {
+      "candidate": {
+        "counterEvidence": [
+          "Aggregate skips native materialization at messages.ts:908-932",
+          "Decoder timeout kills native process at decoder.ts:191-194,371",
+          "Shared lock serializes native sessions",
+          "No MCP input directly accepts archives; live metadata is Apple-written"
+        ],
+        "investigatorDisposition": "Not substantiated in source-only review: Foundation alias behavior and resource consequence before forced child termination are not established.",
+        "remainingLimit": "Synthetic native check required to establish compact alias behavior on Foundation; not an established remote Messages injection route.",
+        "sourceToSink": [
+          "Operator-controlled archived message_summary_info limited to 1 MiB in src/repositories/messages.ts:403-445",
+          "Selected edited rows decoded at src/repositories/messages.ts:680-684",
+          "src/decoder.ts:335-384 batches fixed helper input",
+          "native/message-text-decoder.js:156-180 iterates ec histories, accumulates dates before deduplication"
+        ],
+        "title": "Aliased binary-plist edit histories could repeat traversal"
+      },
+      "candidateId": "RC2-NATIVE-METADATA-ALIASES",
+      "disposition": "rejected",
+      "evidence": [
+        "native/message-text-decoder.js:156-180",
+        "src/decoder.ts:191-194",
+        "src/decoder.ts:371",
+        "src/repositories/messages.ts:403-445",
+        "src/repositories/messages.ts:680-684",
+        "src/repositories/messages.ts:908-932"
+      ],
+      "id": "surface_aliased-edit-history-resource-hypothesis",
+      "label": "Aliased edit-history resource hypothesis",
+      "originalEvidence": {
+        "counterEvidence": [
+          "Aggregate skips native materialization at messages.ts:908-932",
+          "Decoder timeout kills native process at decoder.ts:191-194,371",
+          "Shared lock serializes native sessions",
+          "No MCP input directly accepts archives; live metadata is Apple-written"
+        ],
+        "investigatorDisposition": "Not substantiated in source-only review: Foundation alias behavior and resource consequence before forced child termination are not established.",
+        "remainingLimit": "Synthetic native check required to establish compact alias behavior on Foundation; not an established remote Messages injection route.",
+        "sourceToSink": [
+          "Operator-controlled archived message_summary_info limited to 1 MiB in src/repositories/messages.ts:403-445",
+          "Selected edited rows decoded at src/repositories/messages.ts:680-684",
+          "src/decoder.ts:335-384 batches fixed helper input",
+          "native/message-text-decoder.js:156-180 iterates ec histories, accumulates dates before deduplication"
+        ],
+        "title": "Aliased binary-plist edit histories could repeat traversal"
+      },
+      "reason": "Parent source review confirms duplicate timestamp accumulation but does not establish a security consequence. Bytes come from an operator-supplied archive or Apple-written live metadata, not a direct MCP serialized-input field; the helper is serialized and forcibly terminated after the request deadline. Foundation compact-alias behavior and memory growth are unknown. A possible expanded-event cap is additional hardening unless a bounded synthetic check establishes a meaningful boundary crossing.",
+      "receiptRefs": []
+    },
+    {
+      "disposition": "no_issue_found",
+      "evidence": [
+        "src/config.ts:63-105",
+        ".mcp.json:3-8",
+        "src/commands/doctor.ts:87-94",
+        "scripts/test-live-parity.ts:22-27,68-83"
+      ],
+      "id": "surface_do-all-startup-paths-have-the-same-privacy-and-contacts-defaults",
+      "label": "Do all startup paths have the same privacy and Contacts defaults?",
+      "notes": "No. Bare stdio is full/live, HTTP redacted/live, and shipped .mcp.json explicitly redacted/none. Copy sources force none. Doctor shares CLI config; developer parity constructs its own full/live config.",
+      "receiptRefs": []
+    },
+    {
+      "disposition": "no_issue_found",
+      "evidence": [
+        "src/database.ts:108-123,406-414",
+        "src/repositories/sync.ts:205-213",
+        "src/repositories/messages.ts:29,279-295",
+        "src/tool-local.ts:371-394"
+      ],
+      "id": "surface_what-file-is-actually-consumed-for-copied-source-wal-and-attachment-paths",
+      "label": "What file is actually consumed for copied-source WAL and attachment paths?",
+      "notes": "Copy WAL is adjacent to the canonical DB path, not a lexical symlink path. Returned attachment '~/...' paths expand under userInfo().homedir rather than the copy directory; only metadata is emitted, behind three controls.",
+      "receiptRefs": []
+    },
+    {
+      "disposition": "no_issue_found",
+      "evidence": [
+        "src/tools.ts:27-32,153-168,431-573",
+        "src/database.ts:225-233",
+        "src/references.ts:16-73",
+        "src/transport.ts:289-295",
+        "SECURITY.md:29"
+      ],
+      "id": "surface_are-readonly-tool-annotations-references-or-workers-independent-authorization-sandboxes",
+      "label": "Are readonly tool annotations, references or workers independent authorization sandboxes?",
+      "notes": "No. Readonly DB and method implementations enforce source read-only behavior; privacy projection enforces disclosure; HTTP token controls its single principal. References bind lineage/integrity, and workers bound resources, but neither introduces per-user isolation.",
+      "receiptRefs": []
+    },
+    {
+      "disposition": "no_issue_found",
+      "evidence": [
+        "SECURITY.md:19,23",
+        "src/database.ts:225-233",
+        "src/search-index.ts:281-306",
+        "scripts/demo-installed.ts:17-24,86-95"
+      ],
+      "id": "surface_is-the-runtime-s-no-write-claim-literal-across-all-sql/resources",
+      "label": "Is the runtime's no-write claim literal across all SQL/resources?",
+      "notes": "No: SECURITY.md:19 says no write statement, while src/search-index.ts:281-306 creates the separate :memory: index. The archive connections remain readonly/query_only. Developer fixture/artifact writers are separate conditional paths.",
+      "receiptRefs": []
+    },
+    {
+      "disposition": "no_issue_found",
+      "evidence": [
+        "docs/GUIDE.md:107",
+        "src/cli.ts:30",
+        "src/tool-local.ts:371-394"
+      ],
+      "id": "surface_does-the-attachment-documentation-name-every-required-switch",
+      "label": "Does the attachment documentation name every required switch?",
+      "notes": "The guide sentence names full mode and the per-request flag; runtime additionally requires startup attachment_paths_enabled, exposed as --attachment-paths. The effective gate is stricter than the shortened documentation.",
+      "receiptRefs": []
+    },
+    {
+      "disposition": "no_issue_found",
+      "evidence": [
+        "src/cli.ts:25-30",
+        "src/config.ts:78-100",
+        "server.json:32",
+        ".mcp.json:5"
+      ],
+      "id": "surface_does-cli-help-accurately-distinguish-transport-specific-privacy-defaults",
+      "label": "Does CLI help accurately distinguish transport-specific privacy defaults?",
+      "notes": "It labels full the runtime default without the HTTP exception. Config and server metadata correctly distinguish stdio full from HTTP redacted, and shipped client config explicitly chooses redacted.",
+      "receiptRefs": []
+    },
+    {
+      "disposition": "no_issue_found",
+      "evidence": [
+        "scripts/check-release-gate.ts:11-23",
+        "scripts/security-evidence.ts:18,96-197",
+        ".github/workflows/attest-security-evidence.yml:24-62",
+        ".github/workflows/release.yml:179-190"
+      ],
+      "id": "surface_does-local-readiness-authorize-release-or-substitute-for-a-sealed-scan",
+      "label": "Does local readiness authorize release or substitute for a sealed scan?",
+      "notes": "No. check-release-gate checks display/readiness flags, while protected workflow signature checks and security-evidence.ts enforce the exact direct-parent commit, producer 0.1.23, canonical hashes, zero findings, complete repository coverage and no exclusions/deferred/open questions. Publication rechecks source-bound attestations and tarball hash.",
+      "receiptRefs": []
+    },
+    {
+      "disposition": "no_issue_found",
+      "evidence": [
+        ".github/workflows/release.yml:386-560,568-630,659-775"
+      ],
+      "id": "surface_can-recovery-republish-npm-or-substitute-current-metadata-for-the-original-release",
+      "label": "Can recovery republish npm or substitute current metadata for the original release?",
+      "notes": "The recovery path verifies existing npm, original run and signed evidence lineage; it has no npm publish step. Registry recovery extracts server.json from the original evidence commit, and GitHub recovery validates the original artifact set and immutable state.",
+      "receiptRefs": []
+    },
+    {
+      "disposition": "no_issue_found",
+      "evidence": [
+        "README.md:44",
+        "SECURITY.md:21,31-33,41-43",
+        ".github/workflows/attest-security-evidence.yml:14-34",
+        "VERIFICATION.md:16-27",
+        "package.json:53-72"
+      ],
+      "id": "surface_what-remains-an-external-prerequisite-rather-than-source-proven-security-or-coverage",
+      "label": "What remains an external prerequisite rather than source-proven security or coverage?",
+      "notes": "macOS/TCC/FDA grants, actual private proxy policy, provider environment/branch/tag protection, allowed signer and npm trusted publishing settings, package-manager/SDK/native framework behavior, and current release/clean-Mac test status. This source-only architecture pass did not contact providers, execute application code or access private stores.",
+      "receiptRefs": []
+    },
+    {
+      "disposition": "no_issue_found",
+      "files": [
+        ".claude-plugin/plugin.json",
+        ".github/FUNDING.yml",
+        ".github/ISSUE_TEMPLATE/bug_report.md",
+        ".github/ISSUE_TEMPLATE/feature_request.md",
+        ".github/dependabot.yml",
+        ".github/workflows/attest-security-evidence.yml",
+        ".github/workflows/ci.yml",
+        ".github/workflows/release.yml",
+        ".github/workflows/security.yml",
+        ".gitignore",
+        ".mcp.json",
+        "CHANGELOG.md",
+        "CONTRIBUTING.md",
+        "LICENSE",
+        "README.md",
+        "SECURITY.md",
+        "VERIFICATION.md",
+        "assets/demo-dark.png",
+        "assets/demo-light.png",
+        "assets/demo.gif",
+        "assets/doctor-dark.png",
+        "assets/doctor-light.png",
+        "assets/logo.png",
+        "assets/manifest.json",
         "bin/imessage-mcp.js",
+        "docs/BENCHMARK.md",
+        "docs/DEMO.md",
+        "docs/GUIDE.md",
+        "docs/LISTINGS.md",
+        "docs/RELEASE-PLAN.md",
+        "docs/ROADMAP-3.0.md",
         "native/contact-resolver.js",
         "native/message-text-decoder.js",
+        "package-files.json",
+        "package-lock.json",
+        "package.json",
+        "release-status.json",
+        "scripts/check-metadata.ts",
+        "scripts/check-release-gate.ts",
+        "scripts/clean-dist.mjs",
+        "scripts/demo-installed.ts",
+        "scripts/package-manifest.ts",
+        "scripts/screenshots.ts",
+        "scripts/security-evidence.ts",
+        "scripts/test-installed.ts",
+        "scripts/test-live-parity.ts",
+        "scripts/test-performance.ts",
+        "scripts/test-protocol.ts",
+        "security/README.md",
+        "security/scan/coverage.json",
+        "security/scan/findings.json",
+        "security/scan/scan-manifest.json",
+        "server.json",
         "src/cli.ts",
         "src/commands/doctor.ts",
         "src/config.ts",
         "src/contacts.ts",
         "src/contracts.ts",
+        "src/database.ts",
         "src/decoder.ts",
         "src/errors.ts",
         "src/index.ts",
-        "src/secrets.ts",
-        "src/tool-local.ts",
-        "src/tool-worker.ts",
-        "src/tools.ts"
-      ],
-      "receiptRefs": []
-    },
-    {
-      "disposition": "no_issue_found",
-      "id": "surface_sqlite-query-search-references-privacy-and-sync-integrity",
-      "label": "SQLite, query, search, references, privacy, and sync integrity",
-      "notes": "Readonly snapshots, bound SQL, canonical source checks, index/decoder bounds, lineage references, privacy projection, pagination, and sync integrity were reviewed at exact source.",
-      "paths": [
-        "src/database.ts",
         "src/privacy.ts",
         "src/references.ts",
         "src/repositories/analytics.ts",
@@ -54,128 +362,181 @@
         "src/result.ts",
         "src/schema-sql.ts",
         "src/search-index.ts",
-        "src/sender.ts",
-        "src/time.ts"
-      ],
-      "receiptRefs": []
-    },
-    {
-      "disposition": "no_issue_found",
-      "id": "surface_http-authentication-and-resource-controls",
-      "label": "HTTP authentication and resource controls",
-      "notes": "Loopback binding, auth-before-parse, constant-time token checks, Host/Origin validation, proxy handling, response/log privacy, concurrency, rate, size, and timeout bounds passed review and protocol execution.",
-      "paths": [
-        "src/transport.ts",
         "src/secrets.ts",
+        "src/sender.ts",
+        "src/time.ts",
+        "src/tool-local.ts",
         "src/tool-worker.ts",
-        "src/result.ts",
-        "scripts/test-protocol.ts",
-        "tests/security.test.ts",
-        "tests/privacy.test.ts"
-      ],
-      "receiptRefs": []
-    },
-    {
-      "disposition": "no_issue_found",
-      "id": "surface_release-workflows-packaging-provenance-and-dependencies",
-      "label": "Release workflows, packaging, provenance, and dependencies",
-      "notes": "Reviewed exact privileged workflows, evidence lineage, OIDC separation, public recovery, stable derivation, package manifests, dependency graph, and version/channel checks. Node 24 verification and audit passed.",
-      "paths": [
-        ".github/workflows/attest-canary.yml",
-        ".github/workflows/attest-security-evidence.yml",
-        ".github/workflows/ci.yml",
-        ".github/workflows/release.yml",
-        ".github/workflows/security.yml",
-        "package-files.json",
-        "package-lock.json",
-        "package.json",
-        "release-status.json",
-        "scripts/canary-evidence.ts",
-        "scripts/check-metadata.ts",
-        "scripts/check-release-gate.ts",
-        "scripts/clean-dist.mjs",
-        "scripts/package-manifest.ts",
-        "scripts/release-version.ts",
-        "scripts/security-evidence.ts",
+        "src/tools.ts",
+        "src/transport.ts",
         "src/verify-installed-graph.ts",
-        "server.json"
-      ],
-      "receiptRefs": []
-    },
-    {
-      "disposition": "no_issue_found",
-      "id": "surface_correctness-privacy-protocol-installed-package-and-performance-verification",
-      "label": "Correctness, privacy, protocol, installed-package, and performance verification",
-      "notes": "112 tests, seven-tool stdio and authenticated HTTP, installed tarball, clean-room redacted setup, metadata/package content, and zero-advisory gates passed under supported Node 24.",
-      "paths": [
-        "scripts/screenshots.ts",
-        "scripts/test-installed.ts",
-        "scripts/test-live-parity.ts",
-        "scripts/test-performance.ts",
-        "scripts/test-protocol.ts",
         "tests/correctness.test.ts",
         "tests/fixture.ts",
         "tests/privacy.test.ts",
+        "tests/release-gate.test.ts",
+        "tests/search-refresh.test.ts",
         "tests/security.test.ts",
+        "tests/worker-deadline.test.ts",
         "tsconfig.json",
         "vitest.config.ts"
       ],
-      "receiptRefs": []
+      "id": "surface_independent-baseline-and-root-source-coverage-reconciled",
+      "label": "Independent baseline and root source coverage reconciled",
+      "receiptRefs": [],
+      "result": "83 fully reviewed text files plus six binary assets decoded and visually inspected by parent, including all four GIF frames. No finding reported by baseline or focused investigator."
     },
     {
       "disposition": "no_issue_found",
-      "id": "surface_public-documentation-security-policy-and-compatibility-boundaries",
-      "label": "Public documentation, security policy, and compatibility boundaries",
-      "notes": "Reviewed archival prompt-injection guidance, Full Disk Access/client-provider boundary, automatic Contacts disclosure and privacy-first contacts-none setup, redacted first run, Android boundary, contribution privacy, comparison policy, and RC evidence claims.",
-      "paths": [
-        "CHANGELOG.md",
-        "CONTRIBUTING.md",
-        "LICENSE",
-        "README.md",
+      "id": "surface_independent-whole-repository-baseline",
+      "label": "Independent whole-repository baseline",
+      "receiptRefs": [],
+      "result": {
+        "findings": [],
+        "fully_reviewed_files": [
+          ".claude-plugin/plugin.json",
+          ".github/FUNDING.yml",
+          ".github/ISSUE_TEMPLATE/bug_report.md",
+          ".github/ISSUE_TEMPLATE/feature_request.md",
+          ".github/dependabot.yml",
+          ".github/workflows/attest-security-evidence.yml",
+          ".github/workflows/ci.yml",
+          ".github/workflows/release.yml",
+          ".github/workflows/security.yml",
+          ".gitignore",
+          ".mcp.json",
+          "CHANGELOG.md",
+          "CONTRIBUTING.md",
+          "LICENSE",
+          "README.md",
+          "SECURITY.md",
+          "VERIFICATION.md",
+          "assets/manifest.json",
+          "bin/imessage-mcp.js",
+          "docs/BENCHMARK.md",
+          "docs/DEMO.md",
+          "docs/GUIDE.md",
+          "docs/LISTINGS.md",
+          "docs/RELEASE-PLAN.md",
+          "docs/ROADMAP-3.0.md",
+          "native/contact-resolver.js",
+          "native/message-text-decoder.js",
+          "package-files.json",
+          "package-lock.json",
+          "package.json",
+          "release-status.json",
+          "scripts/check-metadata.ts",
+          "scripts/check-release-gate.ts",
+          "scripts/clean-dist.mjs",
+          "scripts/demo-installed.ts",
+          "scripts/package-manifest.ts",
+          "scripts/screenshots.ts",
+          "scripts/security-evidence.ts",
+          "scripts/test-installed.ts",
+          "scripts/test-live-parity.ts",
+          "scripts/test-performance.ts",
+          "scripts/test-protocol.ts",
+          "security/README.md",
+          "security/scan/coverage.json",
+          "security/scan/findings.json",
+          "security/scan/scan-manifest.json",
+          "server.json",
+          "src/cli.ts",
+          "src/commands/doctor.ts",
+          "src/config.ts",
+          "src/contacts.ts",
+          "src/contracts.ts",
+          "src/database.ts",
+          "src/decoder.ts",
+          "src/errors.ts",
+          "src/index.ts",
+          "src/privacy.ts",
+          "src/references.ts",
+          "src/repositories/analytics.ts",
+          "src/repositories/conversations.ts",
+          "src/repositories/message-integrity.ts",
+          "src/repositories/messages.ts",
+          "src/repositories/sync.ts",
+          "src/result.ts",
+          "src/schema-sql.ts",
+          "src/search-index.ts",
+          "src/secrets.ts",
+          "src/sender.ts",
+          "src/time.ts",
+          "src/tool-local.ts",
+          "src/tool-worker.ts",
+          "src/tools.ts",
+          "src/transport.ts",
+          "src/verify-installed-graph.ts",
+          "tests/correctness.test.ts",
+          "tests/fixture.ts",
+          "tests/privacy.test.ts",
+          "tests/release-gate.test.ts",
+          "tests/search-refresh.test.ts",
+          "tests/security.test.ts",
+          "tests/worker-deadline.test.ts",
+          "tsconfig.json",
+          "vitest.config.ts"
+        ],
+        "resolved_questions": [
+          {
+            "answer": "No reportable bypass. SQLite readonly/query_only, strict tool schemas, explicit privacy validation in both dispatches, centralized projection, fixed native executables and bounded inputs.",
+            "question": "Read-only and privacy boundaries"
+          },
+          {
+            "answer": "Exact codex-security-plugin@0.1.23 retains immutable revision, signed direct-child evidence, artifact hashes, whole-repo coverage, zero findings. Historical checked-in bundle does not certify this revision.",
+            "evidence": [
+              "scripts/security-evidence.ts:97-202",
+              "tests/release-gate.test.ts:1-41",
+              "security/scan/scan-manifest.json:24-26,129-133",
+              "docs/RELEASE-PLAN.md:6"
+            ],
+            "question": "Approved producer pin"
+          },
+          {
+            "answer": "Outside offline static review. No runtime code, tests, network, provider, Messages or Contacts access.",
+            "question": "External/runtime checks"
+          },
+          {
+            "answer": "All 83 text files completely read. Six binary images not decoded by baseline; generation and packaging code reviewed.",
+            "question": "Coverage"
+          }
+        ]
+      }
+    },
+    {
+      "disposition": "no_issue_found",
+      "files": [
         "SECURITY.md",
-        "VERIFICATION.md",
-        "docs/ROADMAP-3.0.md",
-        "security/README.md"
-      ],
-      "receiptRefs": []
-    },
-    {
-      "disposition": "no_issue_found",
-      "id": "surface_client-namespaces-and-public-manifests",
-      "label": "Client namespaces and public manifests",
-      "notes": "Package/repository retain imessage-mcp while examples use imessage-history; exact RC version, next channel, redacted ceiling, and contacts-none setup agree across public metadata.",
-      "paths": [
-        ".mcp.json",
-        ".claude-plugin/plugin.json",
-        "server.json",
         "package.json",
-        "release-status.json",
-        "package-files.json",
-        "assets/manifest.json"
+        "src/config.ts",
+        "src/contacts.ts",
+        "src/contracts.ts",
+        "src/decoder.ts",
+        "src/errors.ts",
+        "src/index.ts",
+        "src/privacy.ts",
+        "src/result.ts",
+        "src/time.ts",
+        "src/tool-local.ts",
+        "src/tool-worker.ts",
+        "src/tools.ts",
+        "src/repositories/analytics.ts",
+        "src/repositories/messages.ts",
+        "native/contact-resolver.js",
+        "native/message-text-decoder.js",
+        "tests/privacy.test.ts",
+        "scripts/test-installed.ts"
       ],
-      "receiptRefs": []
+      "id": "surface_focused-privacy-and-native-decoder-investigation",
+      "label": "Focused privacy and native-decoder investigation",
+      "receiptRefs": [],
+      "result": "No reportable findings returned. Exact primitive privacy validation precedes dispatch in both runtimes; projections sanitize results and errors; fixed helper uses allowlisted keyed parsing and bounded legacy root parsing; input positions survive oversized markers; native timeout and shared lock bound execution concurrency. Full source-only review covered 20 files."
     },
     {
       "disposition": "no_issue_found",
-      "id": "surface_synthetic-assets-repository-policy-and-prior-scan-inputs",
-      "label": "Synthetic assets, repository policy, and prior scan inputs",
-      "notes": "Assets are synthetic and hash-bound; issue templates prohibit private reports; dependency policy is bounded; prior scan artifacts were treated only as historical input and will be replaced by this exact scan.",
-      "paths": [
-        ".github/FUNDING.yml",
-        ".github/ISSUE_TEMPLATE/bug_report.md",
-        ".github/ISSUE_TEMPLATE/feature_request.md",
-        ".github/dependabot.yml",
-        ".gitignore",
-        "assets/demo-dark.png",
-        "assets/demo-light.png",
-        "assets/doctor-dark.png",
-        "assets/doctor-light.png",
-        "assets/logo.png",
-        "assets/manifest.json",
-        "security/scan/coverage.json",
-        "security/scan/findings.json",
-        "security/scan/scan-manifest.json"
-      ],
+      "id": "surface_release-evidence-producer-and-signed-parent-binding",
+      "label": "Release evidence producer and signed parent binding",
+      "notes": "Parent re-read scripts/security-evidence.ts in full: exact 0.1.23 producer, one direct parent, exactly three regular JSON blobs, exact target/scope/hashes, zero findings and complete non-deferred coverage. Attestation workflow verifies configured SSH signer and exact package; CI/security jobs remain read-only.",
       "receiptRefs": []
     }
   ]
