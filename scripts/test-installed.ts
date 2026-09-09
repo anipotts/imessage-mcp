@@ -7,6 +7,8 @@ import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
+import { runtimeConfig } from "../src/config.js";
 import { createFixture } from "../tests/fixture.js";
 import { runStdio } from "./test-protocol.js";
 import { assertPackedPackage } from "./package-manifest.js";
@@ -94,8 +96,43 @@ async function runCleanRoomFirstRequest(binary: string, fixture: ReturnType<type
     const output = JSON.stringify([status, conversations]);
     assert.doesNotMatch(output, /blob exact|thread reply|photo\.png|\+1555000000|unknown@example/u);
     assert.doesNotMatch(output, /T\d{2}:\d{2}:\d{2}/u);
+    for (const privacy_mode of ["__proto__", "constructor", "toString"]) {
+      const rejected = await client.callTool({ name: "list_conversations", arguments: { privacy_mode } });
+      assert.equal(rejected.isError, true);
+      assert.equal((rejected.structuredContent as { error: { reason: string } }).error.reason, "INVALID_INPUT");
+    }
   } finally {
     await client.close();
+  }
+}
+
+async function runInstalledRuntimePrivacy(installedRoot: string, fixture: ReturnType<typeof createFixture>): Promise<void> {
+  const { ToolRuntime } = await import(pathToFileURL(path.join(installedRoot, "dist", "index.js")).href) as typeof import("../src/index.js");
+  for (const privacy of ["redacted", "aggregate"] as const) {
+    const runtime = new ToolRuntime(runtimeConfig({
+      transport: "stdio", databasePath: fixture.databasePath, contacts: "none", privacy,
+      referenceKey: Buffer.alloc(32, 0x5a), databaseId: Buffer.alloc(32, 0x6b),
+    }));
+    try {
+      await runtime.initialize();
+      for (const [tool, params] of [
+        ["list_conversations", { limit: 10 }],
+        ["resolve_contact", { query: "+15550000001" }],
+      ] as const) {
+        for (const privacy_mode of ["__proto__", "constructor", "toString"]) {
+          const result = await runtime.call(tool, { ...params, privacy_mode });
+          assert.equal(result.isError, true);
+          assert.equal((result.structuredContent as { error: { reason: string } }).error.reason, "INVALID_INPUT");
+          assert.equal(result.structuredContent?.data, undefined);
+        }
+        const valid = await runtime.call(tool, params);
+        assert.equal(valid.isError, undefined);
+        assert.equal((valid.structuredContent?.effective_scope as { privacy_mode: string }).privacy_mode, privacy);
+        if (privacy === "aggregate") {
+          assert.doesNotMatch(JSON.stringify(valid), /Synthetic Group|conversation_ref|"contact":|T\d{2}:\d{2}:\d{2}/u);
+        }
+      }
+    } finally { await runtime.close(); }
   }
 }
 
@@ -201,6 +238,7 @@ async function main(): Promise<void> {
     });
     await runCleanRoomFirstRequest(binary, fixture, scratch);
     await runStdio(binary, [], fixture);
+    await runInstalledRuntimePrivacy(installedRoot, fixture);
 
     const clientConfig = {
       mcpServers: {
@@ -224,7 +262,7 @@ async function main(): Promise<void> {
     process.stdout.write(
       `installed tarball verification passed: ${installedNodes} dependency nodes, ` +
       `${(installedBytes / (1024 * 1024)).toFixed(1)} MiB, package contents, help, doctor, ` +
-      `clean-room redacted first run, stdio MCP handshake, and JSON config-shape check (no client apps launched)\n`,
+      `clean-room redacted first run, stdio MCP handshake, exported runtime privacy, and JSON config-shape check (no client apps launched)\n`,
     );
   } finally {
     fixture.cleanup();
