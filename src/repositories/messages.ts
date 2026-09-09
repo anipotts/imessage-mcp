@@ -968,7 +968,3 @@ export function resolveMessageReference(referenceKey: Buffer, lineage: string, r
     ...(typeof value.guid === "string" ? { guid: value.guid } : {}),
   };
 }
-
-export function validateFrozenReference(current: Watermark, frozen: Watermark): void {
-  assertFrozenTraversal(frozen, current);
-}

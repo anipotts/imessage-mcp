@@ -59,6 +59,7 @@ export class LocalToolRuntime {
     decoderLock?: SharedArrayBuffer,
     decoderOwner = 1,
     warmConversationCatalog = false,
+    onSearchBuild?: () => void,
   ) {
     if (!config.reference_key) {
       throw new ImessageMcpError(
@@ -82,7 +83,7 @@ export class LocalToolRuntime {
     this.decoder = new MessageTextDecoder(decoderLock, decoderOwner);
     this.conversationCatalog = new ConversationCatalog(this.database);
     if (warmConversationCatalog) this.conversationCatalog.warm();
-    this.search = new MemorySearchIndex(this.database, this.decoder, this.contacts);
+    this.search = new MemorySearchIndex(this.database, this.decoder, this.contacts, onSearchBuild);
   }
 
   close(): void {

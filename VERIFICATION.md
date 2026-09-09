@@ -2,7 +2,7 @@
 
 This report contains only synthetic, aggregate, or redacted evidence. It retains no live message text, contact values, database paths, tokens, or screenshots.
 
-Last updated: 2026-08-27
+Last updated: 2026-09-08 (local); new benchmark and demo timestamps are recorded in UTC.
 
 ## release state
 
@@ -12,8 +12,27 @@ Last updated: 2026-08-27
 | `2.0.0-beta.1` | tagged, not published | npm rejected the relative tarball argument before upload; the signed tag and failed workflow remain immutable historical evidence |
 | `2.0.0-beta.2` | published and verified | npm `next`, MCP Registry, and an immutable GitHub prerelease agree on the signed evidence lineage and exact package |
 | `2.0.0-beta.3` | published and verified | npm `next`, MCP Registry, and the immutable GitHub prerelease agree on the signed evidence lineage and exact package |
-| `2.0.0-rc.1` | release subject | npm `next`; publication requires exact-source scan evidence and protected package/provider gates |
-| `2.0.0` | blocked by design gate | requires an unchanged release candidate to pass the seven-day canary |
+| `2.0.0-rc.1` | previously published | npm `next` in the 2026-09-08 audit; immutable historical release |
+| `2.0.0-rc.2` | local release preparation | targets npm `next`; not yet published; exact-source security evidence and provider checks remain required |
+| `2.0.0` | planned from protected `main` | same exact-source CI and publication checks; reviewed runtime changes are allowed |
+
+## RC.2 verification
+
+`npm run verify` passed locally: 118 tests, all seven tools over source-tree stdio and authenticated HTTP, fresh installed-package doctor and stdio handshake, configuration-shape checks, metadata, and exact package contents. The final package contains 128 files and one 27,937-byte GIF; the previous packaged PNGs totaled 522,440 bytes. The installed production dependency graph is nine nodes, 38.8 MiB. The release preparation gate is separate from protected publication evidence.
+
+The search-refresh deadline regression and both decoder ordering regressions failed before the fix and passed afterward. The deadline tests cover a rebuild finishing after 61 seconds, ordinary warm timeout at 30 seconds, and a fixed 90-second maximum even when a build notice arrives late. A real synthetic SQLite update verifies that the index rebuilds and returns fresh results during one session.
+
+The installed test checks a JSON configuration shape and drives the installed server through the MCP SDK. It does not launch Codex, Claude Desktop, Claude Code, or Cursor. Source-tree protocol tests separately exercise stdio and authenticated HTTP. Named-client app testing is not claimed.
+
+The [installed demo](docs/DEMO.md) passed doctor through npx in an empty temporary project, listed seven read-only tools, and searched synthetic Foundation-encoded text in full and aggregate modes. This is a fresh package installation on the current Mac, not a clean-machine test. A clean macOS first-use permission check remains to be performed.
+
+The [million-message benchmark](docs/BENCHMARK.md) passed: 19.530 s cold, 11 ms warm, and 20.975 s after a database update. Machine details and the fixture procedure are included.
+
+RC.2 uses one generated GIF in the package. The older PNG screenshots remain in Git and are excluded from npm. No real message data was accessed for this implementation.
+
+## Historical evidence
+
+The following platform and live-archive observations predate RC.2. They describe their named versions and do not certify this checkout or a new publication.
 
 ## `2.0.0-rc.1` release evidence
 
@@ -66,7 +85,7 @@ The first beta.2 workflow published the attested package to npm, then stopped be
 | supported matrix | GitHub-hosted macOS 14, 15, and 26 on Node 22, 24, and 26 passed `npm run verify` |
 | architecture | arm64 full matrix; macOS 26 Intel installed-package smoke passed |
 | fixture suite | 112 tests passed, covering seven-tool semantics, privacy, database lineage, immutable release controls, source aliasing, decoder safety, lifecycle freshness, and package tamper rejection |
-| package | 129-file allowlisted tarball passed metadata, doctor, stdio MCP, authenticated HTTP, named-client, and installed dependency-graph checks |
+| package | 129-file allowlisted tarball passed metadata, doctor, stdio MCP, source-tree authenticated HTTP, JSON configuration-shape, and installed dependency-graph checks |
 | static and supply chain | TypeScript, CodeQL for Actions and JavaScript/TypeScript, Gitleaks, package signatures, and dependency audit passed; zero dependency vulnerabilities reported |
 | transport | stdio and authenticated stateless loopback HTTP passed; a local reverse proxy exercised the documented Tailscale Serve boundary without creating a route |
 
@@ -120,7 +139,7 @@ The bounded live archive gate passed all seven tools with zero aggregate probe l
 
 ## client and transport gates
 
-Codex, Claude Desktop, Claude Code, and Cursor configuration shapes passed with isolated settings against the installed tarball. Stdio and authenticated stateless HTTP exercised all seven tools. Active user configuration remained untouched.
+A generic JSON configuration-shape check passed. It did not launch Codex, Claude Desktop, Claude Code, or Cursor. The installed tarball exercised stdio through the MCP SDK; source-tree protocol tests exercised stdio and authenticated stateless HTTP. Active user configuration remained untouched.
 
 No Tailscale Serve route was created. Endpoint mutation requires separate approval.
 
@@ -128,4 +147,4 @@ No Tailscale Serve route was created. Endpoint mutation requires separate approv
 
 Certification excludes iPhone backup manifests, Linux, containers, Docker, public-internet HTTP, Tailscale Funnel, OAuth, multiple client tokens, persistent decoded-body indexes, semantic search, watchers, stateful sessions, old edited text, recovered unsent text, removed-reaction history, every send capability, and adversarial database-path replacement by another process running as the same macOS account.
 
-Stable promotion remains blocked until a public release candidate exercises every tool, privacy mode, service family, transport, source mode, and named client for seven unchanged days. The final promotion gate reruns the installed tarball, privacy leakage, archival prompt-injection boundary, client namespace, exact package contents, and clean-room privacy-first setup.
+Stable is prepared from protected `main` after the fixes and documentation are merged. Both release channels verify their own source and package, including the installed tarball, privacy, untrusted-archive boundary, client namespace, package contents, and first-run setup. CI and exact-source security evidence remain required before publication.

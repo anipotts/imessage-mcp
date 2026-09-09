@@ -327,99 +327,61 @@ export class MessageTextDecoder {
   }
 
   async decode(blobs: Buffer[]): Promise<DecodeResult[]> {
-    const operation = this.queue.then(() => this.decodeSerial(blobs), () => this.decodeSerial(blobs));
+    const operation = this.queue.then(() => this.decodeSerial(blobs, "results"), () => this.decodeSerial(blobs, "results"));
     this.queue = operation.catch(() => undefined);
     return operation;
   }
 
   async decodeEditMetadata(blobs: Buffer[]): Promise<EditMetadataResult[]> {
     const operation = this.queue.then(
-      () => this.decodeEditMetadataSerial(blobs),
-      () => this.decodeEditMetadataSerial(blobs),
+      () => this.decodeSerial(blobs, "edit_results"),
+      () => this.decodeSerial(blobs, "edit_results"),
     );
     this.queue = operation.catch(() => undefined);
     return operation;
   }
 
-  private async decodeSerial(blobs: Buffer[]): Promise<DecodeResult[]> {
+  private async decodeSerial<K extends "results" | "edit_results">(blobs: Buffer[], field: K): Promise<NativeOutput[K]> {
     if (!existsSync(SCRIPT) || process.platform !== "darwin") {
       this.health = "failed";
       throw new ImessageMcpError("DECODE_FAILED", "native Foundation decoder is unavailable");
     }
-    const all: DecodeResult[] = [];
+    const all: Array<DecodeResult | EditMetadataResult> = new Array(blobs.length);
     let index = 0;
     while (index < blobs.length) {
       const batch: Buffer[] = [];
+      const positions: number[] = [];
       let bytes = 0;
       while (index < blobs.length && batch.length < MAX_BATCH_ITEMS) {
         const blob = blobs[index];
         if (blob.length > MAX_BLOB_BYTES) {
-          all.push({ status: "unsupported" });
+          all[index] = { status: "unsupported" };
           index += 1;
           continue;
         }
         if (batch.length > 0 && bytes + blob.length > MAX_BATCH_BYTES) break;
         batch.push(blob);
+        positions.push(index);
         bytes += blob.length;
         index += 1;
       }
       if (batch.length === 0) continue;
       let native: NativeOutput;
       try {
-        native = await this.runLocked(batch, [], 15_000);
+        native = await this.runLocked(field === "results" ? batch : [], field === "edit_results" ? batch : [], 15_000);
       } catch {
         this.health = "failed";
-        throw new ImessageMcpError("DECODE_FAILED", "native Foundation text decoding failed");
+        const label = field === "results" ? "text" : "edit metadata";
+        throw new ImessageMcpError("DECODE_FAILED", `native Foundation ${label} decoding failed`);
       }
-      if (native.self_test !== "passed" || native.results.length !== batch.length) {
+      if (native.self_test !== "passed" || native[field].length !== batch.length) {
         this.health = "failed";
         throw new ImessageMcpError("DECODE_FAILED", "native Foundation decoder self-test failed");
       }
       this.health = "healthy";
-      all.push(...native.results);
+      native[field].forEach((result, offset) => { all[positions[offset]] = result; });
     }
-    return all;
-  }
-
-
-  private async decodeEditMetadataSerial(blobs: Buffer[]): Promise<EditMetadataResult[]> {
-    if (!existsSync(SCRIPT) || process.platform !== "darwin") {
-      this.health = "failed";
-      throw new ImessageMcpError("DECODE_FAILED", "native Foundation decoder is unavailable");
-    }
-    const all: EditMetadataResult[] = [];
-    let index = 0;
-    while (index < blobs.length) {
-      const batch: Buffer[] = [];
-      let bytes = 0;
-      while (index < blobs.length && batch.length < MAX_BATCH_ITEMS) {
-        const blob = blobs[index];
-        if (blob.length > MAX_BLOB_BYTES) {
-          all.push({ status: "unsupported" });
-          index += 1;
-          continue;
-        }
-        if (batch.length > 0 && bytes + blob.length > MAX_BATCH_BYTES) break;
-        batch.push(blob);
-        bytes += blob.length;
-        index += 1;
-      }
-      if (batch.length === 0) continue;
-      let native: NativeOutput;
-      try {
-        native = await this.runLocked([], batch, 15_000);
-      } catch {
-        this.health = "failed";
-        throw new ImessageMcpError("DECODE_FAILED", "native Foundation edit metadata decoding failed");
-      }
-      if (native.self_test !== "passed" || native.edit_results.length !== batch.length) {
-        this.health = "failed";
-        throw new ImessageMcpError("DECODE_FAILED", "native Foundation decoder self-test failed");
-      }
-      this.health = "healthy";
-      all.push(...native.edit_results);
-    }
-    return all;
+    return all as NativeOutput[K];
   }
 }
 

@@ -1,6 +1,6 @@
 {
   "name": "imessage-mcp",
-  "version": "2.0.0-rc.1",
+  "version": "2.0.0-rc.2",
   "mcpName": "io.github.anipotts/imessage-mcp",
   "description": "Read-only MCP for iMessage, SMS, MMS, and RCS history in Apple Messages on Mac",
   "author": "Ani Potts",
@@ -14,8 +14,12 @@
     "dist",
     "bin",
     "native",
-    "assets",
-    "docs",
+    "assets/demo.gif",
+    "assets/manifest.json",
+    "docs/GUIDE.md",
+    "docs/DEMO.md",
+    "docs/BENCHMARK.md",
+    "docs/ROADMAP-3.0.md",
     ".claude-plugin",
     ".mcp.json",
     "CONTRIBUTING.md",
@@ -40,6 +44,7 @@
     "test:protocol": "tsx scripts/test-protocol.ts",
     "test:privacy": "vitest run tests/privacy.test.ts tests/security.test.ts",
     "screenshots": "tsx scripts/screenshots.ts",
+    "demo:installed": "npm run build && tsx scripts/demo-installed.ts",
     "check:metadata": "tsx scripts/check-metadata.ts",
     "check:release": "tsx scripts/check-release-gate.ts",
     "verify": "npm run build && npm run typecheck && npm test && npm run test:protocol && npm run test:installed && npm run check:metadata && npm audit --audit-level=high && npm pack --dry-run",
@@ -57,7 +62,7 @@
     "@types/node": "26.2.0",
     "tsx": "4.23.12",
     "typescript": "7.0.2",
-    "vitest": "4.1.10"
+    "vitest": "4.1.11"
   },
   "engines": {
     "node": "^22.0.0 || ^24.0.0 || ^26.0.0"

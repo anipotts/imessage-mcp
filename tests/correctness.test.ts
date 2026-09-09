@@ -23,6 +23,7 @@ import {
   createMinimalSchemaFixture,
   foundationAttributedBody,
   foundationAttributedBodyWithRuns,
+  foundationEditSummary,
   foundationLegacyDateArchive,
   type Fixture,
 } from "./fixture.js";
@@ -2860,6 +2861,27 @@ describe("stateless sync", () => {
 });
 
 describe("Foundation fixtures", () => {
+  it("preserves input positions around oversized bodies", async () => {
+    const decoder = new MessageTextDecoder();
+    const oversized = Buffer.alloc(1024 * 1024 + 1);
+    expect(await decoder.decode([
+      foundationAttributedBody("before"), oversized, foundationAttributedBody("after"),
+    ])).toEqual([
+      { status: "decoded", text: "before" }, { status: "unsupported" }, { status: "decoded", text: "after" },
+    ]);
+  });
+
+  it("preserves input positions around oversized edit summaries", async () => {
+    const decoder = new MessageTextDecoder();
+    const oversized = Buffer.alloc(1024 * 1024 + 1);
+    expect(await decoder.decodeEditMetadata([
+      foundationEditSummary([0, 100]), oversized, foundationEditSummary([0, 200, 300]),
+    ])).toEqual([
+      { status: "decoded", count: 1, timestamps: [100] }, { status: "unsupported" },
+      { status: "decoded", count: 2, timestamps: [200, 300] },
+    ]);
+  });
+
   it.each([
     "short",
     "x".repeat(400),

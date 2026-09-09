@@ -16,7 +16,3 @@ export function asImessageMcpError(error: unknown): ImessageMcpError {
   if (error instanceof ImessageMcpError) return error;
   return new ImessageMcpError("DATABASE_UNAVAILABLE", "the requested operation could not be completed");
 }
-
-export function assertInput(condition: unknown, message: string): asserts condition {
-  if (!condition) throw new ImessageMcpError("INVALID_INPUT", message);
-}

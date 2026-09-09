@@ -51,7 +51,10 @@ interface WorkerInitErrorMessage {
   error: { reason: ErrorReason; message: string };
 }
 
-type RuntimeWorkerMessage = WorkerResultMessage | WorkerInitErrorMessage | { type: "ready" };
+type RuntimeWorkerMessage = WorkerResultMessage | WorkerInitErrorMessage | { type: "ready" }
+  | { type: "search_index_building"; id: number };
+
+const COLD_SEARCH_TIMEOUT_MS = 90_000;
 
 function workerEntry(): URL {
   const compiled = new URL("./tool-worker.js", import.meta.url);
@@ -81,7 +84,12 @@ class WorkerSlot {
   private ready: Promise<void> | null = null;
   private resolveReady: (() => void) | null = null;
   private rejectReady: ((error: Error) => void) | null = null;
-  private pending: { id: number; resolve: (result: CallToolResult) => void; reject: (error: Error) => void } | null = null;
+  private pending: {
+    id: number;
+    resolve: (result: CallToolResult) => void;
+    reject: (error: Error) => void;
+    onSearchBuild: () => void;
+  } | null = null;
   private sequence = 0;
   busy = false;
   generation = 0;
@@ -184,6 +192,9 @@ class WorkerSlot {
         );
         return;
       }
+      if (message.type === "search_index_building" && this.pending?.id === message.id) {
+        this.pending.onSearchBuild();
+      }
       if (message.type === "result" && this.pending?.id === message.id) {
         const pending = this.pending;
         this.pending = null;
@@ -272,17 +283,26 @@ class WorkerSlot {
       if (!worker) throw new ImessageMcpError("DATABASE_UNAVAILABLE", "tool worker is unavailable");
       const id = ++this.sequence;
       return await new Promise<CallToolResult>((resolve, reject) => {
-        const timer = setTimeout(() => {
+        const started = performance.now();
+        const expire = () => {
           if (this.pending?.id !== id) return;
           this.pending = null;
           void this.terminateWorker(worker).then(
             () => reject(new ImessageMcpError("QUERY_BUDGET_EXCEEDED", "tool execution exceeded its hard deadline")),
             () => reject(new ImessageMcpError("QUERY_BUDGET_EXCEEDED", "tool execution exceeded its hard deadline")),
           );
-        }, timeoutMs);
+        };
+        let timer = setTimeout(expire, timeoutMs);
         timer.unref();
         this.pending = {
           id,
+          onSearchBuild: () => {
+            if (tool !== "search_messages") return;
+            clearTimeout(timer);
+            // A refresh has the cold-build budget, bounded from the original call.
+            timer = setTimeout(expire, Math.max(0, COLD_SEARCH_TIMEOUT_MS - (performance.now() - started)));
+            timer.unref();
+          },
           resolve: (result) => {
             clearTimeout(timer);
             resolve(result);
@@ -377,7 +397,7 @@ export class ToolRuntime {
       const slot = this.select(tool);
       if (!slot) throw new ImessageMcpError("QUERY_BUDGET_EXCEEDED", "two tool calls are already active");
       const warmSearch = tool === "search_messages" && slot.isLiveGeneration(this.searchReadyGeneration);
-      const timeoutMs = tool === "search_messages" && !warmSearch ? 90_000 : 30_000;
+      const timeoutMs = tool === "search_messages" && !warmSearch ? COLD_SEARCH_TIMEOUT_MS : 30_000;
       result = await slot.call(tool, params, timeoutMs);
       if (tool === "search_messages" && !result.isError) this.searchReadyGeneration = slot.generation;
     } catch (error) {
