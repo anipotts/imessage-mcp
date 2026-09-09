@@ -30,6 +30,28 @@ describe("privacy ceilings", () => {
       .toThrowError(expect.objectContaining({ reason: "INVALID_INPUT" }));
   });
 
+  it("rejects inherited names and coerced privacy values before any projection", () => {
+    for (const ceiling of ["full", "redacted", "aggregate"] as const) {
+      for (const requested of [...Object.getOwnPropertyNames(Object.prototype), "", "Full", " aggregate ", ["full"], new String("full")]) {
+        expect(() => effectivePrivacy(ceiling, requested as "full"))
+          .toThrowError(expect.objectContaining({ reason: "INVALID_INPUT" }));
+      }
+    }
+  });
+
+  it("preserves default and stricter privacy requests", () => {
+    for (const ceiling of ["full", "redacted", "aggregate"] as const) {
+      expect(effectivePrivacy(ceiling)).toBe(ceiling);
+      expect(effectivePrivacy(ceiling, ceiling)).toBe(ceiling);
+      expect(effectivePrivacy(ceiling, "aggregate")).toBe("aggregate");
+    }
+    expect(effectivePrivacy("full", "redacted")).toBe("redacted");
+    expect(() => effectivePrivacy("aggregate", "redacted"))
+      .toThrowError(expect.objectContaining({ reason: "PRIVACY_RESTRICTED" }));
+    expect(() => effectivePrivacy("redacted", "full"))
+      .toThrowError(expect.objectContaining({ reason: "PRIVACY_RESTRICTED" }));
+  });
+
   it("keeps full fields only in full mode", () => {
     const result = successResult({ tool: "list_conversations", privacy: "full", maskingKey, effectiveScope: {}, data: privateData });
     expect(JSON.stringify(result.structuredContent)).toContain("private body");

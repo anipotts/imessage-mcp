@@ -37,7 +37,7 @@ const IDENTITY_KEYS = new Set([
 
 export function effectivePrivacy(ceiling: PrivacyMode, requested?: PrivacyMode): PrivacyMode {
   const mode = requested ?? ceiling;
-  if (!(mode in LEVEL)) {
+  if (mode !== "full" && mode !== "redacted" && mode !== "aggregate") {
     throw new ImessageMcpError("INVALID_INPUT", "privacy mode must be full, redacted, or aggregate");
   }
   if (LEVEL[mode] < LEVEL[ceiling]) {
