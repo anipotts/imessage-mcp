@@ -266,6 +266,7 @@ export class MemorySearchIndex {
     private readonly context: DatabaseContext,
     private readonly decoder: MessageTextDecoder,
     private readonly contacts: UnifiedContactResolver,
+    private readonly onBuild?: () => void,
   ) {}
 
   state(): {
@@ -830,6 +831,7 @@ export class MemorySearchIndex {
   }
 
   private async build(allowPartial: boolean): Promise<void> {
+    this.onBuild?.();
     const request = this.context.request();
     let db: Database.Database | null = null;
     try {

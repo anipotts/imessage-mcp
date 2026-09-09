@@ -23,6 +23,7 @@ if (!parentPort) throw new Error("tool worker requires a parent port");
 const port = parentPort;
 
 let runtime: LocalToolRuntime | null = null;
+let activeRequestId: number | null = null;
 try {
   const data = workerData as RuntimeWorkerData;
   runtime = new LocalToolRuntime(
@@ -31,6 +32,9 @@ try {
     data.decoder_lock,
     data.decoder_owner,
     data.warm_conversation_catalog,
+    () => {
+      if (activeRequestId !== null) port.postMessage({ type: "search_index_building", id: activeRequestId });
+    },
   );
   await runtime.prepare();
   port.postMessage({ type: "ready" });
@@ -51,10 +55,13 @@ port.on("message", async (message: CallMessage | { type: "close" }) => {
   }
   if (!runtime) return;
   let result;
+  activeRequestId = message.id;
   try {
     result = await runtime.call(message.tool, message.params);
   } catch (error) {
     result = errorResult(message.tool, error, runtime.config.privacy_ceiling, runtime.maskingKey);
+  } finally {
+    activeRequestId = null;
   }
   port.postMessage({ type: "result", id: message.id, result });
 });
