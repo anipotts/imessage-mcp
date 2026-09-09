@@ -214,18 +214,17 @@ async function main(): Promise<void> {
         },
       },
     };
-    for (const client of ["codex", "claude-desktop", "claude-code", "cursor"]) {
-      const file = path.join(scratch, `${client}.json`);
-      writeFileSync(file, JSON.stringify(clientConfig));
-      const configured = JSON.parse(readFileSync(file, "utf8")) as typeof clientConfig;
-      assert.equal(configured.mcpServers["imessage-history"].command, binary);
-      assert.deepEqual(configured.mcpServers["imessage-history"].args.slice(-4),
-        ["--contacts", "none", "--privacy", "redacted"]);
-    }
+    // This checks the JSON configuration shape; it does not launch a named client application.
+    const configFile = path.join(scratch, "mcp-config.json");
+    writeFileSync(configFile, JSON.stringify(clientConfig));
+    const configured = JSON.parse(readFileSync(configFile, "utf8")) as typeof clientConfig;
+    assert.equal(configured.mcpServers["imessage-history"].command, binary);
+    assert.deepEqual(configured.mcpServers["imessage-history"].args.slice(-4),
+      ["--contacts", "none", "--privacy", "redacted"]);
     process.stdout.write(
       `installed tarball verification passed: ${installedNodes} dependency nodes, ` +
       `${(installedBytes / (1024 * 1024)).toFixed(1)} MiB, package contents, help, doctor, ` +
-      `clean-room redacted first run, stdio, and isolated clients\n`,
+      `clean-room redacted first run, stdio MCP handshake, and JSON config-shape check (no client apps launched)\n`,
     );
   } finally {
     fixture.cleanup();
