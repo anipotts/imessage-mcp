@@ -54,7 +54,7 @@
     "@modelcontextprotocol/server": "2.0.0",
     "better-sqlite3": "13.0.3",
     "node-addon-api": "8.9.2",
-    "zod": "4.4.3"
+    "zod": "4.5.4"
   },
   "devDependencies": {
     "@modelcontextprotocol/client": "2.0.0",
