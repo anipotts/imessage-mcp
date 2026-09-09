@@ -39,7 +39,7 @@ const result = { content: [], structuredContent: { data: { total_matches: 1 } } 
 afterEach(() => { vi.useRealTimers(); workers.instances.length = 0; });
 
 describe("search worker deadlines", () => {
-  it("keeps repeated rebuild notices within the original 90-second hard deadline", async () => {
+  it("keeps a late rebuild notice within the original 90-second hard deadline", async () => {
     vi.useFakeTimers();
     const runtime = new ToolRuntime(config);
     try {

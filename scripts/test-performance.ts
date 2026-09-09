@@ -5,7 +5,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { once } from "node:events";
 import { mkdtempSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
-import { tmpdir } from "node:os";
+import { cpus, release, tmpdir, totalmem } from "node:os";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
 import Database from "better-sqlite3";
@@ -330,8 +330,22 @@ async function main(): Promise<void> {
     }));
     structured(shortSubstring.value);
 
+    // Simulate a live Messages update using only the task-owned synthetic database.
+    const writer = new Database(databasePath);
+    try {
+      writer.prepare("UPDATE message SET text = ? WHERE ROWID = 1").run("refresh-marker-unique");
+    } finally {
+      writer.close();
+    }
+    const refresh = await timed(() => runtime!.call("search_messages", {
+      query: "refresh-marker-unique", mode: "exact", scopes: ["text"], order: "newest", limit: 50,
+      privacy_mode: "aggregate",
+    }));
+    assert.equal((structured(refresh.value).data as { total_matches: number }).total_matches, 1);
+
     if (messageCount === REFERENCE_MESSAGES) {
       assert.ok(cold.duration_ms < 60_000, `cold search took ${cold.duration_ms.toFixed(1)} ms`);
+      assert.ok(refresh.duration_ms < 90_000, `refresh search took ${refresh.duration_ms.toFixed(1)} ms`);
       assert.ok(warm.duration_ms < 2_000, `warm search took ${warm.duration_ms.toFixed(1)} ms`);
       assert.ok(shortSubstring.duration_ms < 2_000, `one-character warm search took ${shortSubstring.duration_ms.toFixed(1)} ms`);
     }
@@ -352,6 +366,7 @@ async function main(): Promise<void> {
       },
       cold_index_ms: Math.round(cold.duration_ms),
       warm_search_ms: Math.round(warm.duration_ms),
+      refresh_index_ms: Math.round(refresh.duration_ms),
       one_character_search_ms: Math.round(shortSubstring.duration_ms),
       http_two_client_ms: Math.round(http_concurrency_ms),
       index_memory_bytes: index.memory_used_bytes,
@@ -359,6 +374,11 @@ async function main(): Promise<void> {
       rss_delta_bytes: rssDelta,
       node: process.version,
       platform: `${process.platform}-${process.arch}`,
+      os_release: release(),
+      cpu: cpus()[0]?.model ?? "unknown",
+      cpu_count: cpus().length,
+      system_memory_bytes: totalmem(),
+      measured_at: new Date().toISOString(),
     })}\n`);
   } finally {
     runtime?.close();

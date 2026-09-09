@@ -9,7 +9,6 @@ import { decodeReference, encodeReference } from "../src/references.js";
 import { successResult } from "../src/result.js";
 import { loadDatabaseId } from "../src/secrets.js";
 import { loadApiToken } from "../src/transport.js";
-import { isNumberedReleaseCandidate } from "../scripts/release-version.js";
 
 const originalToken = process.env.IMESSAGE_API_TOKEN;
 const originalFile = process.env.IMESSAGE_API_TOKEN_FILE;
@@ -124,15 +123,6 @@ describe("bounded results", () => {
 });
 
 describe("native and release hardening", () => {
-  it("validates numbered release candidates without computed regular expressions", () => {
-    expect(isNumberedReleaseCandidate("2.0.0", "2.0.0-rc.1")).toBe(true);
-    expect(isNumberedReleaseCandidate("2.0.0", "2.0.0-rc.24")).toBe(true);
-    expect(isNumberedReleaseCandidate("2.0.0", "2.0.0-rc.0")).toBe(false);
-    expect(isNumberedReleaseCandidate("2.0.0", "2.0.0-rc.1|.*")).toBe(false);
-    expect(isNumberedReleaseCandidate("2.0.0", "20x0x0-rc.1")).toBe(false);
-    expect(isNumberedReleaseCandidate("2.0.0.*", "2.0.0.*-rc.1")).toBe(false);
-  });
-
   it("never invokes legacy NSUnarchiver", () => {
     const helper = readFileSync(new URL("../native/message-text-decoder.js", import.meta.url), "utf8");
     expect(helper).not.toContain("NSUnarchiver");
@@ -140,7 +130,7 @@ describe("native and release hardening", () => {
   });
 
   it("pins every workflow action to an immutable commit", () => {
-    for (const file of ["attest-canary.yml", "attest-security-evidence.yml", "ci.yml", "security.yml", "release.yml"]) {
+    for (const file of ["attest-security-evidence.yml", "ci.yml", "security.yml", "release.yml"]) {
       const workflow = readFileSync(new URL(`../.github/workflows/${file}`, import.meta.url), "utf8");
       const uses = [...workflow.matchAll(/^\s*- uses:\s+[^\s@]+@([^\s#]+)/gmu)].map((match) => match[1]);
       expect(uses.length).toBeGreaterThan(0);
@@ -153,23 +143,15 @@ describe("native and release hardening", () => {
     expect(attestation).toContain("SECURITY_SCAN_ALLOWED_SIGNER");
     expect(attestation).toContain("verify-commit \"$GITHUB_SHA\"");
     expect(attestation).toContain("scripts/security-evidence.ts create");
-    const canary = readFileSync(new URL("../.github/workflows/attest-canary.yml", import.meta.url), "utf8");
-    expect(canary).toContain("environment: canary-attestation");
-    expect(canary).toContain("fetch-depth: 0");
-    expect(canary).toContain("scripts/canary-evidence.ts create");
-    expect(canary).toContain("--workflow attest-security-evidence.yml");
-    expect(canary).toContain("audit signatures");
     const release = readFileSync(new URL("../.github/workflows/release.yml", import.meta.url), "utf8");
     expect(release).toContain("needs: [verify-release, release-secret-scan, release-codeql]");
     expect(release).toContain("upload: never");
     expect(release).toContain("--signer-workflow anipotts/imessage-mcp/.github/workflows/attest-security-evidence.yml");
     expect(release).toContain("--source-digest \"$GITHUB_SHA\"");
-    expect(release).toContain("--signer-workflow anipotts/imessage-mcp/.github/workflows/attest-canary.yml");
-    expect(release).toContain("scripts/canary-evidence.ts verify");
-    expect(release).toContain("candidate-attestations.json");
     expect(release).toContain("--ignore-scripts --access public --provenance");
     const verifyJob = release.slice(release.indexOf("  verify-release:"), release.indexOf("  release-secret-scan:"));
     expect(verifyJob).toContain("fetch-depth: 0");
+    expect(verifyJob).toContain('git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main');
     expect(verifyJob.indexOf("npm run test:performance")).toBeLessThan(verifyJob.indexOf("retrieve and verify protected security evidence"));
     expect(verifyJob.slice(verifyJob.indexOf("retrieve and verify protected security evidence")))
       .not.toMatch(/npm run (?:verify|test:performance)/u);
@@ -177,9 +159,8 @@ describe("native and release hardening", () => {
     expect(npmJob).toContain("attestations: read");
     expect(npmJob).toContain('TARBALL="./release-artifact/${{ needs.verify-release.outputs.tarball }}"');
     expect(npmJob).toContain('test -f "$TARBALL"');
-    expect(npmJob.match(/gh attestation verify/gu)).toHaveLength(3);
+    expect(npmJob.match(/gh attestation verify/gu)).toHaveLength(2);
     expect(npmJob.indexOf("gh attestation verify")).toBeLessThan(npmJob.indexOf("npm publish"));
-    expect(npmJob.indexOf("attest-canary.yml")).toBeLessThan(npmJob.indexOf("--tag latest"));
     const publicNpm = release.slice(release.indexOf("  verify-public-npm:"), release.indexOf("  publish-registry:"));
     expect(publicNpm).toContain("--omit=dev");
     const registry = release.slice(release.indexOf("  publish-registry:"), release.indexOf("  publish-github-release:"));
@@ -352,310 +333,4 @@ describe("native and release hardening", () => {
     }
   });
 
-  it("binds stable promotion to the public rc package and metadata-only direct derivation", () => {
-    const directory = mkdtempSync(path.join(tmpdir(), "imessage-canary-evidence-"));
-    const runGit = (...args: string[]) => execFileSync("git", args, { cwd: directory, encoding: "utf8" }).trim();
-    const releaseFiles = [
-      ".claude-plugin/plugin.json",
-      ".mcp.json",
-      "assets/manifest.json",
-      "package-files.json",
-      "README.md",
-      "VERIFICATION.md",
-      "package-lock.json",
-      "package.json",
-      "release-status.json",
-      "server.json",
-    ];
-    const writeVersionFiles = (root: string, version: string, status: Record<string, unknown>) => {
-      for (const file of releaseFiles) {
-        const target = path.join(root, file);
-        mkdirSync(path.dirname(target), { recursive: true });
-        const value = file === "package.json"
-          ? {
-              name: "imessage-mcp",
-              version,
-              scripts: { prepublishOnly: "npm run verify" },
-              dependencies: { example: "1.0.0" },
-            }
-          : file === "package-lock.json"
-            ? {
-                name: "imessage-mcp",
-                version,
-                lockfileVersion: 3,
-                packages: {
-                  "": { name: "imessage-mcp", version, dependencies: { example: "1.0.0" } },
-                  "node_modules/example": {
-                    version: "1.0.0",
-                    resolved: "https://registry.npmjs.org/example/-/example-1.0.0.tgz",
-                    integrity: "sha512-fixture",
-                  },
-                },
-              }
-            : file === "assets/manifest.json"
-              ? { schema_version: 2, subject_version: version, channel: version.includes("-") ? "next" : "latest", assets: [] }
-              : file === "package-files.json"
-                ? { schema_version: 2, subject_version: version, channel: version.includes("-") ? "next" : "latest", expected_paths: [] }
-            : file === ".claude-plugin/plugin.json"
-              ? { name: "imessage-mcp", version, marker: file }
-              : file === ".mcp.json"
-                ? {
-                    mcpServers: {
-                      "imessage-history": {
-                        command: "npx",
-                        args: ["-y", `imessage-mcp@${version}`, "--contacts", "none", "--privacy", "redacted"],
-                        env: { IMESSAGE_DATABASE_ID_FILE: "/fixture/database-id" },
-                      },
-                    },
-                  }
-                : file === "server.json"
-                  ? {
-                      version,
-                      packages: [{ identifier: "imessage-mcp", version, transport: { type: "stdio" } }],
-                    }
-                  : file === "release-status.json"
-                    ? status
-                    : file === "README.md"
-                      ? `README.md for imessage-mcp@${version}\n`
-                      : `VERIFICATION.md for ${version}\n`;
-        writeFileSync(target, typeof value === "string" ? value : `${JSON.stringify(value, null, 2)}\n`);
-      }
-    };
-    const buildPackage = (source: string, destination: string, runtime = "identical runtime\n") => {
-      const root = path.join(directory, `package-${path.basename(destination)}`);
-      for (const file of releaseFiles.filter((value) => value !== "package-lock.json")) {
-        const target = path.join(root, "package", file);
-        mkdirSync(path.dirname(target), { recursive: true });
-        writeFileSync(target, readFileSync(path.join(source, file)));
-      }
-      mkdirSync(path.join(root, "package", "dist"), { recursive: true });
-      writeFileSync(path.join(root, "package", "dist", "index.js"), runtime);
-      execFileSync("tar", ["-czf", destination, "-C", root, "package"]);
-    };
-    try {
-      runGit("init", "--quiet");
-      runGit("config", "core.hooksPath", "/dev/null");
-      runGit("config", "user.name", "Fixture");
-      runGit("config", "user.email", "fixture@example.test");
-      runGit("config", "commit.gpgsign", "false");
-      writeVersionFiles(directory, "2.0.0-rc.1", {
-        schema_version: 4,
-        subject_version: "2.0.0-rc.1",
-        channel: "next",
-      });
-      mkdirSync(path.join(directory, "dist"), { recursive: true });
-      writeFileSync(path.join(directory, "dist", "index.js"), "identical runtime\n");
-      runGit("add", ...releaseFiles, "dist/index.js");
-      runGit("commit", "--quiet", "-m", "release candidate source");
-      const scanDirectory = path.join(directory, "security", "scan");
-      mkdirSync(scanDirectory, { recursive: true });
-      for (const file of ["coverage.json", "findings.json", "scan-manifest.json"]) {
-        writeFileSync(path.join(scanDirectory, file), `${JSON.stringify({ candidate: file })}\n`);
-      }
-      runGit("add", "security/scan/coverage.json", "security/scan/findings.json", "security/scan/scan-manifest.json");
-      runGit("commit", "--quiet", "-m", "candidate evidence");
-      const candidateCommit = runGit("rev-parse", "HEAD");
-      runGit("tag", "v2.0.0-rc.1", candidateCommit);
-      const candidatePackage = path.join(directory, "candidate.tgz");
-      buildPackage(directory, candidatePackage);
-      const candidateDigest = createHash("sha256").update(readFileSync(candidatePackage)).digest("hex");
-      const started = "2026-08-01T00:00:00.000Z";
-      const completed = "2026-08-08T00:00:00.000Z";
-      const exercises = Object.fromEntries([
-        "all_privacy_modes", "all_service_families", "all_seven_tools", "claude_code",
-        "claude_desktop", "clean_room_first_run", "client_namespace", "codex", "copied_database",
-        "cursor", "http_proxy_simulation", "installed_tarball", "live_database", "package_content",
-        "privacy_leakage", "prompt_injection_boundary", "stdio",
-      ].map((key) => [key, true]));
-      const stableStatus = {
-        schema_version: 4,
-        subject_version: "2.0.0",
-        channel: "latest",
-        stable: {
-          ready: true,
-          subject_version: "2.0.0",
-          release_candidate: "2.0.0-rc.1",
-          candidate_commit: candidateCommit,
-          candidate_package_sha256: candidateDigest,
-          canary_started_at: started,
-          canary_completed_at: completed,
-          exercises,
-        },
-      };
-      writeVersionFiles(directory, "2.0.0", stableStatus);
-      runGit("add", ...releaseFiles);
-      runGit("commit", "--quiet", "-m", "stable metadata derivation");
-      const stableSource = runGit("rev-parse", "HEAD");
-      expect(runGit("rev-parse", `${stableSource}^`)).toBe(candidateCommit);
-      for (const file of ["coverage.json", "findings.json", "scan-manifest.json"]) {
-        writeFileSync(path.join(scanDirectory, file), `${JSON.stringify({ stable: file })}\n`);
-      }
-      runGit("add", "security/scan/coverage.json", "security/scan/findings.json", "security/scan/scan-manifest.json");
-      runGit("commit", "--quiet", "-m", "stable evidence");
-      const stableCommit = runGit("rev-parse", "HEAD");
-      const stablePackage = path.join(directory, "stable.tgz");
-      buildPackage(directory, stablePackage);
-      const metadata = path.join(directory, "candidate-npm.json");
-      const attestationUrl = "https://registry.npmjs.org/-/npm/v1/attestations/imessage-mcp@2.0.0-rc.1";
-      writeFileSync(metadata, `${JSON.stringify({
-        version: "2.0.0-rc.1",
-        dist: {
-          tarball: "https://registry.npmjs.org/imessage-mcp/-/imessage-mcp-2.0.0-rc.1.tgz",
-          attestations: {
-            url: attestationUrl,
-            provenance: { predicateType: "https://slsa.dev/provenance/v1" },
-          },
-        },
-      }, null, 2)}\n`);
-      const releaseRunId = 123456789;
-      const provenance = {
-        _type: "https://in-toto.io/Statement/v1",
-        subject: [{
-          name: "pkg:npm/imessage-mcp@2.0.0-rc.1",
-          digest: { sha512: createHash("sha512").update(readFileSync(candidatePackage)).digest("hex") },
-        }],
-        predicateType: "https://slsa.dev/provenance/v1",
-        predicate: {
-          buildDefinition: {
-            buildType: "https://slsa-framework.github.io/github-actions-buildtypes/workflow/v1",
-            externalParameters: { workflow: {
-              ref: "refs/tags/v2.0.0-rc.1",
-              repository: "https://github.com/anipotts/imessage-mcp",
-              path: ".github/workflows/release.yml",
-            } },
-            internalParameters: { github: { event_name: "push" } },
-            resolvedDependencies: [{
-              uri: "git+https://github.com/anipotts/imessage-mcp@refs/tags/v2.0.0-rc.1",
-              digest: { gitCommit: candidateCommit },
-            }],
-          },
-          runDetails: {
-            builder: { id: "https://github.com/actions/runner/github-hosted" },
-            metadata: {
-              invocationId: `https://github.com/anipotts/imessage-mcp/actions/runs/${releaseRunId}/attempts/1`,
-            },
-          },
-        },
-      };
-      const attestations = path.join(directory, "candidate-attestations.json");
-      writeFileSync(attestations, `${JSON.stringify({
-        attestations: [{
-          predicateType: "https://slsa.dev/provenance/v1",
-          bundle: {
-            verificationMaterial: {
-              tlogEntries: [{ integratedTime: Math.floor(Date.parse(started) / 1_000) }],
-            },
-            dsseEnvelope: { payload: Buffer.from(JSON.stringify(provenance)).toString("base64") },
-          },
-        }],
-      }, null, 2)}\n`);
-      const releaseRun = path.join(directory, "candidate-release-run.json");
-      writeFileSync(releaseRun, `${JSON.stringify({
-        conclusion: "success",
-        databaseId: releaseRunId,
-        event: "push",
-        headBranch: "v2.0.0-rc.1",
-        headSha: candidateCommit,
-        url: `https://github.com/anipotts/imessage-mcp/actions/runs/${releaseRunId}`,
-        workflowName: "release 2.x",
-      }, null, 2)}\n`);
-      const evidence = path.join(directory, "canary-evidence.json");
-      const tsx = fileURLToPath(new URL("../node_modules/.bin/tsx", import.meta.url));
-      const script = fileURLToPath(new URL("../scripts/canary-evidence.ts", import.meta.url));
-      execFileSync(tsx, [
-        script, "create", stablePackage, stableCommit, candidatePackage, metadata, attestations, releaseRun, evidence,
-      ], {
-        cwd: directory,
-        stdio: "ignore",
-      });
-      execFileSync(tsx, [
-        script, "verify", stablePackage, stableCommit, candidatePackage, metadata, attestations, releaseRun, evidence,
-      ], {
-        cwd: directory,
-        stdio: "ignore",
-      });
-      const value = JSON.parse(readFileSync(evidence, "utf8")) as {
-        schema_version: number;
-        subject: { stable_source_commit: string };
-        release_candidate: {
-          commit: string;
-          provenance: { transparency_log_integrated_at: string };
-        };
-        canary: { started_at: string; elapsed_seconds: number };
-        stable_derivation: { changed_files: string[]; other_package_files_identical: boolean };
-      };
-      expect(value.schema_version).toBe(2);
-      expect(value.subject.stable_source_commit).toBe(stableSource);
-      expect(value.release_candidate.commit).toBe(candidateCommit);
-      expect(value.release_candidate.provenance.transparency_log_integrated_at).toBe(started);
-      expect(value.canary.started_at).toBe(started);
-      expect(value.canary.elapsed_seconds).toBe(604_800);
-      expect(value.stable_derivation.changed_files).toEqual([...releaseFiles].sort());
-      expect(value.stable_derivation.other_package_files_identical).toBe(true);
-
-      const tamperedPackage = path.join(directory, "tampered.tgz");
-      buildPackage(directory, tamperedPackage, "changed runtime\n");
-      expect(() => execFileSync(
-        tsx,
-        [
-          script, "create", tamperedPackage, stableCommit, candidatePackage, metadata, attestations, releaseRun,
-          path.join(directory, "invalid.json"),
-        ],
-        { cwd: directory, stdio: "ignore" },
-      )).toThrow();
-
-      const packageJsonFile = path.join(directory, "package.json");
-      const stablePackageJson = JSON.parse(readFileSync(packageJsonFile, "utf8")) as Record<string, unknown>;
-      stablePackageJson.scripts = { prepublishOnly: "node changed-install-hook.js" };
-      writeFileSync(packageJsonFile, `${JSON.stringify(stablePackageJson, null, 2)}\n`);
-      const tamperedLifecycle = path.join(directory, "tampered-lifecycle.tgz");
-      buildPackage(directory, tamperedLifecycle);
-      expect(() => execFileSync(
-        tsx,
-        [
-          script, "create", tamperedLifecycle, stableCommit, candidatePackage, metadata, attestations, releaseRun,
-          path.join(directory, "invalid-lifecycle.json"),
-        ],
-        { cwd: directory, stdio: "ignore" },
-      )).toThrow();
-
-      writeVersionFiles(directory, "2.0.0", stableStatus);
-      const dependencyManifestFile = path.join(directory, "package.json");
-      const dependencyManifest = JSON.parse(readFileSync(dependencyManifestFile, "utf8")) as {
-        dependencies: Record<string, string>;
-      };
-      dependencyManifest.dependencies.example = "1.0.1";
-      writeFileSync(dependencyManifestFile, `${JSON.stringify(dependencyManifest, null, 2)}\n`);
-      const tamperedDependency = path.join(directory, "tampered-dependency.tgz");
-      buildPackage(directory, tamperedDependency);
-      expect(() => execFileSync(
-        tsx,
-        [
-          script, "create", tamperedDependency, stableCommit, candidatePackage, metadata, attestations, releaseRun,
-          path.join(directory, "invalid-dependency.json"),
-        ],
-        { cwd: directory, stdio: "ignore" },
-      )).toThrow();
-
-      writeVersionFiles(directory, "2.0.0", stableStatus);
-      const mcpFile = path.join(directory, ".mcp.json");
-      const mcp = JSON.parse(readFileSync(mcpFile, "utf8")) as {
-        mcpServers: { "imessage-history": { command: string } };
-      };
-      mcp.mcpServers["imessage-history"].command = "changed-runner";
-      writeFileSync(mcpFile, `${JSON.stringify(mcp, null, 2)}\n`);
-      const tamperedClient = path.join(directory, "tampered-client.tgz");
-      buildPackage(directory, tamperedClient);
-      expect(() => execFileSync(
-        tsx,
-        [
-          script, "create", tamperedClient, stableCommit, candidatePackage, metadata, attestations, releaseRun,
-          path.join(directory, "invalid-client.json"),
-        ],
-        { cwd: directory, stdio: "ignore" },
-      )).toThrow();
-    } finally {
-      rmSync(directory, { recursive: true, force: true });
-    }
-  }, 60_000);
 });

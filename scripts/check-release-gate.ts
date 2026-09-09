@@ -2,79 +2,22 @@
 
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { isNumberedReleaseCandidate } from "./release-version.js";
-
-interface ReleaseStatus {
-  schema_version: number;
-  subject_version: string;
-  prerelease_ready: boolean;
-  prerelease_gates: Record<string, boolean>;
-  stable: {
-    ready: boolean;
-    subject_version: string | null;
-    release_candidate: string | null;
-    candidate_commit: string | null;
-    candidate_package_sha256: string | null;
-    canary_started_at: string | null;
-    canary_completed_at: string | null;
-    exercises: Record<string, boolean>;
-  };
-}
 
 const packageJson = JSON.parse(readFileSync("package.json", "utf8")) as { version: string };
 const expected = process.argv[2] ?? packageJson.version;
+assert.match(expected, /^2\.\d+\.\d+(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$/u);
 assert.equal(packageJson.version, expected, "requested release version must match package.json");
 
-const status = JSON.parse(readFileSync("release-status.json", "utf8")) as ReleaseStatus;
-assert.equal(status.schema_version, 4);
+// This file records local readiness. Protected CI and exact-source security
+// attestations remain the publication authority for both release channels.
+const status = JSON.parse(readFileSync("release-status.json", "utf8"));
+assert.equal(status.schema_version, 5);
 assert.equal(status.subject_version, expected, "release evidence must name the exact requested version");
-if (expected.includes("-")) {
-  assert.equal(status.prerelease_ready, true, "prerelease publication remains blocked until every named gate is complete");
-  assert.ok(Object.keys(status.prerelease_gates).length >= 7 && Object.values(status.prerelease_gates).every(Boolean),
-    "prerelease requires every named automated and manual gate");
-  assert.match(readFileSync("VERIFICATION.md", "utf8"), /prerelease release gate:\s*passed/iu);
-  process.stdout.write(`prerelease release gate passed for ${expected}\n`);
-  process.exit(0);
-}
-
-assert.match(expected, /^\d+\.\d+\.\d+$/u, "stable release version must not be a prerelease");
-assert.equal(status.stable.ready, true, "stable publication remains blocked until its canary state is ready");
-assert.equal(status.stable.subject_version, expected, "stable state must name the exact requested version");
-assert.ok(typeof status.stable.release_candidate === "string");
-assert.ok(isNumberedReleaseCandidate(expected, status.stable.release_candidate),
-  "stable release must derive from a numbered release candidate");
-assert.ok(typeof status.stable.candidate_commit === "string" && /^[a-f0-9]{40}$/u.test(status.stable.candidate_commit),
-  "stable state must bind the exact release-candidate commit");
-assert.ok(
-  typeof status.stable.candidate_package_sha256 === "string" &&
-  /^[a-f0-9]{64}$/u.test(status.stable.candidate_package_sha256),
-  "stable state must bind the exact release-candidate package digest",
-);
-const started = Date.parse(status.stable.canary_started_at ?? "");
-const completed = Date.parse(status.stable.canary_completed_at ?? "");
-assert.ok(Number.isFinite(started) && Number.isFinite(completed), "stable canary timestamps must be valid");
-assert.ok(completed - started >= 7 * 24 * 60 * 60 * 1_000, "stable canary must run for at least seven full days");
-assert.ok(completed <= Date.now(), "stable canary completion cannot be in the future");
-assert.deepEqual(Object.keys(status.stable.exercises).sort(), [
-  "all_privacy_modes",
-  "all_service_families",
-  "all_seven_tools",
-  "claude_code",
-  "claude_desktop",
-  "clean_room_first_run",
-  "client_namespace",
-  "codex",
-  "copied_database",
-  "cursor",
-  "http_proxy_simulation",
-  "installed_tarball",
-  "live_database",
-  "package_content",
-  "privacy_leakage",
-  "prompt_injection_boundary",
-  "stdio",
+assert.equal(status.channel, expected.includes("-") ? "next" : "latest");
+assert.equal(status.ready, true, "release preparation is incomplete");
+assert.deepEqual(Object.keys(status.gates).sort(), [
+  "dependency_audit", "installed_package", "metadata_and_package_contents",
+  "million_message_performance", "privacy", "protocol", "regressions",
 ]);
-assert.ok(Object.values(status.stable.exercises).every((value) => value === true),
-  "stable release requires every named canary exercise");
-assert.match(readFileSync("VERIFICATION.md", "utf8"), /stable release gate:\s*passed/iu);
-process.stdout.write(`stable release state is structurally ready for protected canary attestation at ${expected}\n`);
+assert.ok(Object.values(status.gates).every((value) => value === true), "every named automated gate must pass");
+process.stdout.write(`release preparation passed for ${expected}; publication requires protected exact-source evidence\n`);

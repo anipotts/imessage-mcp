@@ -24,8 +24,12 @@ function sha256(path: string): string {
   return createHash("sha256").update(readFileSync(path)).digest("hex");
 }
 
-function pngDimensions(path: string): { width: number; height: number } {
+function imageDimensions(path: string): { width: number; height: number } {
   const bytes = readFileSync(path);
+  if (["GIF87a", "GIF89a"].includes(bytes.subarray(0, 6).toString("ascii"))) {
+    assert.ok(bytes.length >= 10, `${path} is not a complete GIF`);
+    return { width: bytes.readUInt16LE(6), height: bytes.readUInt16LE(8) };
+  }
   assert.ok(bytes.length >= 24, `${path} is not a complete PNG`);
   assert.equal(bytes.subarray(0, 8).toString("hex"), "89504e470d0a1a0a", `${path} has an invalid PNG signature`);
   assert.equal(bytes.subarray(12, 16).toString("ascii"), "IHDR", `${path} has no leading IHDR chunk`);
@@ -51,6 +55,6 @@ export function assertPackedPackage(actualPaths: string[]): void {
   for (const asset of assets.assets) {
     assert.match(asset.sha256, /^[a-f0-9]{64}$/u);
     assert.equal(sha256(asset.path), asset.sha256, `${asset.path} differs from its reviewed synthetic hash`);
-    assert.deepEqual(pngDimensions(asset.path), { width: asset.width, height: asset.height });
+    assert.deepEqual(imageDimensions(asset.path), { width: asset.width, height: asset.height });
   }
 }

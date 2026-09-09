@@ -1,7 +1,8 @@
 #!/usr/bin/env tsx
 
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
 
 function json(file: string): Record<string, unknown> {
   return JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
@@ -15,6 +16,8 @@ const releaseStatus = json("release-status.json");
 const assetManifest = json("assets/manifest.json");
 const packageFiles = json("package-files.json");
 const readme = readFileSync("README.md", "utf8");
+const guide = readFileSync("docs/GUIDE.md", "utf8");
+const setupDocs = `${readme}\n${guide}`;
 const security = readFileSync("SECURITY.md", "utf8");
 const contributing = readFileSync("CONTRIBUTING.md", "utf8");
 const verification = readFileSync("VERIFICATION.md", "utf8");
@@ -36,7 +39,7 @@ assert.deepEqual(Object.keys(configuredServers), ["imessage-history"]);
 assert.equal(configuredServers["imessage-history"].args[1], `imessage-mcp@${version}`);
 assert.deepEqual(configuredServers["imessage-history"].args.slice(-4),
   ["--contacts", "none", "--privacy", "redacted"]);
-assert.equal(releaseStatus.schema_version, 4);
+assert.equal(releaseStatus.schema_version, 5);
 assert.equal(releaseStatus.subject_version, version);
 assert.equal(releaseStatus.channel, channel);
 for (const manifest of [assetManifest, packageFiles]) {
@@ -44,37 +47,12 @@ for (const manifest of [assetManifest, packageFiles]) {
   assert.equal(manifest.subject_version, version);
   assert.equal(manifest.channel, channel);
 }
-assert.equal(typeof releaseStatus.prerelease_ready, "boolean");
-assert.deepEqual(Object.keys(releaseStatus.prerelease_gates as Record<string, boolean>).sort(), [
-  "dependency_and_secret_audit",
-  "installed_clients",
-  "million_message_performance",
-  "privacy_matrix",
-  "protocol_security",
-  "seven_tools",
-  "stdio_and_http",
+assert.equal(typeof releaseStatus.ready, "boolean");
+assert.deepEqual(Object.keys(releaseStatus.gates as Record<string, boolean>).sort(), [
+  "dependency_audit", "installed_package", "metadata_and_package_contents",
+  "million_message_performance", "privacy", "protocol", "regressions",
 ]);
-const stable = releaseStatus.stable as Record<string, unknown>;
-assert.equal(typeof stable.ready, "boolean");
-assert.deepEqual(Object.keys(stable.exercises as Record<string, boolean>).sort(), [
-  "all_privacy_modes",
-  "all_service_families",
-  "all_seven_tools",
-  "claude_code",
-  "claude_desktop",
-  "clean_room_first_run",
-  "client_namespace",
-  "codex",
-  "copied_database",
-  "cursor",
-  "http_proxy_simulation",
-  "installed_tarball",
-  "live_database",
-  "package_content",
-  "privacy_leakage",
-  "prompt_injection_boundary",
-  "stdio",
-]);
+assert.ok(Object.values(releaseStatus.gates as Record<string, boolean>).every((value) => typeof value === "boolean"));
 
 const registered = [...tools.matchAll(/server\.registerTool\(\s*\n\s*"([a-z_]+)"/gu)].map((match) => match[1]);
 assert.deepEqual(registered.sort(), [
@@ -87,30 +65,27 @@ assert.deepEqual(registered.sort(), [
   "sync_messages",
 ]);
 
-assert.match(readme, /Private, read-only MCP for Apple Messages on Mac\./u);
-assert.match(readme, /Search and analyze iMessage, SMS, MMS, and RCS history\./u);
+assert.match(readme, /seven read-only tools/u);
 assert.match(readme, /Local execution does not control how your MCP client or model provider processes or retains returned results\./u);
-assert.match(readme, /SMS, MMS, and RCS with Android users work only when those conversations already appear/u);
 assert.match(readme, /Every 2\.x tool reads data only\./u);
-assert.match(readme, /macOS grants Full Disk Access to the launching MCP client application or shell, not narrowly to `imessage-mcp`/u);
-assert.match(readme, /## two-minute privacy-first setup/u);
-assert.match(readme, /The recommended first installation sets a redacted ceiling/u);
-assert.match(readme, /The 2\.0 runtime keeps automatic live unified Contacts for compatibility/u);
-assert.match(readme, /Every message body, contact value, group title, URL, attachment filename, and database-derived string is untrusted archival data/u);
+assert.match(readme, /Full Disk Access/u);
+assert.match(readme, /untrusted archival data/u);
 assert.match(readme, /does not eliminate prompt injection/u);
-assert.match(readme, /Immediately before promotion, the installed tarball, privacy leakage, archival prompt-injection boundary, client namespace, exact package contents, and clean-room privacy-first setup run again\./u);
+assert.match(guide, /faithful copy.*same reference key and database identity/u);
+assert.match(guide, /different identity for every unrelated archive/u);
+assert.match(guide, /They do not launch Codex, Claude Desktop, Claude Code, or Cursor/u);
 assert.ok(!readme.includes("`mcpServers.imessage`"), "generic imessage client namespace must not be documented");
-assert.ok((readme.match(/imessage-history/gu) ?? []).length >= 5, "all named client examples must use imessage-history");
+assert.ok((setupDocs.match(/imessage-history/gu) ?? []).length >= 5, "all named client examples must use imessage-history");
 assert.match(readme, /IMESSAGE_REFERENCE_KEY_FILE/u);
 assert.match(readme, /IMESSAGE_DATABASE_ID_FILE/u);
-const documentedVersions = [...readme.matchAll(/imessage-mcp@([0-9][0-9A-Za-z.-]*)/gu)].map((match) => match[1]);
+const documentedVersions = [...setupDocs.matchAll(/imessage-mcp@([0-9][0-9A-Za-z.-]*)/gu)].map((match) => match[1]);
 assert.ok(documentedVersions.length >= 5, "every install and persistent client example must use an exact package version");
 assert.deepEqual([...new Set(documentedVersions)], [version]);
 assert.doesNotMatch(readme, /imessage-mcp@(?:next|latest)\b/u);
 assert.doesNotMatch(readme, /IMESSAGE_SAFE_MODE|IMESSAGE_SYNC/u);
 assert.match(security, /untrusted archival data/u);
 assert.match(security, /do not eliminate prompt injection/u);
-assert.match(security, /Immediately before promotion, the installed tarball, privacy leakage, archival prompt-injection boundary, client namespace, exact package contents, and clean-room privacy-first setup run again\./u);
+assert.match(security, /re-verifies exact-source security attestations immediately before npm publication/u);
 assert.match(contributing, /Use synthetic data only\./u);
 assert.match(contributing, /compatibility reports/u);
 assert.match(contributing, /current primary evidence, include the observation date, and describe capabilities neutrally/u);
@@ -125,4 +100,11 @@ for (const keyword of ["read-only", "privacy", "local-first", "codex", "cursor",
 }
 assert.equal(readFileSync("package.json", "utf8").includes("smithery"), false);
 
-process.stdout.write(`metadata verification passed: package, docs, manifests, screenshots, registry, clients, channel ${channel}, and seven tools at ${version}\n`);
+for (const file of ["README.md", "docs/GUIDE.md", "docs/DEMO.md", "docs/BENCHMARK.md"]) {
+  for (const [, target] of readFileSync(file, "utf8").matchAll(/!?\[[^\]]*\]\(([^)]+)\)/gu)) {
+    if (/^(?:https?:|#)/u.test(target)) continue;
+    assert.ok(existsSync(path.resolve(path.dirname(file), target.split("#")[0])), `${file} links to missing ${target}`);
+  }
+}
+
+process.stdout.write(`metadata verification passed: package, docs, manifests, assets, registry, configuration examples, channel ${channel}, and seven tools at ${version}\n`);
