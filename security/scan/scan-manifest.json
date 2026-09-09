@@ -5,183 +5,451 @@
       {
         "mediaType": "application/json",
         "path": "findings.json",
-        "sha256": "6aaa35b5f9dad4431bf3cc9bc8e1fee8030b3339d51b146346fb355ee6fd754e"
+        "sha256": "351f08dbbc8ac13975747eff865c65860b2308539c8d18ba817a73df6537db7f"
       },
       {
         "mediaType": "application/json",
         "path": "coverage.json",
-        "sha256": "f2a57174d4f7ba4808fb910b0e4db0298c78c5fca6cdb292930759ff26d8298b"
+        "sha256": "475841ebb49ac69e8aca694ff427982d4b19a5829e9df082ec6f4f4e6c8a97a9"
       }
     ],
-    "completedAt": "2026-08-27T20:07:05.771164Z",
+    "completedAt": "2026-09-09T08:14:54.036069Z",
     "coverageRef": "coverage.json",
     "findingsRef": "findings.json",
-    "id": "ecdc5ce0-c355-4292-a182-4c5d129e425c",
+    "id": "9886bf82-e17d-47eb-a144-67a0552106d1",
     "preservedSources": {
-      "checkpoints/a9d82ef49abc17d548c2618d010166c57665782ba6fcc5b941b55f12ab63755c.json": "b64037199d7572be22a762b35eca96964b4cfae8c932f91f6045eaaf86b4df67",
-      "checkpoints/f109fd12fa41d25241518c8dd422c8380e4d91689255af7927a87e3dc9747c97.json": "f109fd12fa41d25241518c8dd422c8380e4d91689255af7927a87e3dc9747c97"
+      "checkpoints/0d07040d1b67c4b3048d081f1bc9d6966d740449748c9df0c0f2bf649efe878d.json": "0d07040d1b67c4b3048d081f1bc9d6966d740449748c9df0c0f2bf649efe878d",
+      "checkpoints/2f54d55dc27dc7e9395af01d4081647193bbdd3ebf99bc0bb54692c170ef7ef4.json": "025fa452e2a0bdb2a8d3537dbe7ca2f6ea5f3ed647490f1faf660547613c26ab",
+      "checkpoints/4eff130bf6767c8d88e89e91e8b0d5689eb79804855dd719fe8cafe54089e67f.json": "cc25e7260a86ca2d5fc21f22f30e4237f38d6e4a00fb2261c6b9c2a3b2455dc5",
+      "checkpoints/704683f8e770c04d710911779940d9f0506337e8b628bb3d34f29352e67bded6.json": "d13db3b74001e1fd3f8a5d6bf2d5be45402950993e46358ced84bad7b0212dfe",
+      "checkpoints/72dd25af1a9da3e26898ecebae226a563579d00f515d29c80556e6b406803c90.json": "fe1d3a859af418dcb43cb9b91aeaf22c827b38b4dfcd7ef9418eb8d38e53af34",
+      "checkpoints/bd69781791b583420b20cef6e574d560e933a0aa342d064b05ad8e1e5599e3cf.json": "6f4f23142088fc9d85cc2292c9d35706a3aaefc36fe182dba686f7f799f202ac",
+      "checkpoints/faf72cff8ead11e51eba6e3bf82d1855eaa831236b475d5a84093c9e2a785691.json": "ee01e7a73446e3f199d967716c78b2ab653b154c2dadc1d0b61ab8314b7c338c"
     },
     "producer": {
       "name": "codex-security-plugin",
-      "version": "0.1.22"
+      "version": "0.1.23"
     },
     "scope": {
-      "artifactsReviewed": [
-        ".claude-plugin/plugin.json",
-        ".github/FUNDING.yml",
-        ".github/ISSUE_TEMPLATE/bug_report.md",
-        ".github/ISSUE_TEMPLATE/feature_request.md",
-        ".github/dependabot.yml",
-        ".github/workflows/attest-canary.yml",
-        ".github/workflows/attest-security-evidence.yml",
-        ".github/workflows/ci.yml",
-        ".github/workflows/release.yml",
-        ".github/workflows/security.yml",
-        ".gitignore",
-        ".mcp.json",
-        "CHANGELOG.md",
-        "CONTRIBUTING.md",
-        "LICENSE",
-        "README.md",
-        "SECURITY.md",
-        "VERIFICATION.md",
-        "assets/demo-dark.png",
-        "assets/demo-light.png",
-        "assets/doctor-dark.png",
-        "assets/doctor-light.png",
-        "assets/logo.png",
-        "assets/manifest.json",
-        "bin/imessage-mcp.js",
-        "docs/ROADMAP-3.0.md",
-        "native/contact-resolver.js",
-        "native/message-text-decoder.js",
-        "package-files.json",
-        "package-lock.json",
-        "package.json",
-        "release-status.json",
-        "scripts/canary-evidence.ts",
-        "scripts/check-metadata.ts",
-        "scripts/check-release-gate.ts",
-        "scripts/clean-dist.mjs",
-        "scripts/package-manifest.ts",
-        "scripts/release-version.ts",
-        "scripts/screenshots.ts",
-        "scripts/security-evidence.ts",
-        "scripts/test-installed.ts",
-        "scripts/test-live-parity.ts",
-        "scripts/test-performance.ts",
-        "scripts/test-protocol.ts",
-        "security/README.md",
-        "security/scan/coverage.json",
-        "security/scan/findings.json",
-        "security/scan/scan-manifest.json",
-        "server.json",
-        "src/cli.ts",
-        "src/commands/doctor.ts",
-        "src/config.ts",
-        "src/contacts.ts",
-        "src/contracts.ts",
-        "src/database.ts",
-        "src/decoder.ts",
-        "src/errors.ts",
-        "src/index.ts",
-        "src/privacy.ts",
-        "src/references.ts",
-        "src/repositories/analytics.ts",
-        "src/repositories/conversations.ts",
-        "src/repositories/message-integrity.ts",
-        "src/repositories/messages.ts",
-        "src/repositories/sync.ts",
-        "src/result.ts",
-        "src/schema-sql.ts",
-        "src/search-index.ts",
-        "src/secrets.ts",
-        "src/sender.ts",
-        "src/time.ts",
-        "src/tool-local.ts",
-        "src/tool-worker.ts",
-        "src/tools.ts",
-        "src/transport.ts",
-        "src/verify-installed-graph.ts",
-        "tests/correctness.test.ts",
-        "tests/fixture.ts",
-        "tests/privacy.test.ts",
-        "tests/security.test.ts",
-        "tsconfig.json",
-        "vitest.config.ts"
+      "context": "ok then do it using whatver plugins sources needed\nApprove the version-pin update\nRelease source review after the requested fixes: all seven tools stay read-only; preserve startup privacy ceilings, signatures, exact-source binding, complete coverage and zero-finding release checks. Source and synthetic fixtures only; no private Messages or Contacts access.",
+      "effectiveResources": [
+        {
+          "configurationChain": "bin -> dist/cli (or npm dev -> src/cli); --privacy > IMESSAGE_PRIVACY > stdio default; --contacts > IMESSAGE_CONTACTS > live-source default",
+          "consumer": "Stdio MCP disclosure",
+          "deployment": "Bare installed/development CLI",
+          "discrepancy": "The help omits HTTP's distinct redacted default (src/cli.ts:25-30; server.json:32).",
+          "documentedClaim": "CLI help calls full the runtime default",
+          "effectiveValue": "stdin/stdout; privacy full unless overridden; live Contacts unless none or copy source; transport buffer 1 MiB",
+          "enforcingControl": "CLI config, effectivePrivacy, centralized result projection and source readonly connection",
+          "evidence": [
+            "bin/imessage-mcp.js:1-2",
+            "package.json:35-37",
+            "src/config.ts:63-100",
+            "src/index.ts:12-19",
+            "src/privacy.ts:38-46"
+          ],
+          "recipients": "Launching MCP client; two runtime worker threads"
+        },
+        {
+          "configurationChain": "Client launches npx -y imessage-mcp@2.0.0-rc.2 with explicit arguments and expands its configuration variables",
+          "consumer": "Shipped MCP client configuration",
+          "deployment": ".mcp.json launcher",
+          "effectiveValue": "Namespace imessage-history; Contacts none; privacy redacted; secret file references ${HOME}/.imessage-mcp-reference-key and ${HOME}/.imessage-mcp-database-id",
+          "enforcingControl": "Explicit startup arguments, safe secret-file loader; variable expansion belongs to client configuration processing",
+          "evidence": [
+            ".mcp.json:3-8",
+            "src/config.ts:63-105",
+            "src/secrets.ts:18-39"
+          ],
+          "missingImpactPrerequisite": "Which client performs ${HOME} interpolation and its selected home are deployment facts, not inferred from server source.",
+          "recipients": "Launching client, config secret loader; raw secret values never MCP output"
+        },
+        {
+          "configurationChain": "--port defaults 3000; IMESSAGE_ALLOWED_HOSTS CSV defaults localhost/127.0.0.1/[::1]; IMESSAGE_ALLOWED_ORIGINS defaults resulting host list; privacy override > HTTP redacted default",
+          "consumer": "HTTP listener and MCP request handler",
+          "deployment": "Optional CLI --transport http",
+          "effectiveValue": "http://127.0.0.1:3000/mcp unless port changed; POST only; stateless JSON; one authenticated-operator principal",
+          "enforcingControl": "Timing-safe bearer authentication before parse, Host/Origin SDK validation, 256 KiB body, 4 MiB response, two active requests, 60/minute, header/body timeouts, connection caps",
+          "evidence": [
+            "src/config.ts:78-81,100",
+            "src/transport.ts:15-24,60-71,225-295,307-353"
+          ],
+          "missingImpactPrerequisite": "Remote access needs an operator-created private proxy/Tailscale Serve route; no direct-public deployment assumed (SECURITY.md:21).",
+          "recipients": "Bearer-authenticated local client or configured private TLS proxy; all clients share runtime ceiling/authority"
+        },
+        {
+          "configurationChain": "--database > IMESSAGE_DB > userInfo().homedir/Library/Messages/chat.db; exact default resolved path selects live; DatabaseContext realpath -> readonly opens",
+          "consumer": "Archive SQLite connections",
+          "deployment": "Live CLI source",
+          "effectiveValue": "Account-home/Library/Messages/chat.db, canonicalized; SQLite sidecars beside canonical source",
+          "enforcingControl": "Regular-file resolution, readonly/fileMustExist/query_only, per-request inode/schema/data-version checks and pinned transaction snapshot",
+          "evidence": [
+            "src/config.ts:21-23,63-65",
+            "src/database.ts:225-233,323-345,406-425,444-474"
+          ],
+          "missingImpactPrerequisite": "Launching application must already have macOS file access; Messages is sole supported live writer (README.md:44; SECURITY.md:31).",
+          "recipients": "Two worker DatabaseContexts, each with observer and query connection; optional doctor context"
+        },
+        {
+          "configurationChain": "Non-default --database/IMESSAGE_DB -> path.resolve -> source copy -> realpath -> canonical path; WAL child derives from canonical path",
+          "consumer": "Archive SQLite connections",
+          "deployment": "Operator-selected copied DB",
+          "effectiveValue": "Operator-selected canonical regular DB file; adjacent <canonical-db>-wal; Contacts forced none",
+          "enforcingControl": "Reject live DB canonical/inode aliases and live WAL aliases; copy WAL regular/non-symlink check before SQLite; readonly/query_only and per-request identity",
+          "evidence": [
+            "src/config.ts:63-76",
+            "src/database.ts:43-55,70-123,406-414"
+          ],
+          "missingImpactPrerequisite": "Operator controls DB, sidecars and parent directory throughout startup/run; same-account adversarial replacement excluded (SECURITY.md:33).",
+          "recipients": "Worker readonly observer/query connections"
+        },
+        {
+          "configurationChain": "Explicit runtimeConfig Buffer for trusted code, else exactly one of IMESSAGE_REFERENCE_KEY or IMESSAGE_REFERENCE_KEY_FILE -> UTF-8 Buffer -> config base64 -> workerData -> DatabaseContext",
+          "consumer": "Reference authentication key",
+          "deployment": "Normal CLI runtime",
+          "effectiveValue": "32-4096-byte operator secret, optionally at operator-selected 0600 file; no server default/persistent generated key",
+          "enforcingControl": "Source conflict rejection; O_NOFOLLOW/nonblock readonly regular-file open; owner/mode/size/length checks; required normal runtime key",
+          "evidence": [
+            "src/secrets.ts:10-55,68-75",
+            "src/config.ts:87-105",
+            "src/tools.ts:64-78,153-162",
+            "src/tool-local.ts:64-81"
+          ],
+          "recipients": "Parent config, both workers, DatabaseContext and reference/sync HMAC/AES consumers; named env sources stripped from worker env"
+        },
+        {
+          "configurationChain": "Explicit runtimeConfig Buffer for trusted code, else exactly one of IMESSAGE_DATABASE_ID or IMESSAGE_DATABASE_ID_FILE -> config -> workerData -> lineage HMAC",
+          "consumer": "Database-lineage identity",
+          "deployment": "Normal CLI runtime",
+          "effectiveValue": "Independent 32-4096-byte operator-selected lineage value; distinct from reference key; faithful copies reuse it",
+          "enforcingControl": "Safe secret loader, non-equality with reference key, required normal runtime value; independent assignment by operator",
+          "evidence": [
+            "src/secrets.ts:10-55,77-83",
+            "src/config.ts:87-105",
+            "src/tool-local.ts:70-81",
+            "src/database.ts:294-303,391-401"
+          ],
+          "missingImpactPrerequisite": "Uniqueness/entropy and correct reuse across faithful copies depend on operator provisioning (SECURITY.md:29).",
+          "recipients": "Parent config and worker DatabaseContexts; HMAC output scopes encrypted references"
+        },
+        {
+          "configurationChain": "Exactly one of IMESSAGE_API_TOKEN or IMESSAGE_API_TOKEN_FILE -> operatorSecret -> padded 4096-byte verifier",
+          "consumer": "HTTP bearer verifier",
+          "deployment": "HTTP runtime or HTTP doctor validation",
+          "effectiveValue": "Operator-selected 32-4096-byte token; optional 0600 file; runtime plaintext Buffer zeroed after verifier initialization",
+          "enforcingControl": "Safe secret-file loader, source conflict/length checks and timingSafeEqual with exact length",
+          "evidence": [
+            "src/secrets.ts:10-55,59-65",
+            "src/transport.ts:38-71,225-234",
+            "src/tools.ts:64-78"
+          ],
+          "recipients": "Main HTTP transport verifier; doctor validates then zeroes its Buffer; token is not passed in worker config"
+        },
+        {
+          "configurationChain": "Live source and contacts != none -> lazy UnifiedContactResolver -> package/native/contact-resolver.js through fixed /usr/bin/osascript",
+          "consumer": "Unified Contacts store",
+          "deployment": "Live source with contacts live; doctor live",
+          "effectiveValue": "Current authorized macOS unified Contacts store, not a configurable Contacts DB path",
+          "enforcingControl": "CNContactStore status must equal authorized; no authorization request; 15-second helper timeout and source/count/value/handle limits",
+          "evidence": [
+            "src/config.ts:66-76",
+            "src/contacts.ts:31-57,92-118",
+            "native/contact-resolver.js:34-76",
+            "src/commands/doctor.ts:87-94"
+          ],
+          "recipients": "Native helper stdout -> worker or doctor memory; selected names/handles then privacy-filtered MCP output or counts in doctor"
+        },
+        {
+          "configurationChain": "--contacts none, environment none, or source copy -> contacts_mode none -> disabled resolver",
+          "consumer": "Unified Contacts store",
+          "deployment": "Contacts none or any copied source",
+          "effectiveValue": "No live Contacts invocation; exact handle fallback reads selected archive's handle table",
+          "enforcingControl": "Config rejects copy+live and resolver returns contacts_not_paired before process launch",
+          "evidence": [
+            "src/config.ts:66-76",
+            "src/contacts.ts:92-104",
+            "src/tool-local.ts:144-181"
+          ],
+          "recipients": "Archive-only contact resolution"
+        },
+        {
+          "configurationChain": "ToolRuntime -> two WorkerSlots -> workerData with config/key/lineage/masking key and shared decoder lock; filtered env",
+          "consumer": "Worker process state",
+          "deployment": "stdio and HTTP normal runtime",
+          "effectiveValue": "Two Node worker threads; each capped at 640 MiB old generation, 64 MiB young generation and 8 MiB stack; two concurrent tool calls; 30-second ordinary and 90-second cold search deadline",
+          "enforcingControl": "Worker resourceLimits, slot routing and worker/native-child hard termination; no claim of OS privilege isolation",
+          "evidence": [
+            "src/tools.ts:64-78,153-171,234-250,277-315,362-401",
+            "src/tool-worker.ts:27-40,50-66"
+          ],
+          "recipients": "Worker runtimes; stdout/stderr drained by coordinator; masked/filtered results posted to parent"
+        },
+        {
+          "configurationChain": "Package-relative ../native/message-text-decoder.js -> fixed /usr/bin/osascript -l JavaScript; shell false; stdin bounded base64 JSON",
+          "consumer": "Native attributed-body/edit decoder",
+          "deployment": "Tool workers or diagnostic self-test",
+          "effectiveValue": "Process env LANG=en_US.UTF-8, PATH=/usr/bin:/bin, TMPDIR=/tmp; no archive path or runtime secret supplied; 1 MiB/blob, 500-item/8 MiB batch, 16 MiB output, 15-second native request",
+          "enforcingControl": "Shared serialization, bounded input/output, request-ID validation, native class allowlist, legacy root-string parser and kill deadlines",
+          "evidence": [
+            "src/decoder.ts:17-22,97-104,145-170,176-199,227-248,344-379",
+            "native/message-text-decoder.js:62-181,227-259"
+          ],
+          "recipients": "Foundation helper and requesting worker/doctor"
+        },
+        {
+          "configurationChain": "LocalToolRuntime MemorySearchIndex -> new Database(':memory:') -> temp_store MEMORY -> max_page_count and estimate/measurement budget",
+          "consumer": "Decoded search index",
+          "deployment": "Any privacy mode on first text search",
+          "discrepancy": "The index intentionally executes CREATE/write SQL against :memory:, while archive connections remain read-only (src/database.ts:225-233).",
+          "documentedClaim": "Server does not execute a write statement (SECURITY.md:19), and decoded index stays in memory (SECURITY.md:23).",
+          "effectiveValue": "In-memory message_text table, normalized bodies, identities, conversation names and attachment names; limit min(512 MiB,totalmem()/8)",
+          "enforcingControl": "In-memory DB/temp storage; page ceiling; source/item/relation and measured memory checks; fail-closed default",
+          "evidence": [
+            "src/tool-local.ts:82-86,410-437",
+            "src/search-index.ts:277-305,821-860",
+            "src/result.ts:82-102"
+          ],
+          "recipients": "Worker search implementation; only privacy-projected results leave MCP boundary"
+        },
+        {
+          "configurationChain": "attachment.filename: '~/' prefix -> userInfo().homedir join; otherwise absolute filename -> preserved; relative -> null; startup attachment setting plus request flag plus full mode",
+          "consumer": "Attachment absolute path output",
+          "deployment": "Live or copied archive, explicit full-mode request",
+          "discrepancy": "That sentence omits the additionally enforced startup switch; CLI documents it (src/cli.ts:30).",
+          "documentedClaim": "Guide requires full plus include_attachment_paths (docs/GUIDE.md:107).",
+          "effectiveValue": "Metadata path under current account home for '~/...' values or archived absolute path; not relocated relative to copied DB",
+          "enforcingControl": "Three-way disclosure gate; only path metadata emitted",
+          "evidence": [
+            "src/repositories/messages.ts:29,279-295",
+            "src/tool-local.ts:371-394",
+            "src/config.ts:83-85,103"
+          ],
+          "recipients": "Requesting full-mode MCP client; no attachment-content read operation at this consumer"
+        },
+        {
+          "configurationChain": "Operator reference key + database identity -> HMAC lineage -> AES-GCM kind-bound reference; cursor contains watermark and integrity checkpoint",
+          "consumer": "Opaque traversal/cursor state",
+          "deployment": "Live source",
+          "effectiveValue": "Caller-held encrypted/authenticated token; ordinary references <=16384 chars, sync <=128000; recent mutable content window one hour",
+          "enforcingControl": "AEAD, expected kind/lineage/size checks, structural/content/lifecycle/receipt integrity validation and frozen paging watermark",
+          "evidence": [
+            "src/references.ts:4-7,16-73",
+            "src/database.ts:294-303",
+            "src/repositories/sync.ts:110-115,1194-1212,1269-1301"
+          ],
+          "missingImpactPrerequisite": "Live supported monotonic lifecycle assumes Messages sole writer (SECURITY.md:31).",
+          "recipients": "MCP caller and later same-lineage decoder; no server-side watcher/session persistence"
+        },
+        {
+          "configurationChain": "prepare -> context.canonicalPath plus context.canonicalPath+'-wal' -> readonly nofollow file streams -> HMAC; reuse recomputes",
+          "consumer": "Copied-source sync fingerprint",
+          "deployment": "Copied DB startup and cursor reuse",
+          "effectiveValue": "Whole canonical copy and optional WAL fingerprint; max 8 GiB per file, shared 25-second fingerprint deadline, 1 MiB read chunks; caller-held authenticated cursor",
+          "enforcingControl": "Before/after descriptor metadata, final lstat stability, observer data-version/frozen-watermark checks and exact hash comparison",
+          "evidence": [
+            "src/tool-local.ts:94-101",
+            "src/repositories/sync.ts:110-115,135-258,1246-1266"
+          ],
+          "recipients": "Worker sync code and opaque cursor consumer"
+        },
+        {
+          "configurationChain": "Same runtimeConfig as CLI -> direct DatabaseContext; missing key/identity replaced only for schema diagnostic with fixed separate fallback buffers; Contacts and decoder direct calls",
+          "consumer": "Diagnostic archive/key/native checks",
+          "deployment": "imessage-mcp doctor",
+          "effectiveValue": "Selected canonical archive and '-wal' readability/schema checks; configured Contacts status or disabled pass; synthetic native self-test; status/remediation output",
+          "enforcingControl": "Same readonly DB/source boundary; no secret values in output; missing normal secrets still fail doctor checks",
+          "evidence": [
+            "src/cli.ts:101-112",
+            "src/commands/doctor.ts:51-123"
+          ],
+          "recipients": "Operator stdout; no MCP listener; no automatic settings or permission change"
+        },
+        {
+          "configurationChain": "IMESSAGE_PARITY_DB when set -> path.resolve and copy; else os.homedir()/Library/Messages/chat.db and live; direct LocalToolRuntime full/Contacts live config",
+          "consumer": "Private live-parity probes",
+          "deployment": "Developer-only npm run test:live-parity, conditional and not executed",
+          "effectiveValue": "Selected developer archive; default live Contacts; ephemeral random keys; maximum sampled body count 500",
+          "enforcingControl": "DatabaseContext readonly, source-dependent Contacts, bounded probes and aggregate diagnostics; not normal runtime CLI parsing or worker deadline isolation",
+          "evidence": [
+            "scripts/test-live-parity.ts:22-35,43-57,68-83,234-249",
+            "package.json:40-51"
+          ],
+          "missingImpactPrerequisite": "Explicit private-store authorization would be required; current user context permits only source/synthetic work.",
+          "recipients": "Parity process/native helpers; aggregate count/status stdout"
+        },
+        {
+          "configurationChain": "createFixture -> copy mode/Contacts none -> synthetic tool results -> SVG/ImageMagick frame rendering",
+          "consumer": "Public demo/screenshots",
+          "deployment": "Developer generation, conditional",
+          "effectiveValue": "Task-temp transcripts/frames; repository assets/demo.gif, assets/*.png, assets/manifest.json and docs/DEMO.md",
+          "enforcingControl": "Screenshot script rejects every supplied DB; demo uses newly created fixture and scrubbed IMESSAGE environment, then cleans task scratch",
+          "evidence": [
+            "scripts/screenshots.ts:15-20,72-85,132-165",
+            "scripts/demo-installed.ts:14-24,41-50,53-100"
+          ],
+          "missingImpactPrerequisite": "Source describes intended synthetic generation; architecture mapping does not certify every current image's visual contents or historical Git objects (SECURITY.md:37).",
+          "recipients": "Operator workspace and later package/public repository readers if published"
+        },
+        {
+          "configurationChain": "security-attestation environment -> vars.SECURITY_SCAN_ALLOWED_SIGNER -> $RUNNER_TEMP/security-scan-allowed-signers -> git verify-commit; npm checks/pack -> canonical evidence creation",
+          "consumer": "Security attestation",
+          "deployment": "workflow_dispatch attest-security-evidence",
+          "effectiveValue": "evidence/security-evidence.json and evidence/<npm tarball>; artifact security-evidence-<commit>; 90-day retention; GitHub OIDC attestation",
+          "enforcingControl": "Signature verification before source execution; direct-parent-only three-file evidence commit, producer 0.1.23, exact git_revision, zero findings, complete scope/no exclusions/deferred/open questions, canonical hashes",
+          "evidence": [
+            ".github/workflows/attest-security-evidence.yml:14-68",
+            "scripts/security-evidence.ts:18,73-197,213-254"
+          ],
+          "missingImpactPrerequisite": "Environment restrictions and allowed signer value remain externally configured provider controls, not verified here.",
+          "recipients": "GitHub artifact/attestation service and later release verifier"
+        },
+        {
+          "configurationChain": "verify-release + secret scan + CodeQL -> verified-release-<version> artifact -> npm-release environment -> immediate attestation/source/version/hash verification -> npm publish",
+          "consumer": "npm publication",
+          "deployment": "Normal v2.* tag release",
+          "effectiveValue": "Public imessage-mcp@exact package version on registry.npmjs.org; next for prerelease, latest for stable; --ignore-scripts --provenance",
+          "enforcingControl": "Tag/version check; stable main ancestry; zero-finding exact-source evidence; protected attester identity/source digest; exact package SHA256; no rebuild during publish",
+          "evidence": [
+            ".github/workflows/release.yml:50-88,139-190"
+          ],
+          "missingImpactPrerequisite": "npm trusted publisher tuple and provider environment restrictions are external prerequisites.",
+          "recipients": "npm registry and package consumers; npm job receives id-token write but only read GitHub contents"
+        },
+        {
+          "configurationChain": "Successful npm publication + byte/installed-graph readback -> mcp-registry-release -> checksum-pinned mcp-publisher v1.8.1 -> local server.json",
+          "consumer": "MCP Registry metadata",
+          "deployment": "Normal tag release",
+          "effectiveValue": "io.github.anipotts/imessage-mcp exact version at registry.modelcontextprotocol.io; publisher temporary executable from fixed GitHub release URL",
+          "enforcingControl": "Separate id-token job, fixed publisher checksum, validate command, exact post-publication metadata comparison",
+          "evidence": [
+            ".github/workflows/release.yml:193-287"
+          ],
+          "recipients": "Registry service via GitHub OIDC and registry users"
+        },
+        {
+          "configurationChain": "Verified npm plus registry -> github-release environment -> verified artifacts -> draft -> tag/prerelease/asset-set check -> publish -> immutable/readback verification",
+          "consumer": "GitHub release/asset publication",
+          "deployment": "Normal tag release",
+          "effectiveValue": "v<version> GitHub release in anipotts/imessage-mcp with tarball and security-evidence.json",
+          "enforcingControl": "Draft-first construction, exact asset set and version checks, immutable state check, release and asset attestation verification",
+          "evidence": [
+            ".github/workflows/release.yml:289-360"
+          ],
+          "recipients": "Public GitHub release consumers; job has contents write separately from npm/registry"
+        },
+        {
+          "configurationChain": "Operator version/evidence_commit/failed_run_id -> main check -> signed tag/commit and original successful-npm/failed-downstream run verification -> original artifact/attestation download",
+          "consumer": "Existing npm artifact recovery verification",
+          "deployment": "Main workflow_dispatch recovery",
+          "effectiveValue": "Already-published exact npm tarball and provenance; original release artifact; reviewed lock graph from evidence commit; no npm publishing capability in recovery",
+          "enforcingControl": "Input syntax/lineage/run-state checks, attestation source digest, byte cmp, expected registry URL/dist-tag/provenance tuple, installed graph and npm audit signatures",
+          "evidence": [
+            ".github/workflows/release.yml:362-375,386-482,511-565"
+          ],
+          "missingImpactPrerequisite": "Requires genuine failed prior tag run after successful npm publication; current provider state not queried.",
+          "recipients": "Recovery verifier and downstream resumed-release artifact consumers"
+        },
+        {
+          "configurationChain": "Recovery verifier -> evidence_commit:server.json -> checksum-pinned publisher -> inspect exact existing registry version -> publish only absent",
+          "consumer": "Recovered MCP Registry metadata",
+          "deployment": "Main workflow_dispatch downstream recovery",
+          "effectiveValue": "Original evidence-commit metadata for original version; temp $RUNNER_TEMP/release-server.json and mcp-publisher",
+          "enforcingControl": "Tag still targets evidence commit; exact source/version metadata; absent-or-equal check and exact readback",
+          "evidence": [
+            ".github/workflows/release.yml:568-657"
+          ],
+          "recipients": "MCP Registry via separate mcp-registry-release OIDC job"
+        },
+        {
+          "configurationChain": "Verified original npm and registry -> resumed-release artifact -> inspect absent/draft/published state -> fill/verify draft if needed -> publish -> immutable attested readback",
+          "consumer": "Recovered GitHub release/asset publication",
+          "deployment": "Main workflow_dispatch downstream recovery",
+          "effectiveValue": "Original v<version> GitHub release and exact resumed artifacts",
+          "enforcingControl": "Reject wrong prerelease/unexpected assets/nonimmutable published state; exact draft asset verification; final immutable release and asset attestation verification",
+          "evidence": [
+            ".github/workflows/release.yml:659-775"
+          ],
+          "recipients": "Public GitHub release users through github-release contents-write job"
+        }
       ],
       "excludePaths": [],
       "includePaths": [
         "."
       ],
       "limitations": [
-        "Independent Deep Scan variance reduction was unavailable because the desktop parent lacks the required managed filesystem permission profile.",
-        "External provider protection and identity state remain publication-time controls.",
-        "No private Messages or Contacts values were retained."
+        "Third-party dependency and macOS framework internals are outside the tracked source. No dynamic Foundation compact-alias resource experiment was performed; the rejected source hypothesis and counterevidence are retained.",
+        "This source review does not certify external provider configuration, historical verification claims, or first-run permissions on a clean Mac."
       ],
-      "runtimeStatus": "Node 24 full verification passed: 112 tests, seven tools over stdio and authenticated HTTP, installed tarball, clean-room redacted first run, exact metadata/package content, and zero npm advisories.",
-      "summary": "Complete Standard review of exact signed 2.0.0-rc.1 source 9c4a5b8e73f7ac7dd2f7ce20f1237ac689bcb12c and all 82 tracked artifacts.",
-      "validationMode": "Sequential exact-source parent review, independent static baseline, exact delta reconciliation, prior sealed scan as historical routing input only, and executed supported-runtime release gates."
+      "runtimeStatus": "No application code, private Messages or Contacts data was executed or accessed by this source audit.",
+      "summary": "Complete offline source review of immutable RC.2 source 51a26eb6bb491568c3ee0cd4923905640f75c91c; 89 of 89 tracked files fully reviewed.",
+      "validationMode": "source_only"
     },
-    "sealedAt": "2026-08-27T20:07:05.771164Z",
-    "startedAt": "2026-08-27T20:05:53.537904Z",
+    "sealedAt": "2026-09-09T08:14:54.036069Z",
+    "startedAt": "2026-09-09T07:55:38.256292Z",
     "status": "completed",
     "target": {
       "displayName": "imessage-mcp",
       "kind": "git_revision",
-      "revision": "9c4a5b8e73f7ac7dd2f7ce20f1237ac689bcb12c",
-      "targetId": "target_sha256_91a5cfb7b3d17e1fa8fb342de4bf5e1ed933375ae15ffb07b6229c2a5086c983"
+      "revision": "51a26eb6bb491568c3ee0cd4923905640f75c91c",
+      "targetId": "target_sha256_918ebb4ecc205812ef651a4cdaf0c0aa2d553a79cf181d3b991b58fec456ace1"
     },
     "threatModel": {
       "assets": [
-        "Messages bodies and visible lifecycle state",
-        "Contacts, handles, group titles, URLs, attachment metadata and paths",
-        "Messages database, WAL, copied archives, schema and lineage",
-        "Launching client Full Disk Access and Contacts authorization",
-        "Reference, database identity, masking, and HTTP secrets plus authenticated cursors",
-        "Decoded bodies and memory-only search indexes",
-        "Privacy, diagnostic, and read-only guarantees",
-        "Signed source, scan evidence, package bytes, dependency lock, OIDC identities, Registry and release provenance"
+        "Apple Messages bodies, handles, group titles, relationships, lifecycle/receipt state and attachment metadata in the account's Library/Messages/chat.db and its SQLite sidecars, or an operator-selected faithful copy. The account home comes from userInfo().homedir; copy WAL resolves as canonicalDatabasePath + '-wal'. Evidence: src/config.ts:21-23,63-76; src/database.ts:96-123,406-414.",
+        "Live unified Contacts identifiers, display names, phones and emails; readable only when configured live and the Contacts framework reports existing authorized status. There is no permission-granting call. Evidence: src/contacts.ts:92-118; native/contact-resolver.js:34-76.",
+        "Operator reference key and independent database-lineage identity, each supplied directly or through its own operator-owned 0600 file, with 32-4096 UTF-8 bytes. They are copied into workerData/config and used for lineage HMAC plus AES-256-GCM opaque references. HTTP bearer token remains a separate transport credential. Evidence: src/secrets.ts:10-55,59-83; src/config.ts:87-105; src/tools.ts:153-162; src/database.ts:294-303; src/references.ts:16-26.",
+        "Decoded bodies, normalized text, conversation names, attachment names and message identity held in an in-memory SQLite search index; max_page_count and measured/estimated budgets use min(512 MiB, physical RAM/8). This is not a claim that all process memory fits that index budget. Evidence: src/search-index.ts:277-305,821-860.",
+        "Startup privacy ceiling and independent attachment-path opt-in; the MCP client receives only the same or a stricter per-request privacy mode. Aggregate preserves exact counts and opaque traversal cursors, so it is deterministic redaction rather than formal anonymity. Evidence: src/privacy.ts:38-46; src/tool-local.ts:371-394; src/result.ts:14-53,82-102; docs/GUIDE.md:63-71.",
+        "Availability of the launching Mac: bounded workers, two simultaneous calls, native decoder serialization, request deadlines, index limits, HTTP parsing/connection limits and bounded output protect finite local resources. Evidence: src/tools.ts:153-168,277-315,362-401; src/decoder.ts:17-22,176-199,227-248; src/transport.ts:15-24,307-345.",
+        "Integrity of the signed exact-revision scan, public package bytes, version, release tag, registry metadata and GitHub assets. Scan producer is pinned to codex-security-plugin@0.1.23; evidence must bind the signed commit's direct parent, zero findings, complete whole-repository coverage and hashes of canonical scan files. Evidence: scripts/security-evidence.ts:9-18,96-115,118-197,222-245.",
+        "Conditional publication authority: GitHub OIDC for npm and MCP Registry, GitHub contents:write for releases, and operator-owned SSH allowed-signer configuration for scan attestation/recovery. These are separate from runtime MCP capabilities. Evidence: .github/workflows/attest-security-evidence.yml:14-34; .github/workflows/release.yml:145-150,171-190,239-260,295-335,388-411."
       ],
       "assumptions": [
-        "Supported macOS 14+ and Node 22, 24, or 26 only",
-        "Operator deliberately grants Full Disk Access to the launching client and protects 0600 secrets",
-        "Messages is the sole live writer; copied files and parent directory stay operator-controlled",
-        "Tailscale, GitHub environments, signer, OIDC, npm publisher, Registry, and immutability settings are external controls",
-        "Same-account arbitrary code execution and adversarial filesystem micro-races are outside the isolation claim",
-        "Prompt guidance cannot control downstream clients or providers",
-        "Fixtures and screenshots are synthetic; live parity retains no private values",
-        "Prior beta scan is historical input; this scan binds exact RC source"
+        "Authorized review context fixes HEAD 51a26eb6bb491568c3ee0cd4923905640f75c91c and whole repository. Offline inspection confirmed 89 tracked files and clean worktree. All 169 unique repository citation groups in this model/resource map were batch-checked against tracked paths and line ranges. This architecture map is not completed security-audit coverage, runtime validation or provider-state verification.",
+        "Supported CLI and seven MCP tools enforce strict public schemas, while the package entry also exports ToolRuntime and createMcpServer. Trusted in-process code supplies RuntimeConfig and owns startup configuration; caller-controlled ToolRuntime.call parameters still form an API boundary and independently pass exact privacy-mode validation. No assumption that direct calls are trusted removes that invariant. Undocumented deep imports are distinct from these package-entry exports. Evidence: package.json:9; src/index.ts:5-9; src/tools.ts:391-405; src/tool-local.ts:127-140; src/privacy.ts:38-46.",
+        "macOS 14+ and account-granted filesystem/Contacts authority are deployment prerequisites. Full Disk Access belongs to the launching application or shell, not a narrowly scoped server grant. No Windows/Linux/container deployment is supported. Evidence: src/config.ts:43-48; package.json:67-72; README.md:44; VERIFICATION.md:148.",
+        "Operator-controlled copy file, sidecars and parent directory must remain stable; Messages is assumed sole writer for live sync. Same-account adversarial path replacement and third-party live DB mutation are explicitly excluded. Key and database ID must be independent, stable across faithful copies and distinct for unrelated archives; entropy quality and correct operator assignment are not provable from byte-length checks. Evidence: SECURITY.md:29-33; src/config.ts:87-93; src/secrets.ts:49-55.",
+        "Tailscale Serve TLS, tailnet access rules, provider environment protection, allowed signer configuration, repository branch/tag protection and npm trusted-publisher configuration are external controls. Source names the intended environments and signer but cannot prove those provider settings are active. Evidence: SECURITY.md:21,41-43; .github/workflows/attest-security-evidence.yml:14-34; .github/workflows/release.yml:145-150,239-242,295-298.",
+        "Documentation qualification: CLI help describes full as the runtime default without an HTTP exception, while actual config defaults HTTP to redacted; server.json correctly states both defaults. Shipped .mcp.json explicitly selects redacted/Contacts none. This is a help-text inconsistency, not a demonstrated disclosure bypass. Evidence: src/cli.ts:25-30; src/config.ts:78-100; server.json:27-32; .mcp.json:3-8.",
+        "Documentation qualification: docs/GUIDE.md says full plus include_attachment_paths is required but omits the additional startup switch in that sentence. Runtime requires all three, and CLI exposes --attachment-paths. The effective control is stricter than this shortened wording. Evidence: docs/GUIDE.md:107; src/cli.ts:30; src/tool-local.ts:371-394.",
+        "Documentation qualification: SECURITY.md says the server executes no write statement; actual server creates/writes its separate :memory: search DB. The protected archive connections remain readonly/query_only. The enforceable guarantee is no writes to the source archive, not absence of all SQL writes or all developer artifact writes. Evidence: SECURITY.md:19,23; src/database.ts:225-233; src/search-index.ts:281-306; scripts/screenshots.ts:132-165.",
+        "The live-parity developer script has a materially different default path resolver, os.homedir(), and bypasses startup runtimeConfig with full ceiling and live Contacts unless IMESSAGE_PARITY_DB selects copy mode. It is absent from npm verify and is outside this review's execution authorization. Evidence: scripts/test-live-parity.ts:22-35,68-83,234-245; package.json:40-51.",
+        "Published dependency and OS-framework implementations are external to the tracked repository. Host/Origin validation is delegated to the pinned MCP SDK; Foundation, Node and better-sqlite3 are trusted implementation dependencies whose internals were not part of this architecture-only pass. Evidence: src/transport.ts:4-9,97-99; package.json:53-68; native/message-text-decoder.js:1,130-137.",
+        "Source documents rc.2 as local release preparation and records clean-Mac first-use permission testing as pending. Older VERIFICATION evidence is historical and does not establish present provider state or coverage of this exact HEAD. Evidence: VERIFICATION.md:16-27. Registry/attestation workflows enforce specific artifacts, not the truth of every prose claim."
       ],
       "attackerCapabilities": [
-        "Authorized caller submits malformed or schema-valid requests",
-        "Unauthenticated local process probes loopback HTTP",
-        "Copied archive provider controls database-derived strings, blobs, relationships, paths, and sidecars",
-        "Archived participant places prompt-injection text, links, and commands in history fields",
-        "Contributor proposes source, workflow, manifest, or dependency changes without protected-provider authority",
-        "Downstream client or model provider controls processing and retention after disclosure"
+        "An unauthenticated local or privately proxied HTTP peer can open sockets and send arbitrary headers/body bytes but does not possess the bearer token or operator configuration. A failure could expose archival data or consume local availability; direct public exposure is not assumed. Evidence: src/transport.ts:60-71,249-285,307-351; SECURITY.md:21.",
+        "An authenticated MCP caller controls tool names/arguments, queries, requested privacy modes, references and cursors but cannot change startup configuration through tools. Meaningful gains would exceed the startup ceiling, bypass attachment opt-in, cross unrelated database lineage, corrupt source data, or exhaust bounds. Reading data intentionally permitted to full clients is ordinary authorized behavior. Evidence: src/tools.ts:431-573; src/privacy.ts:38-46; src/tool-local.ts:371-394; SECURITY.md:29.",
+        "Message correspondents can contribute archival text/URLs/names/attachment metadata later returned to clients; an operator-imported untrusted copy can additionally supply malformed SQLite/schema/blob contents. Neither capability implies control of package scripts, worker code, operator secrets or the local account. Sensitive transitions include native decoding, database parsing, metadata integrity and archival prompt injection into a downstream client. Evidence: SECURITY.md:25-33; src/database.ts:182-221; native/message-text-decoder.js:62-181.",
+        "A repository contributor can propose source, workflow, documentation or scan-artifact changes. Publication authority requires independently controlled signing/environment/OIDC/provider permissions; fabricated local release-status or unsigned/mismatched evidence should not acquire it. Compromise of those already-privileged controls is not assumed. Evidence: scripts/check-release-gate.ts:11-23; scripts/security-evidence.ts:96-197; .github/workflows/attest-security-evidence.yml:14-34; .github/workflows/release.yml:145-190.",
+        "A dependency or publication artifact can arrive from package/GitHub registries in conditional build/release workflows. The package manager, exact direct dependency pins, reviewed lock graph, checksum-pinned publisher and artifact attestations are distinct controls; matching installed name/version pairs alone is not a byte-integrity proof. Evidence: package.json:53-65; src/verify-installed-graph.ts:79-101; .github/workflows/release.yml:179-186,214-231,247-260."
       ],
       "securityObjectives": [
-        "Keep all seven 2.x tools strictly read-only",
-        "Prevent SQL, shell, deserialization, path-alias, cursor/reference, and cross-lineage attacks",
-        "Fail closed on unsupported schema, decoding, database changes, resource budgets, and provenance mismatches",
-        "Never relax the startup privacy ceiling and remove prohibited fields in stricter modes",
-        "Treat all archival strings as untrusted without claiming prompt-injection elimination",
-        "Authenticate HTTP before parsing and enforce loopback, authority, size, rate, concurrency, and deadline limits",
-        "Keep decoded search state memory-only and bounded",
-        "Bind publication to exact signed source, complete zero-finding scan, exact package/provenance agreement, and seven-day canary"
+        "User-context invariant: preserve all seven read-only tools, startup privacy ceilings, signatures, exact-source binding, complete coverage and zero-finding release checks. Current review may use only source and synthetic fixtures; it must not access private Messages or Contacts.",
+        "Keep source SQLite read-only with fileMustExist/query_only and preserve correct snapshot/file/schema identity. Memory-index SQL mutations and synthetic-fixture writes must remain distinct from source archive writes. Evidence: src/database.ts:225-233,323-345,444-474; src/search-index.ts:281-306; scripts/demo-installed.ts:17-24.",
+        "Authenticate HTTP before parsing request bodies and require loopback/Host/Origin policy, bounded parsing/output, global request limits and finite worker/native deadlines. Do not interpret readOnlyHint as authentication or authorization. Evidence: src/transport.ts:60-71,249-295,307-351; src/tools.ts:27-32,277-315,391-401.",
+        "Never reveal more than startup privacy permits; require startup and per-call opt-in for attachment paths, omit raw archival values from diagnostics and normalized errors, and retain explicit partial/fail-closed behavior. Evidence: src/privacy.ts:38-46,66-121; src/result.ts:82-102,126-155; src/tool-local.ts:371-394; src/tools.ts:349-359; src/search-index.ts:821-852.",
+        "Keep operator key/lineage/token sources separate and reject ambiguous direct-plus-file configuration, unsafe secret files and insufficient lengths; keys are operator-selected and not caller arguments. Preserve authenticated, database-bound opaque references and live/copy cursor distinctions. Evidence: src/secrets.ts:10-55,59-83; src/config.ts:87-105; src/references.ts:16-73; src/repositories/sync.ts:1214-1301.",
+        "Do not construct arbitrary objects from legacy archives or interpret archival strings as code/instructions. Native keyed decode owns a class allowlist; clients retain responsibility for downstream retention and action policy. Evidence: native/message-text-decoder.js:62-142; src/tools.ts:576-584; SECURITY.md:25-27.",
+        "Retain producer pin codex-security-plugin@0.1.23, canonical sealed artifacts, direct-parent exact Git revision, zero findings, complete repository coverage with no exclusions/deferred/open questions, signature verification and exact package/source attestations as release gates. Evidence: scripts/security-evidence.ts:18,96-197,222-254; .github/workflows/attest-security-evidence.yml:24-62; .github/workflows/release.yml:179-190.",
+        "Keep attestation, npm, registry and GitHub release authority separately scoped; recovery must verify already-published npm bytes and exact signed lineage before downstream publication, without reissuing npm publication. Evidence: .github/workflows/release.yml:139-150,233-242,289-298,362-375,386-560,568-577,659-669."
       ],
-      "summary": "At exact signed revision 9c4a5b8e73f7ac7dd2f7ce20f1237ac689bcb12c, imessage-mcp 2.0.0-rc.1 is a macOS-only seven-tool read-only MCP. The launching client supplies Full Disk Access and starts stdio or authenticated loopback HTTP. Bounded workers open a canonical live or copied Apple Messages SQLite database readonly with query_only; optional unified Contacts and a fixed Foundation/JXA decoder are local dependencies; decoded search state remains memory-only. Results cross a startup privacy ceiling before reaching the client, and all database-derived strings are untrusted archival data. Publication separately requires signed exact-source scan evidence, protected attestations, npm OIDC provenance, Registry agreement, immutable GitHub release, and a seven-day RC canary.",
+      "summary": "Source-backed architecture at authorized immutable commit 51a26eb6bb491568c3ee0cd4923905640f75c91c, whole repository (89 tracked files; user context). imessage-mcp 2.0.0-rc.2 is a macOS 14+ Node service exposing seven read-only Apple Messages history tools through CLI-launched local stdio or authenticated loopback HTTP. The launcher imports dist/cli.js; CLI configuration selects the archive, Contacts mode and disclosure ceiling, then two worker threads host readonly SQLite connections, conversation/message/analytics/sync repositories, optional native Contacts lookup and a memory-only decoded-text search index. Bounded native Foundation decoding runs in /usr/bin/osascript. Results pass through centralized privacy projection before crossing MCP to the client. Doctor is a separate diagnostic path; live parity and synthetic artifact generation are developer-only paths. GitHub workflows separately attest signed scan evidence, publish npm, publish MCP Registry metadata, and publish immutable GitHub releases, with a distinct downstream recovery path. Evidence: package.json:2-12,67-72; bin/imessage-mcp.js:1-2; src/cli.ts:92-112; src/config.ts:43-48; src/tools.ts:362-377; src/tool-local.ts:76-86,127-138; .github/workflows/release.yml:139-150,233-242,289-298,362-375.",
       "trustBoundaries": [
-        "Launching client to local stdio process",
-        "Authenticated caller to loopback HTTP before body parsing",
-        "CLI and environment into validated runtime configuration",
-        "Workers into canonical readonly Messages SQLite snapshots",
-        "Untrusted copied archive and sidecars into repositories",
-        "Workers into already-authorized unified Contacts",
-        "Workers into fixed bounded Foundation/JXA decoder",
-        "Internal result through privacy projection to MCP caller",
-        "Exact signed source through scan evidence and protected provider jobs"
+        "Operator startup configuration -> CLI runtime: --database overrides IMESSAGE_DB, else userInfo().homedir/Library/Messages/chat.db; contacts argument overrides IMESSAGE_CONTACTS; privacy argument overrides IMESSAGE_PRIVACY; stdio defaults full and HTTP defaults redacted; attachment opt-in overrides IMESSAGE_ATTACHMENT_PATHS. Any non-default resolved archive path is copy mode, which rejects explicit live Contacts. Shipped .mcp.json instead explicitly pins rc.2, Contacts none and redacted, with client-expanded ${HOME}/.imessage-mcp-reference-key and ${HOME}/.imessage-mcp-database-id. Evidence: src/config.ts:63-105; .mcp.json:3-8.",
+        "MCP caller -> server tools: the seven registered strict schemas bound query lengths, enum choices, limits and opaque inputs; registration annotations advertise read-only behavior but enforcement is in runtime/repository operations and readonly SQLite, not annotations. No sending, arbitrary filesystem read, credential management or export tool is registered. Full-mode caller authority includes reading the accessible archive; opaque references are not separate authorization. Evidence: src/tools.ts:16-32,431-573; src/tool-local.ts:127-138; src/database.ts:225-233; SECURITY.md:29.",
+        "Local stdio -> authorized launching client uses stdin/stdout with 1 MiB transport buffering and no independent bearer authentication. HTTP -> one authenticated operator principal uses POST /mcp on 127.0.0.1:port (default 3000); fixed-length timing-safe bearer comparison and Host/Origin validation precede body parsing. Allowed hosts default localhost,127.0.0.1,[::1]; origins default the host list. Stateless JSON, no subscriptions, 256 KiB body, 4 MiB response, two active requests and 60 authenticated requests/minute are explicit controls. Evidence: src/index.ts:12-19; src/config.ts:78-81; src/transport.ts:15-24,60-71,91-105,225-295,351-353.",
+        "Configured archive -> SQLite: DatabaseContext resolves a regular file and checks canonical path/device/inode against the live archive before readonly/fileMustExist/query_only opens. Copy WAL is the canonical DB child '-wal', must be a regular non-symlink file, and cannot alias live WAL. Per-request file identity/schema checks plus a real read before observer comparison pin the SQLite snapshot. Same-account adversarial replacement remains an explicit excluded prerequisite, not an OS sandbox boundary. Evidence: src/database.ts:43-55,70-123,225-233,323-345,406-425,444-474; SECURITY.md:33.",
+        "Parent -> worker threads: two slots receive RuntimeConfig, reference key/database identity, process masking key and a shared native-decoder lock via workerData. The named IMESSAGE secret variables are removed from worker env; worker output is drained rather than forwarded. Worker memory limits and hard termination deadlines enforce availability, but worker threads share account/process authority and are not a filesystem or privilege sandbox. Evidence: src/tools.ts:64-78,153-171,234-250,277-315,362-401; src/tool-worker.ts:27-40,50-66.",
+        "Worker -> native decoder: archived blobs and summaries are serialized as bounded base64 JSON over stdin to fixed /usr/bin/osascript and a package-relative native script, shell:false, with only LANG, PATH=/usr/bin:/bin and TMPDIR=/tmp. The shared lock serializes subprocess activity. The native decoder parses bounded known legacy string roots without legacy object construction and uses Foundation's decode-time class allowlist for keyed objects; plist edit summaries are inspected for expected collection shape. Evidence: src/decoder.ts:17-22,97-104,176-199,227-248,344-379; native/message-text-decoder.js:62-102,105-181,227-259.",
+        "Worker or doctor -> Contacts helper: enabled mode lazily executes fixed /usr/bin/osascript with package/native/contact-resolver.js, 15-second timeout and bounded output. That helper requires CNContactStore authorization status 3, enumerates unified values without requesting authorization, and returns bounded JSON. Normal workers inherit the filtered parent environment; doctor invokes the same helper directly with the launching environment. Contacts none and copy mode do not invoke the store. Evidence: src/config.ts:66-76; src/contacts.ts:31-57,92-118; native/contact-resolver.js:34-76; src/commands/doctor.ts:87-94.",
+        "Untrusted database strings -> permitted MCP output: centralized result projection, sanitization and forbidden-field checks strip bodies/filenames/paths in redacted mode, mask handles, reduce timestamps to days, and remove identities plus per-record result sets in aggregate. Full returns archival data as data; server instructions warn clients against obeying archived instructions, but the server does not control downstream model interpretation, retention or action approval. Evidence: src/privacy.ts:5-36,66-121; src/result.ts:14-53,82-102,126-155; src/tools.ts:576-584; SECURITY.md:25.",
+        "Attachment database metadata -> returned path: filenames beginning '~/' are expanded under userInfo().homedir, absolute filenames are preserved, relative filenames yield no absolute path; files are not opened here. Emission requires include_attachment_paths, full effective privacy and the startup attachment switch. Copies therefore do not retarget attachment paths to the copied DB directory. Evidence: src/repositories/messages.ts:29,279-295; src/tool-local.ts:371-394.",
+        "Caller-held reference/cursor -> archive traversal: AES-256-GCM with random nonce, lineage-derived key and expected-kind/size checks protects conversation/message/page/sync payloads; lineage is derived from the operator key and independent database identity. Copy sync HMACs complete canonical DB and '-wal' files with stable metadata checks and rechecks before cursor reuse. Live sync compares structural, older-content, recent mutable-content and receipt integrity with a one-hour recent-content window. Evidence: src/references.ts:16-73; src/database.ts:294-303; src/repositories/sync.ts:110-115,135-213,1194-1212,1246-1301.",
+        "Separate diagnostics/developer workflows: doctor uses the configured archive, temporary diagnostic-only fallback reference material when setup is absent, direct Contacts status when enabled, and decoder self-test; it prints status/remediation and never grants permissions. test-live-parity bypasses runtimeConfig, defaults through os.homedir() to live Messages/Contacts unless IMESSAGE_PARITY_DB is supplied, and creates ephemeral keys. It is not part of npm verify and must not be run in this source/synthetic-only review. Synthetic screenshot/demo generators write assets and docs from generated fixture DBs. Evidence: src/commands/doctor.ts:51-117; scripts/test-live-parity.ts:22-35,68-83,234-249; package.json:40-51; scripts/screenshots.ts:15-20,72-85,132-165; scripts/demo-installed.ts:14-24,48-95.",
+        "Signed scan commit -> attestation -> normal release: protected-environment workflow verifies SSH commit signature before npm ci/verify/pack; evidence loader reads only canonical non-executable Git blobs, demands exactly the three scan-file changes and direct-parent exact revision, producer pin, zero findings and complete coverage, then hashes tarball/evidence. Tag workflow verifies tag/version and stable ancestry, runs checks, retrieves matching attested subjects, and npm job immediately re-verifies source digest, package/version and successful zero-finding complete scan before npm publish --ignore-scripts --provenance (next for prerelease, latest for stable). Evidence: .github/workflows/attest-security-evidence.yml:14-62; scripts/security-evidence.ts:73-197,213-254; .github/workflows/release.yml:50-88,139-190.",
+        "Normal publication -> downstream surfaces: npm readback compares downloaded public tarball bytes to the verified artifact and verifies the installed production name/version graph against package-lock; registry job uses checksum-pinned mcp-publisher v1.8.1 and GitHub OIDC to publish server.json then compares exact metadata; GitHub job builds a draft from verified assets, checks tag/prerelease/assets, publishes and checks immutable state plus release/asset attestations. Evidence: .github/workflows/release.yml:193-231,233-287,289-360; src/verify-installed-graph.ts:79-101.",
+        "Operator dispatch -> recovery publication: only main dispatch is accepted; version, full commit SHA and failed-run ID are syntax-checked, tag/commit signatures checked against the allowed signer, and source/version/failed-run/npm-success/downstream-failure state bound. Recovery retrieves the original verified artifact and matching attestations, compares existing npm bytes/provenance and installed graph, then uses server.json from the evidence commit and only absent or matching downstream release states. Recovery jobs have no npm publish step. Evidence: .github/workflows/release.yml:386-482,511-560,568-630,659-775."
       ]
     }
   },
