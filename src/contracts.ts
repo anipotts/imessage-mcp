@@ -37,11 +37,6 @@ export interface SuccessEnvelope<T = unknown> {
   warnings?: Warning[];
 }
 
-export interface ServicePartition {
-  service_family: ServiceFamily;
-  count: number;
-}
-
 export interface Watermark {
   data_version: number;
   max_message_id: number;

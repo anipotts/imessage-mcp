@@ -106,18 +106,6 @@ function normalizedTokens(value: string): string[] {
   return normalize(value).match(/[\p{L}\p{N}]+/gu) ?? [];
 }
 
-function scopeMatches(value: string, query: string, mode: SearchMode): boolean {
-  const normalizedValue = normalize(value);
-  const normalizedQuery = normalize(query);
-  if (mode === "exact") return normalizedValue === normalizedQuery;
-  if (mode === "token") {
-    const tokens = normalizedTokens(query);
-    const values = new Set(normalizedTokens(value));
-    return tokens.length > 0 && tokens.every((token) => values.has(token));
-  }
-  return normalizedValue.includes(normalizedQuery);
-}
-
 function normalizedScopeMatches(normalizedValue: string, query: string, mode: SearchMode): boolean {
   const normalizedQuery = normalize(query);
   if (mode === "exact") return normalizedValue === normalizedQuery;
