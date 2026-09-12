@@ -54,13 +54,13 @@
     "@modelcontextprotocol/server": "2.0.0",
     "better-sqlite3": "13.0.3",
     "node-addon-api": "8.9.2",
-    "zod": "4.4.3"
+    "zod": "4.5.4"
   },
   "devDependencies": {
     "@modelcontextprotocol/client": "2.0.0",
     "@types/better-sqlite3": "9.6.0",
-    "@types/node": "26.2.0",
-    "tsx": "4.23.12",
+    "@types/node": "26.4.1",
+    "tsx": "4.23.13",
     "typescript": "7.0.2",
     "vitest": "4.1.11"
   },
