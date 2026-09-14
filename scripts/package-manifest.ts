@@ -30,6 +30,14 @@ function imageDimensions(path: string): { width: number; height: number } {
     assert.ok(bytes.length >= 10, `${path} is not a complete GIF`);
     return { width: bytes.readUInt16LE(6), height: bytes.readUInt16LE(8) };
   }
+  if (path.endsWith(".svg")) {
+    const svg = bytes.toString("utf8");
+    const width = /<svg\b[^>]*\swidth="(\d+)"/u.exec(svg)?.[1];
+    const height = /<svg\b[^>]*\sheight="(\d+)"/u.exec(svg)?.[1];
+    assert.ok(width && height, `${path} must declare integer width and height on its root element`);
+    assert.doesNotMatch(svg, /<script|<foreignObject|\bon[a-z]+=|href="(?!#)/iu, `${path} must stay a static, self-contained drawing`);
+    return { width: Number(width), height: Number(height) };
+  }
   assert.ok(bytes.length >= 24, `${path} is not a complete PNG`);
   assert.equal(bytes.subarray(0, 8).toString("hex"), "89504e470d0a1a0a", `${path} has an invalid PNG signature`);
   assert.equal(bytes.subarray(12, 16).toString("ascii"), "IHDR", `${path} has no leading IHDR chunk`);

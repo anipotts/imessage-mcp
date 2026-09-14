@@ -5,6 +5,7 @@ import { once } from "node:events";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer as createHttpProxy, request as httpRequest } from "node:http";
 import { createConnection, createServer as createNetServer, type Socket } from "node:net";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
@@ -136,6 +137,20 @@ async function outputSchemas(client: Client): Promise<Map<string, JsonSchema>> {
 }
 
 async function exercise(client: Client, privacy: "full" | "redacted"): Promise<string> {
+  const server = client.getServerVersion();
+  assert.equal(server?.title, "iMessage");
+  assert.equal(server?.websiteUrl, "https://github.com/anipotts/imessage-mcp");
+  const announced = new Map((server?.icons ?? []).map((icon) => [icon.mimeType, icon]));
+  for (const [mimeType, file, sizes] of [
+    ["image/svg+xml", "assets/icon.svg", ["any"]],
+    ["image/png", "assets/icon-64.png", ["64x64"]],
+  ] as const) {
+    const icon = announced.get(mimeType);
+    assert.ok(icon, `serverInfo.icons must include ${mimeType}`);
+    assert.deepEqual(icon.sizes, sizes);
+    assert.equal(icon.src, `data:${mimeType};base64,${readFileSync(file).toString("base64")}`,
+      `serverInfo.icons ${mimeType} must embed ${file} byte for byte`);
+  }
   const listedTools = await client.listTools();
   assert.deepEqual(listedTools.tools.map((tool) => tool.name).sort(), TOOL_NAMES);
   const listedByName = new Map(listedTools.tools.map((tool) => [tool.name, tool]));

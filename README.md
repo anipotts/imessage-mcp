@@ -1,3 +1,5 @@
+<img src="assets/icon.svg" width="72" height="72" alt="">
+
 # imessage-mcp
 
 Ask your assistant to find a message, read a conversation, or count your texts.

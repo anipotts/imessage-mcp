@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "subject_version": "2.0.0",
+  "subject_version": "2.0.1",
   "channel": "latest",
   "assets": [
     {
@@ -8,6 +8,18 @@
       "sha256": "61a5695b750f7b7df8c06e7920058267aedabfd2479804e77d4cc36ea96ba371",
       "width": 1080,
       "height": 480
+    },
+    {
+      "path": "assets/icon.svg",
+      "sha256": "467c0c4c6d19c2a7c7618d957caf399cbd0818e70185da56e10434f75acfd4a8",
+      "width": 1024,
+      "height": 1024
+    },
+    {
+      "path": "assets/icon-64.png",
+      "sha256": "98fe80e710351b1e4cad2a6ce4fb6672075cc25aa6e73acbb91829693259f469",
+      "width": 64,
+      "height": 64
     }
   ]
 }
