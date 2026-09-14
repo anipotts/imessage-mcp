@@ -101,7 +101,11 @@ for (const file of ["dependabot-automerge.yml", "dependabot-rebase.yml"]) {
   assert.doesNotMatch(workflow, /^ {4}if:/mu, `${file} must not use job-level conditions, which surface as skipped checks`);
   assert.doesNotMatch(workflow, /pull_request_target/u, `${file} must never run pull request code with secrets`);
 }
-for (const [file, workflow] of [["ci.yml", ciWorkflow], ["security.yml", securityWorkflow]] as const) {
+const codeqlWorkflow = readFileSync(".github/workflows/codeql.yml", "utf8");
+assert.match(codeqlWorkflow, /name: Analyze \(\$\{\{ matrix\.language \}\}\)/u,
+  "codeql.yml job names must match the Analyze checks the branch ruleset requires");
+assert.match(codeqlWorkflow, /language: \[actions, javascript-typescript\]/u);
+for (const [file, workflow] of [["ci.yml", ciWorkflow], ["security.yml", securityWorkflow], ["codeql.yml", codeqlWorkflow]] as const) {
   assert.match(workflow, /group: [a-z]+-\$\{\{ github\.event_name \}\}-\$\{\{ github\.ref \}\}/u,
     `${file} must separate push, schedule, and pull_request runs into their own concurrency groups`);
   assert.match(workflow, /cancel-in-progress: \$\{\{ github\.event_name == 'pull_request' \}\}/u,
