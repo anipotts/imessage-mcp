@@ -90,8 +90,14 @@ export function successResult(input: {
   };
   const sanitized = applyPrivacy(envelope, input.privacy, input.maskingKey);
   assertNoForbiddenFields(sanitized, input.privacy);
+  // MCP 2025-06-18 asks a tool that returns structured content to also return
+  // the serialized JSON in a text block, so a client that reads only `content`
+  // still receives the whole result. The summary follows it for people.
   const result: CallToolResult = {
-    content: [{ type: "text", text: summary(input.tool, sanitized) }],
+    content: [
+      { type: "text", text: JSON.stringify(sanitized) },
+      { type: "text", text: summary(input.tool, sanitized) },
+    ],
     structuredContent: sanitized as unknown as Record<string, unknown>,
   };
   if (Buffer.byteLength(JSON.stringify(result), "utf8") > MAX_MCP_RESULT_BYTES) {

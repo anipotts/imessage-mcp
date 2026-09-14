@@ -76,7 +76,8 @@ describe("privacy ceilings", () => {
     expect(serialized).not.toContain("/Users/real");
     expect(serialized).toContain("2026-08-10");
     expect(serialized).not.toContain("12:35:56");
-    expect(result.content[0]).not.toHaveProperty("text", expect.stringContaining("Alice"));
+    expect(result.content[0]).toEqual({ type: "text", text: JSON.stringify(result.structuredContent) });
+    expect(result.content[1]).not.toHaveProperty("text", expect.stringContaining("Alice"));
   });
 
   it("returns identity-free counts without opaque record references in aggregate mode", () => {
@@ -97,7 +98,10 @@ describe("privacy ceilings", () => {
       effectiveScope: { privacy_mode: "aggregate" },
       data: { conversations: [] },
     });
-    expect(result.content).toEqual([{ type: "text", text: "list_conversations: complete; count=0" }]);
+    expect(result.content).toEqual([
+      { type: "text", text: JSON.stringify(result.structuredContent) },
+      { type: "text", text: "list_conversations: complete; count=0" },
+    ]);
   });
 
   it("keeps stateless traversal cursors in aggregate mode without record references", () => {
