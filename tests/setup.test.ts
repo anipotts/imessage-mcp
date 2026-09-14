@@ -14,7 +14,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { defaultConfigPath } from "../src/commands/clients.js";
-import { repairDefaultState } from "../src/keys.js";
+import { defaultStateDirectory, repairDefaultState } from "../src/keys.js";
 import { runSetup } from "../src/commands/setup.js";
 import { runUninstall } from "../src/commands/uninstall.js";
 
@@ -230,6 +230,13 @@ describe("setup and uninstall without an explicit --config", () => {
       expect(output.lines()).toContain(`registered imessage in ${file}`);
       expect(output.lines()).toContain(`removed imessage from ${file}`);
     }
+  });
+
+  it("keeps the generated state directory under $HOME", () => {
+    const home = scratch();
+    process.env.HOME = home;
+    delete process.env.IMESSAGE_STATE_DIR;
+    expect(defaultStateDirectory()).toBe(path.join(home, "Library", "Application Support", "imessage-mcp"));
   });
 });
 

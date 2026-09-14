@@ -1,4 +1,4 @@
-import { homedir, release } from "node:os";
+import { release, userInfo } from "node:os";
 import path from "node:path";
 import type { PrivacyMode } from "./contracts.js";
 import { ImessageMcpError } from "./errors.js";
@@ -20,8 +20,13 @@ export interface RuntimeConfig {
   database_id_source?: SecretSource;
 }
 
+/**
+ * Deliberately reads the OS account rather than `$HOME`: this path decides
+ * whether a database counts as live, and a redirected environment must not be
+ * able to pass a copy off as the account's own Messages store.
+ */
 export function resolveDefaultDatabasePath(): string {
-  return path.join(homedir(), "Library", "Messages", "chat.db");
+  return path.join(userInfo().homedir, "Library", "Messages", "chat.db");
 }
 
 export const DEFAULT_DATABASE_PATH = resolveDefaultDatabasePath();
