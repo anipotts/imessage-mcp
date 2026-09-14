@@ -4,13 +4,21 @@
 // needs at runtime, so the bundle never ships tests, sources, or dev dependencies.
 
 import { execFileSync } from "node:child_process";
-import { cpSync, mkdirSync, rmSync, statSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { cpSync, mkdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+
+// The packer writes the artifact users double-click, so it is pinned the way
+// every other external component in the release path is pinned. To move it,
+// run `npm pack @anthropic-ai/mcpb@<version>` and paste the tarball's sha256.
+const PACKER_VERSION = "2.1.2";
+const PACKER_SHA256 = "81174993380eb930bcacecc890b1acfdb06cf336366e445404aea36467417cc1";
 
 const repository = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
 const output = path.join(repository, "dist-mcpb");
 const stage = path.join(output, "stage");
+const packer = path.join(output, "packer");
 const bundle = path.join(output, "imessage-mcp.mcpb");
 
 if (path.dirname(output) !== repository || path.basename(output) !== "dist-mcpb") {
@@ -36,8 +44,20 @@ run("npm", ["ci", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund"], 
 // anyway so the staged tree and the bundle stay the same set of files.
 rmSync(path.join(stage, "package-lock.json"));
 
-run("npx", ["-y", "@anthropic-ai/mcpb@2", "pack", stage, bundle], repository);
+// Fetch the packer by exact version and refuse to run it unless the tarball is
+// the reviewed one, rather than executing whatever a floating major resolves to.
+mkdirSync(packer, { recursive: true });
+const tarball = path.join(packer, `anthropic-ai-mcpb-${PACKER_VERSION}.tgz`);
+run("npm", ["pack", `@anthropic-ai/mcpb@${PACKER_VERSION}`, "--silent", "--pack-destination", packer], repository);
+const digest = createHash("sha256").update(readFileSync(tarball)).digest("hex");
+if (digest !== PACKER_SHA256) {
+  throw new Error(`@anthropic-ai/mcpb@${PACKER_VERSION} sha256 ${digest} does not match the pinned ${PACKER_SHA256}`);
+}
+run("npm", ["install", "--no-save", "--ignore-scripts", "--no-audit", "--no-fund", "--prefix", packer, tarball], repository);
+
+run(path.join(packer, "node_modules", ".bin", "mcpb"), ["pack", stage, bundle], repository);
 rmSync(stage, { recursive: true, force: true });
+rmSync(packer, { recursive: true, force: true });
 
 const size = statSync(bundle).size;
 process.stdout.write(`bundle: ${path.relative(repository, bundle)} (${(size / 1024 / 1024).toFixed(1)} MB)\n`);

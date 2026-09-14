@@ -135,6 +135,14 @@ describe("native and release hardening", () => {
     }
   });
 
+  it("pins the desktop bundle packer to one version and one digest", () => {
+    const script = readFileSync(new URL("../scripts/build-mcpb.mjs", import.meta.url), "utf8");
+    expect(script).not.toContain("npx");
+    expect(script).toMatch(/const PACKER_VERSION = "\d+\.\d+\.\d+";/u);
+    expect(script).toMatch(/const PACKER_SHA256 = "[a-f0-9]{64}";/u);
+    expect(script).toContain("does not match the pinned");
+  });
+
   it("publishes only from a verified version tag, with split downstream authority", () => {
     const release = readFileSync(new URL("../.github/workflows/release.yml", import.meta.url), "utf8");
     expect(release).toContain("\n  push:\n    tags:\n      - \"v[0-9]*\"\n");
