@@ -11,15 +11,89 @@ import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/cli
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { createFixture, type Fixture } from "../tests/fixture.js";
 
-const TOOL_NAMES = [
-  "analyze_communication",
-  "get_conversation",
-  "list_conversations",
-  "resolve_contact",
-  "search_messages",
-  "server_status",
-  "sync_messages",
-];
+const TOOL_TITLES: Record<string, string> = {
+  analyze_communication: "Analyze communication",
+  get_conversation: "Get conversation",
+  list_conversations: "List conversations",
+  resolve_contact: "Resolve contact",
+  search_messages: "Search messages",
+  server_status: "Server status",
+  sync_messages: "Sync messages",
+};
+
+export const TOOL_NAMES = Object.keys(TOOL_TITLES).sort();
+
+const ANALYTICS_METRICS = ["message_count", "response_time", "streaks", "initiation"] as const;
+
+type JsonSchema = Record<string, unknown>;
+
+function resolveRef(root: JsonSchema, ref: string): JsonSchema {
+  assert.ok(ref.startsWith("#/"), `unsupported $ref ${ref}`);
+  let node: unknown = root;
+  for (const segment of ref.slice(2).split("/")) {
+    node = (node as Record<string, unknown>)[segment.replace(/~1/gu, "/").replace(/~0/gu, "~")];
+  }
+  assert.ok(node && typeof node === "object", `unresolvable $ref ${ref}`);
+  return node as JsonSchema;
+}
+
+function matchesType(type: string, value: unknown): boolean {
+  if (type === "null") return value === null;
+  if (type === "array") return Array.isArray(value);
+  if (type === "object") return typeof value === "object" && value !== null && !Array.isArray(value);
+  if (type === "integer") return typeof value === "number" && Number.isInteger(value);
+  return typeof value === type;
+}
+
+// A small JSON Schema check over the subset the tools advertise: it walks the
+// schema a client actually receives from tools/list rather than the zod source.
+function schemaErrors(schema: JsonSchema, value: unknown, root: JsonSchema, path = "$"): string[] {
+  if (typeof schema.$ref === "string") return schemaErrors(resolveRef(root, schema.$ref), value, root, path);
+  const errors: string[] = [];
+  if ("const" in schema && value !== schema.const) {
+    errors.push(`${path}: expected const ${JSON.stringify(schema.const)}`);
+  }
+  if (Array.isArray(schema.enum) && !schema.enum.includes(value as never)) {
+    errors.push(`${path}: ${JSON.stringify(value)} is not one of ${JSON.stringify(schema.enum)}`);
+  }
+  const types = typeof schema.type === "string" ? [schema.type] : Array.isArray(schema.type) ? schema.type as string[] : [];
+  if (types.length && !types.some((type) => matchesType(type, value))) {
+    errors.push(`${path}: expected ${types.join("|")}`);
+  }
+  for (const key of ["anyOf", "oneOf"] as const) {
+    const branches = schema[key] as JsonSchema[] | undefined;
+    if (!Array.isArray(branches)) continue;
+    if (!branches.some((branch) => schemaErrors(branch, value, root, path).length === 0)) {
+      errors.push(`${path}: no ${key} branch matched`);
+    }
+  }
+  if (Array.isArray(schema.allOf)) {
+    for (const branch of schema.allOf as JsonSchema[]) errors.push(...schemaErrors(branch, value, root, path));
+  }
+  if (Array.isArray(value) && schema.items && typeof schema.items === "object") {
+    value.forEach((item, index) => {
+      errors.push(...schemaErrors(schema.items as JsonSchema, item, root, `${path}[${String(index)}]`));
+    });
+  }
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const entries = value as Record<string, unknown>;
+    const properties = (schema.properties ?? {}) as Record<string, JsonSchema>;
+    for (const name of (schema.required ?? []) as string[]) {
+      if (!(name in entries)) errors.push(`${path}.${name}: required property is missing`);
+    }
+    for (const [name, child] of Object.entries(entries)) {
+      if (properties[name]) {
+        errors.push(...schemaErrors(properties[name], child, root, `${path}.${name}`));
+        continue;
+      }
+      if (schema.additionalProperties === false) errors.push(`${path}.${name}: additional property is not allowed`);
+      if (schema.additionalProperties && typeof schema.additionalProperties === "object") {
+        errors.push(...schemaErrors(schema.additionalProperties as JsonSchema, child, root, `${path}.${name}`));
+      }
+    }
+  }
+  return errors;
+}
 
 const TEST_REFERENCE_KEY = "synthetic-reference-key-".padEnd(48, "x");
 const TEST_DATABASE_ID = "synthetic-database-lineage-".padEnd(48, "x");
@@ -40,10 +114,43 @@ function structured(result: { structuredContent?: unknown }): Record<string, unk
   return result.structuredContent as Record<string, unknown>;
 }
 
+/**
+ * Holds a successful result to the schema its own tool advertises. Running it
+ * on every tool in every privacy mode is what catches a privacy-layer change
+ * that strips a field the schema marks required.
+ */
+function assertMatchesOutputSchema(
+  schemas: Map<string, JsonSchema>,
+  name: string,
+  result: { isError?: boolean; structuredContent?: unknown },
+): void {
+  assert.equal(result.isError, undefined, `${name} must succeed`);
+  const schema = schemas.get(name);
+  assert.ok(schema, `${name} must advertise an output schema`);
+  assert.deepEqual(schemaErrors(schema, structured(result), schema), [], `${name} result must match its output schema`);
+}
+
+async function outputSchemas(client: Client): Promise<Map<string, JsonSchema>> {
+  const listed = await client.listTools();
+  return new Map(listed.tools.map((tool) => [tool.name, tool.outputSchema as JsonSchema]));
+}
+
 async function exercise(client: Client, privacy: "full" | "redacted"): Promise<string> {
   const listedTools = await client.listTools();
   assert.deepEqual(listedTools.tools.map((tool) => tool.name).sort(), TOOL_NAMES);
   const listedByName = new Map(listedTools.tools.map((tool) => [tool.name, tool]));
+  for (const [name, tool] of listedByName) {
+    assert.equal(tool.title, TOOL_TITLES[name], `${name} must advertise its human title`);
+    const outputSchema = tool.outputSchema as JsonSchema | undefined;
+    assert.ok(outputSchema, `${name} must advertise an output schema`);
+    assert.equal(outputSchema.type, "object", `${name} output schema must have an object root`);
+    const properties = outputSchema.properties as Record<string, unknown> | undefined;
+    assert.ok(properties && "data" in properties, `${name} output schema must describe data`);
+    assert.deepEqual(
+      [...(outputSchema.required as string[])].sort(),
+      ["api_version", "completeness", "data", "effective_scope"],
+    );
+  }
   const statusSchema = listedByName.get("server_status")?.inputSchema as Record<string, unknown> | undefined;
   assert.equal(statusSchema?.type, "object");
   assert.equal(statusSchema?.additionalProperties, false);
@@ -57,28 +164,36 @@ async function exercise(client: Client, privacy: "full" | "redacted"): Promise<s
   assert.ok("conversation_ref" in (conversationSchema?.properties as Record<string, unknown>));
   assert.ok("query" in (conversationSchema?.properties as Record<string, unknown>));
 
+  // Error results carry the error envelope, not the advertised success shape.
+  // The SDK skips output validation for isError results, so they survive the
+  // same tools that now advertise an output schema.
   const unknownArgument = await client.callTool({ name: "server_status", arguments: { legacy: true } });
   assert.equal(unknownArgument.isError, true);
   assert.equal((structured(unknownArgument).error as { reason?: string }).reason, "INVALID_INPUT");
+  assert.equal("data" in structured(unknownArgument), false);
+  assert.doesNotMatch(JSON.stringify(unknownArgument.content), /validation error/iu);
   const missingConversation = await client.callTool({ name: "get_conversation", arguments: {} });
   assert.equal(missingConversation.isError, true);
   assert.equal((structured(missingConversation).error as { reason?: string }).reason, "INVALID_INPUT");
+  assert.equal("data" in structured(missingConversation), false);
+
+  const schemas = new Map([...listedByName].map(([name, tool]) => [name, tool.outputSchema as JsonSchema]));
 
   const status = await client.callTool({ name: "server_status", arguments: { privacy_mode: privacy } });
-  assert.equal(status.isError, undefined);
+  assertMatchesOutputSchema(schemas, "server_status", status);
   assert.equal(structured(status).api_version, "2.0");
 
   const contact = await client.callTool({
     name: "resolve_contact",
     arguments: { query: "+15550000001", privacy_mode: privacy },
   });
-  assert.equal(contact.isError, undefined);
+  assertMatchesOutputSchema(schemas, "resolve_contact", contact);
 
   const conversations = await client.callTool({
     name: "list_conversations",
     arguments: { limit: 50, privacy_mode: privacy },
   });
-  assert.equal(conversations.isError, undefined);
+  assertMatchesOutputSchema(schemas, "list_conversations", conversations);
   const conversationData = structured(conversations).data as { conversations: Array<{ conversation_ref: string }> };
   assert.ok(conversationData.conversations.length >= 4);
   const conversationRef = conversationData.conversations[0].conversation_ref;
@@ -88,7 +203,7 @@ async function exercise(client: Client, privacy: "full" | "redacted"): Promise<s
     name: "get_conversation",
     arguments: { conversation_ref: conversationRef, limit: 5, privacy_mode: privacy },
   });
-  assert.equal(timeline.isError, undefined);
+  assertMatchesOutputSchema(schemas, "get_conversation", timeline);
 
   const search = await client.callTool({
     name: "search_messages",
@@ -101,19 +216,21 @@ async function exercise(client: Client, privacy: "full" | "redacted"): Promise<s
       privacy_mode: privacy,
     },
   });
-  assert.equal(search.isError, undefined);
+  assertMatchesOutputSchema(schemas, "search_messages", search);
 
-  const analytics = await client.callTool({
-    name: "analyze_communication",
-    arguments: { metric: "message_count", scope: "global", privacy_mode: privacy },
-  });
-  assert.equal(analytics.isError, undefined);
+  for (const metric of ANALYTICS_METRICS) {
+    const analytics = await client.callTool({
+      name: "analyze_communication",
+      arguments: { metric, scope: "global", privacy_mode: privacy },
+    });
+    assertMatchesOutputSchema(schemas, "analyze_communication", analytics);
+  }
 
   const sync = await client.callTool({
     name: "sync_messages",
     arguments: { limit: 5, privacy_mode: privacy },
   });
-  assert.equal(sync.isError, undefined);
+  assertMatchesOutputSchema(schemas, "sync_messages", sync);
 
   if (privacy === "redacted") {
     const output = JSON.stringify([conversations, timeline, search, sync]);
@@ -123,7 +240,37 @@ async function exercise(client: Client, privacy: "full" | "redacted"): Promise<s
   return conversationRef;
 }
 
+export const PROMPT_ARGUMENTS: Record<string, string[]> = {
+  catch_up: ["contact", "days"],
+  draft_reply: ["contact", "intent"],
+  who_said: ["query"],
+};
+
+async function exercisePrompts(client: Client): Promise<void> {
+  const listed = await client.listPrompts();
+  assert.deepEqual(listed.prompts.map((prompt) => prompt.name).sort(), Object.keys(PROMPT_ARGUMENTS).sort());
+  for (const prompt of listed.prompts) {
+    const expectedArgs = PROMPT_ARGUMENTS[prompt.name];
+    assert.deepEqual((prompt.arguments ?? []).map((argument) => argument.name).sort(), [...expectedArgs].sort());
+  }
+
+  const contactName = "Synthetic Test Contact";
+  const catchUp = await client.getPrompt({ name: "catch_up", arguments: { contact: contactName, days: "3" } });
+  const catchUpText = catchUp.messages.map((message) => (message.content as { text?: string }).text ?? "").join("\n");
+  assert.match(catchUpText, new RegExp(contactName.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
+  assert.match(catchUpText, /read-only/u);
+
+  const draft = await client.getPrompt({ name: "draft_reply", arguments: { contact: contactName } });
+  const draftText = draft.messages.map((message) => (message.content as { text?: string }).text ?? "").join("\n");
+  assert.match(draftText, /cannot send/u);
+
+  const whoSaid = await client.getPrompt({ name: "who_said", arguments: { query: "synthetic phrase" } });
+  const whoSaidText = whoSaid.messages.map((message) => (message.content as { text?: string }).text ?? "").join("\n");
+  assert.match(whoSaidText, /synthetic phrase/u);
+}
+
 async function exerciseAggregate(client: Client, conversationRef: string): Promise<void> {
+  const schemas = await outputSchemas(client);
   const status = await client.callTool({ name: "server_status", arguments: { privacy_mode: "aggregate" } });
   const contact = await client.callTool({
     name: "resolve_contact",
@@ -148,20 +295,30 @@ async function exerciseAggregate(client: Client, conversationRef: string): Promi
       privacy_mode: "aggregate",
     },
   });
-  const analytics = await client.callTool({
-    name: "analyze_communication",
-    arguments: { metric: "message_count", scope: "global", privacy_mode: "aggregate" },
-  });
+  const metrics = [];
+  for (const metric of ANALYTICS_METRICS) {
+    metrics.push(await client.callTool({
+      name: "analyze_communication",
+      arguments: { metric, scope: "global", privacy_mode: "aggregate" },
+    }));
+  }
   const sync = await client.callTool({
     name: "sync_messages",
     arguments: { limit: 5, privacy_mode: "aggregate" },
   });
-  for (const result of [status, contact, conversations, timeline, search, analytics, sync]) {
-    assert.equal(result.isError, undefined);
-  }
+  const named: Array<[string, { isError?: boolean; structuredContent?: unknown }]> = [
+    ["server_status", status],
+    ["resolve_contact", contact],
+    ["list_conversations", conversations],
+    ["get_conversation", timeline],
+    ["search_messages", search],
+    ...metrics.map((result) => ["analyze_communication", result] as [string, typeof result]),
+    ["sync_messages", sync],
+  ];
+  for (const [name, result] of named) assertMatchesOutputSchema(schemas, name, result);
   const syncData = structured(sync).data as { cursor?: string };
   assert.match(syncData.cursor ?? "", /^im2_/u);
-  const output = JSON.stringify([status, contact, conversations, timeline, search, analytics, sync]);
+  const output = JSON.stringify([status, contact, conversations, timeline, search, ...metrics, sync]);
   assert.doesNotMatch(output, /blob exact|thread reply|photo\.png|Synthetic Group|\+1555000000|unknown@example/u);
   assert.doesNotMatch(output, /"(?:message|conversation)_ref"/u);
 }
@@ -184,6 +341,7 @@ export async function runStdio(command: string, args: string[], fixture: Fixture
     const conversationRef = await exercise(client, "full");
     await exercise(client, "redacted");
     await exerciseAggregate(client, conversationRef);
+    await exercisePrompts(client);
   } finally {
     await client.close();
   }
@@ -513,7 +671,7 @@ async function main(): Promise<void> {
     const stdioArgs = commandArg ? [] : ["bin/imessage-mcp.js"];
     await runStdio(stdioCommand, stdioArgs, fixture);
     if (!process.argv.includes("--skip-http")) await runHttp(fixture);
-    process.stdout.write("protocol verification passed: seven tools over stdio and authenticated stateless HTTP\n");
+    process.stdout.write("protocol verification passed: seven tools, three prompts, over stdio and authenticated stateless HTTP\n");
   } finally {
     fixture.cleanup();
   }

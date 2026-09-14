@@ -1,5 +1,6 @@
 node_modules/
 dist/
+dist-mcpb/
 *.tsbuildinfo
 .DS_Store
 .mcpregistry_*

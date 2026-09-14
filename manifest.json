@@ -1,0 +1,55 @@
+{
+  "manifest_version": "0.3",
+  "name": "imessage-mcp",
+  "display_name": "iMessage",
+  "version": "2.0.0",
+  "description": "Read-only MCP for iMessage, SMS, MMS, and RCS history in Apple Messages on Mac",
+  "author": {
+    "name": "Ani Potts",
+    "url": "https://github.com/anipotts"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/anipotts/imessage-mcp"
+  },
+  "homepage": "https://github.com/anipotts/imessage-mcp",
+  "documentation": "https://github.com/anipotts/imessage-mcp/blob/main/docs/GUIDE.md",
+  "support": "https://github.com/anipotts/imessage-mcp/issues",
+  "license": "MIT",
+  "server": {
+    "type": "node",
+    "entry_point": "bin/imessage-mcp.js",
+    "mcp_config": {
+      "command": "node",
+      "args": [
+        "${__dirname}/bin/imessage-mcp.js",
+        "--privacy",
+        "${user_config.privacy}",
+        "--contacts",
+        "${user_config.contacts}"
+      ]
+    }
+  },
+  "compatibility": {
+    "platforms": ["darwin"],
+    "runtimes": {
+      "node": ">=22"
+    }
+  },
+  "user_config": {
+    "privacy": {
+      "type": "string",
+      "title": "Privacy ceiling",
+      "description": "full, redacted, or aggregate. redacted returns names, masked handles, and calendar days with no message bodies. aggregate returns counts only.",
+      "default": "full",
+      "required": true
+    },
+    "contacts": {
+      "type": "string",
+      "title": "Contact names",
+      "description": "live reads your unified Contacts to name handles. none leaves handles unnamed.",
+      "default": "live",
+      "required": true
+    }
+  }
+}

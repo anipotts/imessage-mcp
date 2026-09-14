@@ -1,10 +1,12 @@
-import { accessSync, constants, existsSync, readFileSync } from "node:fs";
+import { accessSync, constants, existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { RuntimeConfig } from "../config.js";
+import { stateDirectory, type SecretSource, type StateRepair } from "../keys.js";
 import { DatabaseContext } from "../database.js";
 import { MessageTextDecoder } from "../decoder.js";
 import { UnifiedContactResolver } from "../contacts.js";
+import { estimateSearchIndexFloor, searchIndexMemoryLimit } from "../search-index.js";
 import { validateHttpConfiguration } from "../transport.js";
 
 interface DoctorCheck {
@@ -13,7 +15,44 @@ interface DoctorCheck {
   detail: string;
 }
 
-export async function doctor(config: RuntimeConfig, json: boolean): Promise<number> {
+const MIB = 1024 * 1024;
+const SEARCH_INDEX_WARN_RATIO = 0.9;
+
+function formatBytes(value: number): string {
+  return value >= MIB ? `${(value / MIB).toFixed(1)} MiB` : `${value} bytes`;
+}
+
+function searchIndexCapacity(database: DatabaseContext, limitBytes: number): DoctorCheck {
+  const request = database.request();
+  try {
+    const estimate = estimateSearchIndexFloor(request);
+    const status = estimate.estimated_bytes > limitBytes
+      ? "fail"
+      : estimate.estimated_bytes >= limitBytes * SEARCH_INDEX_WARN_RATIO
+        ? "warn"
+        : "pass";
+    const comparison = `${estimate.rows} indexable messages need at least ${formatBytes(estimate.estimated_bytes)} ` +
+      `against the ${formatBytes(limitBytes)} in-memory search ceiling`;
+    return {
+      name: "search_index_capacity",
+      status,
+      detail: status === "pass"
+        ? comparison
+        : `${comparison}; search_messages ${status === "fail" ? "will" : "may"} fail with INDEX_TOO_LARGE`,
+    };
+  } finally {
+    request.close();
+  }
+}
+
+export async function doctor(
+  config: RuntimeConfig,
+  json: boolean,
+  repairs: StateRepair[] = [],
+  // Internal seam so tests can exercise the capacity check against a small
+  // synthetic archive. The CLI never sets it and always uses the real ceiling.
+  options: { searchIndexMemoryLimitBytes?: number } = {},
+): Promise<number> {
   const checks: DoctorCheck[] = [];
   try {
     const packageRoot = join(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -42,11 +81,11 @@ export async function doctor(config: RuntimeConfig, json: boolean): Promise<numb
   }
   checks.push({ name: "platform", status: process.platform === "darwin" ? "pass" : "fail", detail: process.platform === "darwin" ? "macOS detected" : "macOS is required" });
   const nodeMajor = Number(process.versions.node.split(".")[0]);
-  const nodeSupported = [22, 24, 26].includes(nodeMajor);
+  const nodeSupported = nodeMajor >= 22;
   checks.push({
     name: "node",
     status: nodeSupported ? "pass" : "fail",
-    detail: nodeSupported ? `supported Node ${process.versions.node}` : `Node ${process.versions.node}; use active Node 22, 24, or 26`,
+    detail: nodeSupported ? `supported Node ${process.versions.node}` : `Node ${process.versions.node}; requires Node 22 or newer`,
   });
   try {
     accessSync(config.database_path, constants.R_OK);
@@ -56,6 +95,11 @@ export async function doctor(config: RuntimeConfig, json: boolean): Promise<numb
   }
   let canonicalDatabasePath = config.database_path;
   let schemaCheck: DoctorCheck;
+  let capacityCheck: DoctorCheck = {
+    name: "search_index_capacity",
+    status: "warn",
+    detail: "the search index size could not be estimated without a readable schema",
+  };
   try {
     const database = new DatabaseContext(
       config.database_path,
@@ -66,6 +110,15 @@ export async function doctor(config: RuntimeConfig, json: boolean): Promise<numb
     try {
       canonicalDatabasePath = database.canonicalPath;
       schemaCheck = { name: "schema", status: database.capabilities.required_core === "available" ? "pass" : "fail", detail: `schema ${database.capabilities.schema_fingerprint.slice(0, 12)}` };
+      try {
+        capacityCheck = searchIndexCapacity(database, options.searchIndexMemoryLimitBytes ?? searchIndexMemoryLimit());
+      } catch {
+        capacityCheck = {
+          name: "search_index_capacity",
+          status: "warn",
+          detail: "the search index size could not be estimated from this archive",
+        };
+      }
     } finally {
       database.close();
     }
@@ -84,6 +137,7 @@ export async function doctor(config: RuntimeConfig, json: boolean): Promise<numb
     checks.push({ name: "wal_read", status: "pass", detail: "no active WAL is present" });
   }
   checks.push(schemaCheck);
+  checks.push(capacityCheck);
   if (config.contacts_mode === "none") {
     checks.push({ name: "contacts", status: "pass", detail: "disabled by --contacts none; using handles only" });
   } else {
@@ -92,20 +146,45 @@ export async function doctor(config: RuntimeConfig, json: boolean): Promise<numb
   }
   const decoder = new MessageTextDecoder();
   checks.push({ name: "decoder", status: await decoder.selfTest() ? "pass" : "fail", detail: decoder.healthState() === "healthy" ? "Foundation decoder self-test passed" : "Foundation decoder self-test failed" });
+  const stateDirectoryPath = stateDirectory();
+  const describeSource = (source: SecretSource | undefined): string => {
+    if (source === "default file") return `default file in ${stateDirectoryPath}`;
+    if (source === "environment" || source === "environment file") return source;
+    return "the calling process";
+  };
   checks.push({
     name: "reference_key",
     status: config.reference_key ? "pass" : "fail",
     detail: config.reference_key
-      ? "stable opaque-reference authentication is configured"
+      ? `stable opaque-reference authentication is configured from ${describeSource(config.reference_key_source)}`
       : "configure IMESSAGE_REFERENCE_KEY or an operator-owned 0600 IMESSAGE_REFERENCE_KEY_FILE",
   });
   checks.push({
     name: "database_id",
     status: config.database_id ? "pass" : "fail",
     detail: config.database_id
-      ? "operator-controlled database lineage is configured"
+      ? `database lineage identity is configured from ${describeSource(config.database_id_source)}`
       : "configure IMESSAGE_DATABASE_ID or an operator-owned 0600 IMESSAGE_DATABASE_ID_FILE",
   });
+  try {
+    const stateStat = statSync(stateDirectoryPath);
+    const mode = stateStat.mode & 0o777;
+    const owned = !process.getuid || stateStat.uid === process.getuid();
+    const secure = stateStat.isDirectory() && mode === 0o700 && owned;
+    checks.push({
+      name: "state_dir",
+      status: secure ? "pass" : "warn",
+      detail: secure
+        ? `${stateDirectoryPath} is owner-only with mode 0700`
+        : `${stateDirectoryPath} has mode 0${mode.toString(8).padStart(3, "0")}; restrict it to the owner with chmod 700`,
+    });
+  } catch {
+    checks.push({
+      name: "state_dir",
+      status: "warn",
+      detail: `${stateDirectoryPath} is not present; generated keys go there on first run`,
+    });
+  }
   if (config.transport === "http") {
     try {
       validateHttpConfiguration();
@@ -114,9 +193,10 @@ export async function doctor(config: RuntimeConfig, json: boolean): Promise<numb
       checks.push({ name: "http_auth", status: "fail", detail: "configure one 32-byte token source; token files must be operator-owned regular files with mode 0600" });
     }
   }
-  const output = { status: checks.some((check) => check.status === "fail") ? "fail" : checks.some((check) => check.status === "warn") ? "warn" : "pass", source_mode: config.source_mode, privacy_ceiling: config.privacy_ceiling, checks };
+  const output = { status: checks.some((check) => check.status === "fail") ? "fail" : checks.some((check) => check.status === "warn") ? "warn" : "pass", source_mode: config.source_mode, privacy_ceiling: config.privacy_ceiling, checks, ...(repairs.length > 0 ? { repairs } : {}) };
   if (json) process.stdout.write(JSON.stringify(output, null, 2) + "\n");
   else {
+    for (const repair of repairs) process.stdout.write(`fix  ${repair.name}: ${repair.detail}\n`);
     process.stdout.write(`imessage-mcp doctor: ${output.status}\n`);
     for (const check of checks) process.stdout.write(`${check.status.padEnd(4)} ${check.name}: ${check.detail}\n`);
   }

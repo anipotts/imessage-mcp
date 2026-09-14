@@ -2,7 +2,7 @@ import { release, userInfo } from "node:os";
 import path from "node:path";
 import type { PrivacyMode } from "./contracts.js";
 import { ImessageMcpError } from "./errors.js";
-import { loadDatabaseId, loadReferenceKey } from "./secrets.js";
+import { resolveDatabaseId, resolveReferenceKey, type ResolvedSecret, type SecretSource } from "./keys.js";
 
 export type TransportKind = "stdio" | "http";
 
@@ -16,13 +16,31 @@ export interface RuntimeConfig {
   attachment_paths_enabled: boolean;
   reference_key: string | null;
   database_id: string | null;
+  reference_key_source?: SecretSource;
+  database_id_source?: SecretSource;
 }
 
+/**
+ * Deliberately reads the OS account rather than `$HOME`: this path decides
+ * whether a database counts as live, and a redirected environment must not be
+ * able to pass a copy off as the account's own Messages store.
+ */
 export function resolveDefaultDatabasePath(): string {
   return path.join(userInfo().homedir, "Library", "Messages", "chat.db");
 }
 
 export const DEFAULT_DATABASE_PATH = resolveDefaultDatabasePath();
+
+export interface DatabaseSelection {
+  path: string;
+  sourceMode: "live" | "copy";
+}
+
+export function resolveDatabaseSelection(databasePath?: string): DatabaseSelection {
+  const configured = databasePath ?? process.env.IMESSAGE_DB;
+  const resolved = path.resolve(configured ?? DEFAULT_DATABASE_PATH);
+  return { path: resolved, sourceMode: resolved === path.resolve(DEFAULT_DATABASE_PATH) ? "live" : "copy" };
+}
 
 function parsePrivacy(value: string | undefined, fallback: PrivacyMode): PrivacyMode {
   if (!value) return fallback;
@@ -60,9 +78,9 @@ export function runtimeConfig(input: {
     );
   }
 
-  const configuredDatabasePath = input.databasePath ?? process.env.IMESSAGE_DB;
-  const databasePath = path.resolve(configuredDatabasePath ?? DEFAULT_DATABASE_PATH);
-  const sourceMode = databasePath === path.resolve(DEFAULT_DATABASE_PATH) ? "live" : "copy";
+  const selection = resolveDatabaseSelection(input.databasePath);
+  const databasePath = selection.path;
+  const sourceMode = selection.sourceMode;
   const contactsRaw = input.contacts ?? process.env.IMESSAGE_CONTACTS;
   if (contactsRaw && contactsRaw !== "live" && contactsRaw !== "none") {
     throw new ImessageMcpError("INVALID_INPUT", "contacts must be live or none");
@@ -84,9 +102,13 @@ export function runtimeConfig(input: {
   if (attachmentEnvironment !== undefined && attachmentEnvironment !== "0" && attachmentEnvironment !== "1") {
     throw new ImessageMcpError("INVALID_INPUT", "IMESSAGE_ATTACHMENT_PATHS must be 0 or 1");
   }
-  const referenceKey = input.referenceKey ?? loadReferenceKey(false);
-  const databaseId = input.databaseId ?? loadDatabaseId(false);
-  if (referenceKey && databaseId && referenceKey.equals(databaseId)) {
+  const referenceKey: ResolvedSecret = input.referenceKey
+    ? { value: input.referenceKey, source: "caller" }
+    : resolveReferenceKey();
+  const databaseId: ResolvedSecret = input.databaseId
+    ? { value: input.databaseId, source: "caller" }
+    : resolveDatabaseId(databasePath, sourceMode);
+  if (referenceKey.value.equals(databaseId.value)) {
     throw new ImessageMcpError(
       "INVALID_INPUT",
       "opaque-reference key and database-lineage identity must be generated independently",
@@ -101,7 +123,9 @@ export function runtimeConfig(input: {
     transport: input.transport,
     port,
     attachment_paths_enabled: input.attachmentPaths ?? attachmentEnvironment === "1",
-    reference_key: referenceKey?.toString("base64") ?? null,
-    database_id: databaseId?.toString("base64") ?? null,
+    reference_key: referenceKey.value.toString("base64"),
+    database_id: databaseId.value.toString("base64"),
+    reference_key_source: referenceKey.source,
+    database_id_source: databaseId.source,
   };
 }

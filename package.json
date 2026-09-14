@@ -1,6 +1,6 @@
 {
   "name": "imessage-mcp",
-  "version": "2.0.0-rc.2",
+  "version": "2.0.0",
   "mcpName": "io.github.anipotts/imessage-mcp",
   "description": "Read-only MCP for iMessage, SMS, MMS, and RCS history in Apple Messages on Mac",
   "author": "Ani Potts",
@@ -27,12 +27,12 @@
     "LICENSE",
     "SECURITY.md",
     "VERIFICATION.md",
-    "release-status.json",
     "package-files.json",
     "server.json"
   ],
   "scripts": {
     "build": "node scripts/clean-dist.mjs && tsc",
+    "build:mcpb": "npm run build && node scripts/build-mcpb.mjs",
     "dev": "tsx src/cli.ts",
     "doctor": "tsx src/cli.ts doctor",
     "typecheck": "tsc --noEmit",
@@ -40,15 +40,16 @@
     "test:watch": "vitest",
     "test:installed": "tsx scripts/test-installed.ts",
     "test:live-parity": "tsx scripts/test-live-parity.ts",
+    "test:mcpb": "tsx scripts/test-mcpb.ts",
     "test:performance": "npm run build && tsx scripts/test-performance.ts",
     "test:protocol": "tsx scripts/test-protocol.ts",
     "test:privacy": "vitest run tests/privacy.test.ts tests/security.test.ts",
     "screenshots": "tsx scripts/screenshots.ts",
     "demo:installed": "npm run build && tsx scripts/demo-installed.ts",
     "check:metadata": "tsx scripts/check-metadata.ts",
-    "check:release": "tsx scripts/check-release-gate.ts",
     "verify": "npm run build && npm run typecheck && npm test && npm run test:protocol && npm run test:installed && npm run check:metadata && npm audit --audit-level=high && npm pack --dry-run",
-    "prepublishOnly": "npm run verify"
+    "prepublishOnly": "npm run verify",
+    "preflight": "npm run verify && npm run test:performance && npm run build:mcpb && npm run test:mcpb -- --require && npm run test:live-parity"
   },
   "dependencies": {
     "@modelcontextprotocol/server": "2.0.0",
@@ -65,7 +66,12 @@
     "vitest": "4.1.11"
   },
   "engines": {
-    "node": "^22.0.0 || ^24.0.0 || ^26.0.0"
+    "node": ">=22.0.0"
+  },
+  "allowScripts": {
+    "better-sqlite3": true,
+    "esbuild": true,
+    "fsevents": true
   },
   "os": [
     "darwin"

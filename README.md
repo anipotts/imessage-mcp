@@ -15,35 +15,102 @@ Try questions like:
 
 ## setup
 
-You need macOS 14+, Node.js 22, 24, or 26, and Messages history on this Mac.
+You need macOS 14+, Node.js 22 or newer, and Messages history on this Mac.
 
-Create the two private setup files once, then run the diagnostic:
+Two steps.
 
-```sh
-umask 077
-test -e "$HOME/.imessage-mcp-reference-key" || openssl rand -base64 32 > "$HOME/.imessage-mcp-reference-key"
-test -e "$HOME/.imessage-mcp-database-id" || openssl rand -base64 32 > "$HOME/.imessage-mcp-database-id"
-export IMESSAGE_REFERENCE_KEY_FILE="$HOME/.imessage-mcp-reference-key"
-export IMESSAGE_DATABASE_ID_FILE="$HOME/.imessage-mcp-database-id"
-npx -y imessage-mcp@2.0.0-rc.2 doctor --contacts none --privacy redacted
-```
-
-Add it to Claude Code:
+1. Add it to Claude Code:
 
 ```sh
-claude mcp add imessage-history \
-  -e IMESSAGE_REFERENCE_KEY_FILE="$IMESSAGE_REFERENCE_KEY_FILE" \
-  -e IMESSAGE_DATABASE_ID_FILE="$IMESSAGE_DATABASE_ID_FILE" \
-  -- npx -y imessage-mcp@2.0.0-rc.2 --contacts none --privacy redacted
+claude mcp add imessage -- npx -y imessage-mcp@2
 ```
 
-Restart the client and ask it to list your five most recent conversations. See the [setup guide](docs/GUIDE.md#client-setup) for Codex, Claude Desktop, and Cursor.
+Codex:
 
-This setup returns names, masked handles, and calendar days, with no message bodies. To read message text, change the startup argument to `--privacy full` and restart the client. Search works in redacted mode too; its results omit the text. `--contacts none` avoids reading this Mac's Contacts store.
+```sh
+codex mcp add imessage -- npx -y imessage-mcp@2
+```
+
+Claude Desktop and Cursor:
+
+```json
+{
+  "mcpServers": {
+    "imessage": {
+      "command": "npx",
+      "args": ["-y", "imessage-mcp@2"]
+    }
+  }
+}
+```
+
+2. Restart the client and grant Full Disk Access to it when macOS asks.
+
+One command does the same thing for any of the four clients, then prints the diagnostic summary:
+
+```sh
+npx -y imessage-mcp@2 setup --client claude
+```
+
+`--client` takes `claude`, `codex`, `desktop`, or `cursor`. Claude Desktop and Cursor rewrite their configuration files while they run, so quit the application first; setup backs the file up before it edits anything.
+
+There is nothing else to create. The server generates its two private values on
+first run under `~/Library/Application Support/imessage-mcp`, and reuses them
+after a restart so saved conversation references keep working.
+
+A bare `npx imessage-mcp` without `@2` resolves to the 1.x line until `latest` moves; the setup command above pins the major version.
+
+To check the setup without a client, run the read-only diagnostic:
+
+```sh
+npx -y imessage-mcp@2 doctor --contacts none --privacy redacted
+```
+
+Ask the client to list your five most recent conversations. See the [setup guide](docs/GUIDE.md#client-setup) for more on each client.
+
+stdio starts at `--privacy full` and `--contacts live`, matching what Messages and Contacts already authorize on this Mac. To start redacted (names, masked handles, and calendar days, with no message bodies) or without Contacts, add `--contacts none --privacy redacted` to the setup command above. Search works in redacted mode too; its results omit the text.
 
 If `doctor` reports a database permission problem, grant Full Disk Access to the application launching the server, restart it, and run the diagnostic again. macOS grants that access to the whole application or shell, not narrowly to `imessage-mcp`. The diagnostic explains failed checks without changing settings.
 
-Keep the two setup files private. They let saved conversation references survive restarts. A faithful database copy uses the same files; an unrelated archive needs a new database identity. [Details](docs/GUIDE.md#live-and-copied-databases).
+A faithful database copy keeps its references only on the identity it was created with; an unrelated archive gets its own. [Details](docs/GUIDE.md#live-and-copied-databases).
+
+If the generated key files ever lose their owner-only modes, repair them without touching any other setting:
+
+```sh
+npx -y imessage-mcp@2 doctor --fix
+```
+
+## remove
+
+```sh
+npx -y imessage-mcp@2 uninstall --client claude
+```
+
+Other servers in a Claude Desktop or Cursor configuration are left alone. Add `--purge --yes` to also delete the generated key files, which permanently invalidates saved conversation references.
+
+## plugin
+
+Claude Code can also install it by name, as an alternative to `claude mcp add`:
+
+```sh
+/plugin marketplace add anipotts/imessage-mcp
+/plugin install imessage-mcp@anipotts
+```
+
+To remove it:
+
+```sh
+/plugin uninstall imessage-mcp@anipotts
+/plugin marketplace remove anipotts
+```
+
+## desktop bundle
+
+Claude Desktop installs without a configuration file. Download `imessage-mcp.mcpb` from the [latest release](https://github.com/anipotts/imessage-mcp/releases/latest), double-click it, and confirm. Then grant Full Disk Access to Claude Desktop and restart it. Every release launches the bundle through its own manifest on Apple Silicon and Intel runners before it is attached.
+
+The install dialog carries the two startup settings, the privacy ceiling and contact names. Leave them alone to get the same defaults the `npx` command starts with. [Details](docs/GUIDE.md#claude-desktop-bundle).
+
+To remove it, open Claude Desktop Settings, then Extensions, and uninstall iMessage. Your configuration file is untouched either way, because a bundle install never writes to it.
 
 ## seven tools
 
@@ -57,7 +124,19 @@ Keep the two setup files private. They let saved conversation references survive
 | `resolve_contact` | Match a name or handle and report ambiguity rather than guess. |
 | `server_status` | Check versions, privacy settings, services, decoder health, and index state. |
 
-Every 2.x tool reads data only. The server cannot send or modify messages, and it does not recover unsent text or old edited versions.
+Every 2.x tool reads data only. The server cannot send or modify messages, and it does not recover unsent text or old edited versions. Each tool advertises a display title and an output schema for its success envelope, so a client can label it and check the structured result.
+
+## prompts
+
+The server also advertises three prompts, which a compatible client (Claude Code included) surfaces as slash commands.
+
+| prompt | arguments | what it asks the assistant to do |
+| --- | --- | --- |
+| `catch_up` | `contact`, `days` (default 7) | resolve the contact, read the recent conversation, and summarize what needs a reply |
+| `draft_reply` | `contact`, `intent` (optional) | read the latest messages and draft a reply in the user's own style, for the user to send |
+| `who_said` | `query` | search messages and list who said it, when, and in which conversation |
+
+Prompts are text templates the client sends back to the assistant; none of them can send a message, since the server has no send tool.
 
 ## privacy
 
@@ -79,7 +158,7 @@ See the [security policy](SECURITY.md) and [full privacy contract](docs/GUIDE.md
 
 iMessage, SMS, MMS, and RCS are supported when they already appear in Messages on this Mac. The server reads a live Mac database or a faithful copy. Linux, Docker, iPhone backup manifests, and public HTTP hosting are unsupported. Optional authenticated HTTP is loopback-only; see the [guide](docs/GUIDE.md#http-and-tailscale-serve).
 
-[Verification](VERIFICATION.md) separates automated tests, previous live checks, and publication state. [Benchmarks](docs/BENCHMARK.md) include a reproducible synthetic fixture and cold, warm, and refresh timings. The [installed demo](docs/DEMO.md) uses synthetic Messages data.
+[Verification](VERIFICATION.md) separates automated tests from previous live checks; [the changelog](CHANGELOG.md) and [GitHub releases](https://github.com/anipotts/imessage-mcp/releases) record what shipped. [Benchmarks](docs/BENCHMARK.md) include a reproducible synthetic fixture and cold, warm, and refresh timings. The [installed demo](docs/DEMO.md) uses synthetic Messages data.
 
 ## development
 

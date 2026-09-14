@@ -5,58 +5,104 @@ This guide contains the operational detail intentionally kept out of the main RE
 ## requirements and doctor
 
 - macOS 14 or newer on Apple silicon or Intel
-- active Node.js 22, 24, or 26
+- active Node.js 22 or newer
 - a live Mac `chat.db` or a faithful copy of that Mac schema
 - Full Disk Access for the application or shell launching the MCP server
 
 `doctor` is read-only. It checks Node, database and WAL readability, schema capabilities, Contacts availability, native decoding, secret-file permissions, package state, and transport configuration. It prints remediation without opening settings or changing permissions.
 
 ```sh
-npx -y imessage-mcp@2.0.0-rc.2 doctor --contacts none --privacy redacted
+npx -y imessage-mcp@2 doctor --contacts none --privacy redacted
 ```
 
-Keep the two setup files: one protects conversation references, and the other identifies the Messages database. Reuse both after a restart so saved references still work. Prefer operator-owned, non-symlink regular files with mode `0600` through `IMESSAGE_REFERENCE_KEY_FILE` and `IMESSAGE_DATABASE_ID_FILE`. Protected supervisors may instead use `IMESSAGE_REFERENCE_KEY` and `IMESSAGE_DATABASE_ID`. Set exactly one source for each value.
+## state directory
+
+Two private values keep opaque references stable: one protects conversation references, and the other identifies the Messages database lineage. Both are generated on first run as `0600` files in `~/Library/Application Support/imessage-mcp`, a `0700` directory. `IMESSAGE_STATE_DIR` moves that directory, which is how the test suites keep generated values out of a real home.
+
+Keep those files private and back them up with the rest of your home directory. Losing them invalidates saved references without touching Messages data.
+
+`doctor --fix` creates a missing generated file, restores mode `0600` on those files, and restores mode `0700` on the directory. It stops there: it never changes a file named by an `IMESSAGE_*_FILE` variable, and it never touches Full Disk Access or Contacts authorization, which you grant in System Settings > Privacy & Security. `uninstall --purge --yes` deletes the generated files and the directory, and refuses when anything else is stored there. Both guards compare paths after resolving symbolic links, so a pinned file reached through `/tmp` or `/var` is still recognized.
+
+The live database uses `reference-key` and `database-id`. A database opened with `--database` is treated as a copy and gets its own `database-id-<lineage>` file, named from the copy's path, so unrelated archives never share an identity. To pin a faithful copy that moved to a new path back onto the original lineage, pass the original value explicitly.
+
+Explicit configuration still wins over the generated defaults. Use operator-owned, non-symlink regular files with mode `0600` through `IMESSAGE_REFERENCE_KEY_FILE` and `IMESSAGE_DATABASE_ID_FILE`. Protected supervisors may instead use `IMESSAGE_REFERENCE_KEY` and `IMESSAGE_DATABASE_ID`. Set at most one source for each value.
+
+## names
+
+The MCP client key is `imessage` everywhere: `.mcp.json`, this guide, and every client example. The npm package, GitHub repository, and Claude Code plugin all stay `imessage-mcp` so the plugin name cannot collide with an official channel plugin named `imessage`. The MCP Registry name stays `io.github.anipotts/imessage-mcp`, the registry-mandated reverse-DNS format. The `McpServer` handshake reports its `serverInfo.name` as `imessage-mcp`.
 
 ## client setup
 
-All examples use the collision-resistant namespace `imessage-history`, disable Contacts, and start with a redacted privacy ceiling.
+All persistent examples pin the major version with `imessage-mcp@2`, so installs receive fixes without ever resolving to a prerelease. Each client authorizes at its runtime defaults; add `--contacts none --privacy redacted` to start redacted instead. See [privacy](#privacy-and-untrusted-history).
+
+`setup` covers all four clients and ends by running the doctor checks in process:
+
+```sh
+npx -y imessage-mcp@2 setup --client claude|codex|desktop|cursor
+```
+
+It accepts `--scope user|project` for Claude Code, `--contacts` and `--privacy` to pin the startup modes into the registered command, and `--config <path>` to edit a configuration file somewhere other than the default. `uninstall` takes the same `--client` and reverses one registration, leaving every other configured server in place.
 
 ### Claude Code
 
+`setup --client claude` runs this command for you:
+
 ```sh
-claude mcp add imessage-history \
-  -e IMESSAGE_REFERENCE_KEY_FILE="$IMESSAGE_REFERENCE_KEY_FILE" \
-  -e IMESSAGE_DATABASE_ID_FILE="$IMESSAGE_DATABASE_ID_FILE" \
-  -- npx -y imessage-mcp@2.0.0-rc.2 --contacts none --privacy redacted
+claude mcp add imessage -s user -- npx -y imessage-mcp@2
 ```
+
+As an alternative, install it as a plugin instead:
+
+```sh
+/plugin marketplace add anipotts/imessage-mcp
+/plugin install imessage-mcp@anipotts
+```
+
+The plugin carries its own server definition in `.claude-plugin/plugin.json` and starts at the runtime defaults. The `.mcp.json` at the repository root is for people developing this project, so it starts `--contacts none --privacy redacted` and never hands a coding agent a maintainer's real message bodies.
 
 ### Codex
 
+`setup --client codex` runs this command for you:
+
 ```sh
-codex mcp add \
-  --env IMESSAGE_REFERENCE_KEY_FILE="$IMESSAGE_REFERENCE_KEY_FILE" \
-  --env IMESSAGE_DATABASE_ID_FILE="$IMESSAGE_DATABASE_ID_FILE" \
-  imessage-history -- npx -y imessage-mcp@2.0.0-rc.2 --contacts none --privacy redacted
+codex mcp add imessage -- npx -y imessage-mcp@2
 ```
 
+### Claude Desktop bundle
+
+Claude Desktop also installs from a bundle, which leaves `claude_desktop_config.json` untouched. Download `imessage-mcp.mcpb` from the [latest release](https://github.com/anipotts/imessage-mcp/releases/latest) and double-click it. The bundle carries `dist`, `bin`, `native`, and the production `node_modules` with the two Mac sqlite binaries, so nothing resolves from npm at launch, and it runs on the Node.js that ships with Claude Desktop. `npm run test:mcpb` unpacks the bundle and starts it exactly as the app would, resolving `${__dirname}` and each `user_config` value, then checks the handshake, the tools and prompts, a database read, and that a caller cannot raise the ceiling above the dialog setting. CI runs it on both chips and the release job runs it before attaching the file.
+
+The install dialog exposes two settings, both mapped into the launch arguments:
+
+| setting | values | default | effect |
+| --- | --- | --- | --- |
+| privacy ceiling | `full`, `redacted`, `aggregate` | `full` | the most a caller can see, passed as `--privacy` |
+| contact names | `live`, `none` | `live` | whether handles are named from unified Contacts, passed as `--contacts` |
+
+Either setting takes effect when Claude Desktop next starts the server. Full Disk Access still belongs to Claude Desktop itself, so grant it there and restart, the same as any other client.
+
+To remove it, open Settings, then Extensions, and uninstall iMessage. `uninstall --client desktop` reverses a configuration-file registration and does not touch a bundle install.
+
 ### Claude Desktop and Cursor
+
+`setup --client desktop` edits `~/Library/Application Support/Claude/claude_desktop_config.json` and `setup --client cursor` edits `~/.cursor/mcp.json`. Both applications rewrite those files while they run, so setup refuses while the application is open. Quit it first, or install the `.mcpb` bundle for Claude Desktop. The original file is copied to `<file>.bak-<unix-time>` and the replacement is written to a temporary file in the same directory and renamed into place, so an interrupted run leaves the old file intact. Both the copy and the replacement are mode `0600`, since these files often hold other servers' tokens. Backups accumulate and nothing prunes them; `uninstall` lists the ones it left so you can delete them.
+
+The merged entry is the same shape you would write by hand:
 
 ```json
 {
   "mcpServers": {
-    "imessage-history": {
+    "imessage": {
       "command": "npx",
-      "args": ["-y", "imessage-mcp@2.0.0-rc.2", "--contacts", "none", "--privacy", "redacted"],
-      "env": {
-        "IMESSAGE_REFERENCE_KEY_FILE": "/Users/you/.imessage-mcp-reference-key",
-        "IMESSAGE_DATABASE_ID_FILE": "/Users/you/.imessage-mcp-database-id"
-      }
+      "args": ["-y", "imessage-mcp@2"]
     }
   }
 }
 ```
 
-Grant Full Disk Access to the launching client, restart it, and call `server_status`. Automated tests launch the installed server through the MCP SDK and check a JSON configuration shape. They do not launch Codex, Claude Desktop, Claude Code, or Cursor.
+Grant Full Disk Access to the launching client, restart it, and call `server_status`. Automated tests launch the installed server through the MCP SDK, check a JSON configuration shape, and drive `setup` against recording stand-ins for the client binaries. They do not launch Codex, Claude Desktop, Claude Code, or Cursor.
+
+To reverse any of these, run `uninstall --client <name>`. It calls the same client binary with `mcp remove`, or edits the same JSON file with the same backup and atomic replacement, and leaves every other configured server untouched.
 
 ## privacy and untrusted history
 
@@ -123,4 +169,6 @@ Diagnostics go to stderr and contain tool name, duration, status, counts, and er
 ## errors
 
 Stable MCP reasons include `INVALID_INPUT`, `AMBIGUOUS_CONTACT`, `PRIVACY_RESTRICTED`, `DATABASE_UNAVAILABLE`, `DATABASE_CHANGED`, `UNSUPPORTED_SCHEMA`, `DECODE_FAILED`, `INDEX_TOO_LARGE`, and `QUERY_BUDGET_EXCEEDED`.
+
+A success returns `api_version`, `effective_scope`, `completeness`, `data`, and optional `page` and `warnings`. Each tool publishes that envelope as its `outputSchema`. Fields a privacy mode removes are optional there, and aggregate mode replaces row arrays with counts. A failure sets `isError` and returns `api_version` plus `error` instead, which the output schema does not describe.
 

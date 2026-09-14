@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
-import { lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -12,6 +12,7 @@ import { runtimeConfig } from "../src/config.js";
 import { createFixture } from "../tests/fixture.js";
 import { runStdio } from "./test-protocol.js";
 import { assertPackedPackage } from "./package-manifest.js";
+import { cleanEnvironment } from "./launch-env.js";
 
 interface PackResult {
   filename: string;
@@ -45,22 +46,6 @@ function dependencyNodes(value: { dependencies?: Record<string, unknown> }): num
   );
 }
 
-function cleanEnvironment(extra: Record<string, string>): Record<string, string> {
-  const blocked = new Set([
-    "IMESSAGE_REFERENCE_KEY",
-    "IMESSAGE_REFERENCE_KEY_FILE",
-    "IMESSAGE_DATABASE_ID",
-    "IMESSAGE_DATABASE_ID_FILE",
-  ]);
-  return {
-    ...Object.fromEntries(
-      Object.entries(process.env).filter(
-        (entry): entry is [string, string] => entry[1] !== undefined && !blocked.has(entry[0]),
-      ),
-    ),
-    ...extra,
-  };
-}
 
 async function runCleanRoomFirstRequest(binary: string, fixture: ReturnType<typeof createFixture>, scratch: string): Promise<void> {
   const referenceKeyFile = path.join(scratch, "reference-key");
@@ -104,6 +89,39 @@ async function runCleanRoomFirstRequest(binary: string, fixture: ReturnType<type
   } finally {
     await client.close();
   }
+}
+
+async function runCleanRoomGeneratedKeys(binary: string, fixture: ReturnType<typeof createFixture>, scratch: string): Promise<void> {
+  const stateDirectory = path.join(scratch, "generated-state");
+  assert.equal(existsSync(stateDirectory), false);
+
+  const transport = new StdioClientTransport({
+    command: binary,
+    args: ["--database", fixture.databasePath, "--contacts", "none", "--privacy", "redacted"],
+    cwd: scratch,
+    env: cleanEnvironment({ IMESSAGE_STATE_DIR: stateDirectory }),
+    stderr: "pipe",
+  });
+  const client = new Client({ name: "clean-room-generated-keys", version: "1.0.0" });
+  try {
+    await client.connect(transport);
+    const status = await client.callTool({
+      name: "server_status",
+      arguments: { privacy_mode: "redacted" },
+    });
+    assert.equal(status.isError, undefined);
+  } finally {
+    await client.close();
+  }
+
+  const generated = readdirSync(stateDirectory).sort();
+  assert.equal(generated.length, 2);
+  assert.equal(generated[1], "reference-key");
+  assert.match(generated[0], /^database-id-[0-9a-f]{16}$/u);
+  for (const name of generated) {
+    assert.equal(lstatSync(path.join(stateDirectory, name)).mode & 0o777, 0o600);
+  }
+  assert.equal(lstatSync(stateDirectory).mode & 0o777, 0o700);
 }
 
 async function runInstalledRuntimePrivacy(installedRoot: string, fixture: ReturnType<typeof createFixture>): Promise<void> {
@@ -151,7 +169,6 @@ async function main(): Promise<void> {
     assert.ok(paths.includes(".claude-plugin/plugin.json"));
     assert.ok(paths.includes(".mcp.json"));
     assert.ok(paths.includes("native/message-text-decoder.js"));
-    assert.ok(paths.includes("release-status.json"));
     assert.ok(paths.includes("VERIFICATION.md"));
     assert.ok(paths.includes("server.json"));
     assert.ok(!paths.includes("npm-shrinkwrap.json"));
@@ -197,9 +214,18 @@ async function main(): Promise<void> {
     const installedMcp = JSON.parse(readFileSync(path.join(installedRoot, ".mcp.json"), "utf8")) as {
       mcpServers: Record<string, { args: string[] }>;
     };
-    assert.deepEqual(Object.keys(installedMcp.mcpServers), ["imessage-history"]);
-    assert.deepEqual(installedMcp.mcpServers["imessage-history"].args.slice(-4),
-      ["--contacts", "none", "--privacy", "redacted"]);
+    assert.deepEqual(Object.keys(installedMcp.mcpServers), ["imessage"]);
+    // The shipped example is the project-scoped file, not the plugin's server
+    // definition, so it starts redacted. The plugin declares its own entry at
+    // the runtime defaults in .claude-plugin/plugin.json.
+    assert.deepEqual(installedMcp.mcpServers["imessage"].args, [
+      "-y",
+      `imessage-mcp@${packageVersionValue.split(".")[0]}`,
+      "--contacts",
+      "none",
+      "--privacy",
+      "redacted",
+    ]);
     const binary = path.join(install, "node_modules", ".bin", "imessage-mcp");
     assert.equal(execFileSync(binary, ["--version"], { cwd: install, encoding: "utf8" }).trim(), packageVersionValue);
     for (const args of [["--help"], ["-h"], ["help"]]) {
@@ -237,12 +263,13 @@ async function main(): Promise<void> {
       detail: "disabled by --contacts none; using handles only",
     });
     await runCleanRoomFirstRequest(binary, fixture, scratch);
+    await runCleanRoomGeneratedKeys(binary, fixture, scratch);
     await runStdio(binary, [], fixture);
     await runInstalledRuntimePrivacy(installedRoot, fixture);
 
     const clientConfig = {
       mcpServers: {
-        "imessage-history": {
+        "imessage": {
           command: binary,
           args: ["--database", fixture.databasePath, "--contacts", "none", "--privacy", "redacted"],
           env: {
@@ -256,13 +283,14 @@ async function main(): Promise<void> {
     const configFile = path.join(scratch, "mcp-config.json");
     writeFileSync(configFile, JSON.stringify(clientConfig));
     const configured = JSON.parse(readFileSync(configFile, "utf8")) as typeof clientConfig;
-    assert.equal(configured.mcpServers["imessage-history"].command, binary);
-    assert.deepEqual(configured.mcpServers["imessage-history"].args.slice(-4),
+    assert.equal(configured.mcpServers["imessage"].command, binary);
+    assert.deepEqual(configured.mcpServers["imessage"].args.slice(-4),
       ["--contacts", "none", "--privacy", "redacted"]);
     process.stdout.write(
       `installed tarball verification passed: ${installedNodes} dependency nodes, ` +
       `${(installedBytes / (1024 * 1024)).toFixed(1)} MiB, package contents, help, doctor, ` +
-      `clean-room redacted first run, stdio MCP handshake, exported runtime privacy, and JSON config-shape check (no client apps launched)\n`,
+      `clean-room redacted first run, zero-config generated 0600 state files, stdio MCP handshake, ` +
+      `exported runtime privacy, and JSON config-shape check (no client apps launched)\n`,
     );
   } finally {
     fixture.cleanup();
