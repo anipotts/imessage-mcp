@@ -1,10 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
-import { fileURLToPath } from "node:url";
 import { decodeReference, encodeReference } from "../src/references.js";
 import { successResult } from "../src/result.js";
 import { loadDatabaseId } from "../src/secrets.js";
@@ -130,7 +127,7 @@ describe("native and release hardening", () => {
   });
 
   it("pins every workflow action to an immutable commit", () => {
-    for (const file of ["attest-security-evidence.yml", "ci.yml", "security.yml", "release.yml"]) {
+    for (const file of ["ci.yml", "security.yml", "release.yml"]) {
       const workflow = readFileSync(new URL(`../.github/workflows/${file}`, import.meta.url), "utf8");
       const uses = [...workflow.matchAll(/^\s*- uses:\s+[^\s@]+@([^\s#]+)/gmu)].map((match) => match[1]);
       expect(uses.length).toBeGreaterThan(0);
@@ -138,214 +135,59 @@ describe("native and release hardening", () => {
     }
   });
 
-  it("keeps publication downstream of protected, exact-revision evidence with split authority", () => {
-    const attestation = readFileSync(new URL("../.github/workflows/attest-security-evidence.yml", import.meta.url), "utf8");
-    expect(attestation).toContain("SECURITY_SCAN_ALLOWED_SIGNER");
-    expect(attestation).toContain("verify-commit \"$GITHUB_SHA\"");
-    expect(attestation).toContain("scripts/security-evidence.ts create");
+  it("publishes only from a verified version tag, with split downstream authority", () => {
     const release = readFileSync(new URL("../.github/workflows/release.yml", import.meta.url), "utf8");
-    expect(release).toContain("needs: [verify-release, release-secret-scan, release-codeql]");
+    expect(release).toContain("\n  push:\n    tags:\n      - \"v[0-9]*\"\n");
+    expect(release).not.toContain("workflow_dispatch");
+    expect(release).not.toContain("gh attestation verify");
+    expect(release).not.toContain("security-evidence");
+    expect(release).not.toContain("SECURITY_SCAN_ALLOWED_SIGNER");
+    expect(release).not.toContain("resume-");
+    expect(release).toContain("needs: [verify, secret-scan, codeql]");
     expect(release).toContain("upload: never");
-    expect(release).toContain("--signer-workflow anipotts/imessage-mcp/.github/workflows/attest-security-evidence.yml");
-    expect(release).toContain("--source-digest \"$GITHUB_SHA\"");
     expect(release).toContain("--ignore-scripts --access public --provenance");
-    const verifyJob = release.slice(release.indexOf("  verify-release:"), release.indexOf("  release-secret-scan:"));
-    expect(verifyJob).toContain("fetch-depth: 0");
-    expect(verifyJob).toContain('git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main');
-    expect(verifyJob.indexOf("npm run test:performance")).toBeLessThan(verifyJob.indexOf("retrieve and verify protected security evidence"));
-    expect(verifyJob.slice(verifyJob.indexOf("retrieve and verify protected security evidence")))
-      .not.toMatch(/npm run (?:verify|test:performance)/u);
+
+    const verify = release.slice(release.indexOf("  verify:"), release.indexOf("  secret-scan:"));
+    expect(verify).toContain("fetch-depth: 0");
+    expect(verify).toContain("persist-credentials: false");
+    expect(verify).toContain('test "v${VERSION}" = "${GITHUB_REF_NAME}"');
+    expect(verify).toContain('git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main');
+    expect(verify.indexOf("npm run verify")).toBeLessThan(verify.indexOf("npm run test:performance"));
+    expect(verify.indexOf("npm run test:performance")).toBeLessThan(verify.indexOf("npm pack"));
+    expect(verify).toContain("build:mcpb");
+    expect(verify).toContain("name: release-${{ steps.version.outputs.version }}");
+
     const npmJob = release.slice(release.indexOf("  publish-npm:"), release.indexOf("  verify-public-npm:"));
-    expect(npmJob).toContain("attestations: read");
-    expect(npmJob).toContain('TARBALL="./release-artifact/${{ needs.verify-release.outputs.tarball }}"');
+    expect(npmJob).toContain("environment: npm-release");
+    expect(npmJob).toContain("id-token: write");
+    expect(npmJob).not.toContain("contents: write");
+    expect(npmJob).toContain("name: release-${{ needs.verify.outputs.version }}");
+    expect(npmJob).toContain('TARBALL="./release-artifact/${{ needs.verify.outputs.tarball }}"');
     expect(npmJob).toContain('test -f "$TARBALL"');
-    expect(npmJob.match(/gh attestation verify/gu)).toHaveLength(2);
-    expect(npmJob.indexOf("gh attestation verify")).toBeLessThan(npmJob.indexOf("npm publish"));
+    expect(npmJob).toContain("--tag next");
+    expect(npmJob).toContain("--tag latest");
+
     const publicNpm = release.slice(release.indexOf("  verify-public-npm:"), release.indexOf("  publish-registry:"));
     expect(publicNpm).toContain("--omit=dev");
+    expect(publicNpm).toContain("cmp ");
+
     const registry = release.slice(release.indexOf("  publish-registry:"), release.indexOf("  publish-github-release:"));
+    expect(registry).toContain("environment: mcp-registry-release");
     expect(registry).toContain("contents: read");
     expect(registry).toContain("id-token: write");
     expect(registry).not.toContain("contents: write");
     expect(registry).toContain("persist-credentials: false");
-    const github = release.slice(release.indexOf("  publish-github-release:"), release.indexOf("  resume-verify-public-npm:"));
-    expect(github).toContain("contents: write");
-    expect(github).not.toContain("id-token: write");
-    expect(github).not.toContain("mcp-publisher");
-    expect(github).toContain("draft: true");
-    expect(github).toContain('gh release edit "v${VERSION}"');
-    expect(github).toContain("!release.immutable");
-    expect(github).toContain("gh release verify-asset");
-  });
 
-  it("resumes a partial release without republishing npm or weakening split authority", () => {
-    const release = readFileSync(new URL("../.github/workflows/release.yml", import.meta.url), "utf8");
-    const recovery = release.slice(release.indexOf("  resume-verify-public-npm:"));
-    const verify = recovery.slice(0, recovery.indexOf("  resume-publish-registry:"));
-    const registry = recovery.slice(
-      recovery.indexOf("  resume-publish-registry:"),
-      recovery.indexOf("  resume-publish-github-release:"),
-    );
-    const github = recovery.slice(
-      recovery.indexOf("  resume-publish-github-release:"),
-      recovery.indexOf("  resume-verify-public-surfaces:"),
-    );
-
-    expect(release).toContain("workflow_dispatch:");
-    expect(recovery).not.toContain("npm publish");
-    expect(recovery).not.toContain("ref: ${{ inputs.evidence_commit }}");
-    expect(recovery).not.toContain("ref: ${{ needs.resume-verify-public-npm.outputs.evidence_commit }}");
-    expect(verify).toContain("environment: security-attestation");
-    expect(verify).toContain('test "$GITHUB_REF" = "refs/heads/main"');
-    expect(verify).toContain('verify-commit "$EVIDENCE_COMMIT"');
-    expect(verify).toContain('verify-tag "v${TARGET_VERSION}"');
-    expect(verify).toContain('"publish verified npm artifact",');
-    expect(verify).toContain('jobs.get(name) !== "success"');
-    expect(verify).toContain('["failure", "skipped", "skipped"]');
-    expect(verify).toContain('["success", "failure", "skipped"]');
-    expect(verify).toContain('["success", "success", "failure"]');
-    expect(verify).toContain("--source-digest \"$EVIDENCE_COMMIT\"");
-    expect(verify).toContain("scripts/security-evidence.ts verify");
-    expect(verify).toContain('workflow.path !== ".github/workflows/release.yml"');
-    expect(verify).toContain("--omit=dev");
-    expect(verify).toContain('git show "${EVIDENCE_COMMIT}:package-lock.json"');
-    expect(verify).toContain("node_modules/imessage-mcp/dist/verify-installed-graph.js");
-    expect(verify).toContain('node_modules/.bin/imessage-mcp" --version');
-    expect(verify).not.toContain("package/npm-shrinkwrap.json");
-    expect(verify).toContain("audit signatures");
-
-    expect(registry).toContain("environment: mcp-registry-release");
-    expect(registry).toContain("id-token: write");
-    expect(registry).toContain("contents: read");
-    expect(registry).not.toContain("contents: write");
-    expect(registry).toContain("login github-oidc");
-
+    const github = release.slice(release.indexOf("  publish-github-release:"));
     expect(github).toContain("environment: github-release");
     expect(github).toContain("contents: write");
     expect(github).not.toContain("id-token: write");
     expect(github).not.toContain("mcp-publisher");
     expect(github).toContain("draft: true");
-    expect(github).toContain('process.stdout.write("draft")');
+    expect(github).toContain("generate_release_notes: true");
+    expect(github).toContain("files: release-artifact/*");
     expect(github).toContain('gh release edit "v${VERSION}"');
     expect(github).toContain("!release.immutable");
     expect(github).toContain("gh release verify-asset");
-    expect(github).not.toContain("--method DELETE");
   });
-
-  it("binds security evidence to canonical scan files whose exact parent was scanned", () => {
-    const directory = mkdtempSync(path.join(tmpdir(), "imessage-security-evidence-"));
-    const runGit = (...args: string[]) => execFileSync("git", args, { cwd: directory, encoding: "utf8" }).trim();
-    try {
-      runGit("init", "--quiet");
-      runGit("config", "core.hooksPath", "/dev/null");
-      runGit("config", "user.name", "Fixture");
-      runGit("config", "user.email", "fixture@example.test");
-      runGit("config", "commit.gpgsign", "false");
-      writeFileSync(path.join(directory, "package.json"), JSON.stringify({ version: "2.0.0-beta.1" }));
-      writeFileSync(path.join(directory, "package.tgz"), "synthetic package bytes");
-      runGit("add", "package.json", "package.tgz");
-      runGit("commit", "--quiet", "-m", "base");
-      const scanned = runGit("rev-parse", "HEAD");
-      const scanId = "11111111-1111-1111-1111-111111111111";
-      const findings = `${JSON.stringify({
-        documentType: "codex-security.findings",
-        schemaVersion: "1.0",
-        scanId,
-        findings: [],
-      }, null, 2)}\n`;
-      const coverage = `${JSON.stringify({
-        documentType: "codex-security.coverage",
-        schemaVersion: "1.0",
-        scanId,
-        mode: "repository",
-        completeness: "complete",
-        inventoryStrategy: "repository",
-        includePaths: ["."],
-        excludePaths: [],
-        surfaces: [{
-          id: "surface_release",
-          label: "Release provenance",
-          disposition: "no_issue_found",
-          receiptRefs: [],
-        }],
-        explicitExclusions: [],
-        deferred: [],
-        openQuestions: [],
-      }, null, 2)}\n`;
-      const hash = (value: string) => createHash("sha256").update(value).digest("hex");
-      const manifest = `${JSON.stringify({
-        documentType: "codex-security.scan-manifest",
-        schemaVersion: "1.0",
-        scan: {
-          id: scanId,
-          producer: { name: "codex-security-plugin", version: "0.1.23" },
-          status: "completed",
-          startedAt: "2026-08-11T00:00:00.000Z",
-          completedAt: "2026-08-11T00:01:00.000Z",
-          sealedAt: "2026-08-11T00:01:00.000Z",
-          target: {
-            kind: "git_revision",
-            targetId: `target_sha256_${"a".repeat(64)}`,
-            displayName: "imessage-mcp",
-            revision: scanned,
-          },
-          scope: { includePaths: ["."], excludePaths: [] },
-          coverageRef: "coverage.json",
-          findingsRef: "findings.json",
-          artifacts: [
-            { path: "findings.json", sha256: hash(findings), mediaType: "application/json" },
-            { path: "coverage.json", sha256: hash(coverage), mediaType: "application/json" },
-          ],
-        },
-      }, null, 2)}\n`;
-      const scanDirectory = path.join(directory, "security", "scan");
-      mkdirSync(scanDirectory, { recursive: true });
-      writeFileSync(path.join(scanDirectory, "findings.json"), findings);
-      writeFileSync(path.join(scanDirectory, "coverage.json"), coverage);
-      writeFileSync(path.join(scanDirectory, "scan-manifest.json"), manifest);
-      runGit("add", "security/scan/coverage.json", "security/scan/findings.json", "security/scan/scan-manifest.json");
-      runGit("commit", "--quiet", "-m", "chore: attach sealed security scan");
-      const evidenceCommit = runGit("rev-parse", "HEAD");
-      const tsx = fileURLToPath(new URL("../node_modules/.bin/tsx", import.meta.url));
-      const script = fileURLToPath(new URL("../scripts/security-evidence.ts", import.meta.url));
-      execFileSync(tsx, [script, "create", "package.tgz", evidenceCommit, "evidence.json"], {
-        cwd: directory,
-        stdio: "ignore",
-      });
-      const evidence = JSON.parse(readFileSync(path.join(directory, "evidence.json"), "utf8")) as {
-        schema_version: number;
-        subject: { commit: string; scanned_commit: string };
-        security_scan: { scan_revision: string; finding_count: number; coverage: string };
-      };
-      expect(evidence.schema_version).toBe(3);
-      expect(evidence.subject.commit).toBe(evidenceCommit);
-      expect(evidence.subject.scanned_commit).toBe(scanned);
-      expect(evidence.security_scan).toMatchObject({ scan_revision: scanned, finding_count: 0, coverage: "complete" });
-
-      for (const producerVersion of ["0.1.22", "0.1.24"]) {
-        const rejectedManifest = JSON.parse(manifest);
-        rejectedManifest.scan.producer.version = producerVersion;
-        writeFileSync(path.join(scanDirectory, "scan-manifest.json"), JSON.stringify(rejectedManifest));
-        runGit("add", "security/scan/scan-manifest.json");
-        runGit("commit", "--amend", "--no-edit", "--quiet");
-        expect(() => execFileSync(tsx, [script, "create", "package.tgz", runGit("rev-parse", "HEAD"), "invalid.json"], {
-          cwd: directory,
-          stdio: "ignore",
-        })).toThrow();
-      }
-      writeFileSync(path.join(scanDirectory, "scan-manifest.json"), manifest);
-      runGit("add", "security/scan/scan-manifest.json");
-      runGit("commit", "--amend", "--no-edit", "--quiet");
-
-      runGit("commit", "--allow-empty", "--quiet", "-m", "unscanned child");
-      const unscanned = runGit("rev-parse", "HEAD");
-      expect(() => execFileSync(tsx, [script, "create", "package.tgz", unscanned, "invalid.json"], {
-        cwd: directory,
-        stdio: "ignore",
-      })).toThrow();
-    } finally {
-      rmSync(directory, { recursive: true, force: true });
-    }
-  });
-
 });

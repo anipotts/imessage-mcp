@@ -185,7 +185,6 @@ async function main(): Promise<void> {
     assert.ok(paths.includes(".claude-plugin/plugin.json"));
     assert.ok(paths.includes(".mcp.json"));
     assert.ok(paths.includes("native/message-text-decoder.js"));
-    assert.ok(paths.includes("release-status.json"));
     assert.ok(paths.includes("VERIFICATION.md"));
     assert.ok(paths.includes("server.json"));
     assert.ok(!paths.includes("npm-shrinkwrap.json"));

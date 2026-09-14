@@ -122,7 +122,7 @@ See the [security policy](SECURITY.md) and [full privacy contract](docs/GUIDE.md
 
 iMessage, SMS, MMS, and RCS are supported when they already appear in Messages on this Mac. The server reads a live Mac database or a faithful copy. Linux, Docker, iPhone backup manifests, and public HTTP hosting are unsupported. Optional authenticated HTTP is loopback-only; see the [guide](docs/GUIDE.md#http-and-tailscale-serve).
 
-[Verification](VERIFICATION.md) separates automated tests, previous live checks, and publication state. [Benchmarks](docs/BENCHMARK.md) include a reproducible synthetic fixture and cold, warm, and refresh timings. The [installed demo](docs/DEMO.md) uses synthetic Messages data.
+[Verification](VERIFICATION.md) separates automated tests from previous live checks; [the changelog](CHANGELOG.md) and [GitHub releases](https://github.com/anipotts/imessage-mcp/releases) record what shipped. [Benchmarks](docs/BENCHMARK.md) include a reproducible synthetic fixture and cold, warm, and refresh timings. The [installed demo](docs/DEMO.md) uses synthetic Messages data.
 
 ## development
 

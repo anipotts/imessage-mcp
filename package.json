@@ -27,7 +27,6 @@
     "LICENSE",
     "SECURITY.md",
     "VERIFICATION.md",
-    "release-status.json",
     "package-files.json",
     "server.json"
   ],
@@ -46,7 +45,6 @@
     "screenshots": "tsx scripts/screenshots.ts",
     "demo:installed": "npm run build && tsx scripts/demo-installed.ts",
     "check:metadata": "tsx scripts/check-metadata.ts",
-    "check:release": "tsx scripts/check-release-gate.ts",
     "verify": "npm run build && npm run typecheck && npm test && npm run test:protocol && npm run test:installed && npm run check:metadata && npm audit --audit-level=high && npm pack --dry-run",
     "prepublishOnly": "npm run verify"
   },

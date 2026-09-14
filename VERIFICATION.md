@@ -4,21 +4,13 @@ This report contains only synthetic, aggregate, or redacted evidence. It retains
 
 Last updated: 2026-09-08 (local); new benchmark and demo timestamps are recorded in UTC.
 
-## release state
+## releases
 
-| release | state | evidence boundary |
-| --- | --- | --- |
-| `1.3.1` | published and verified | npm `latest`, GitHub Release, and MCP Registry agree; a fresh public install reproduced fixes for issues #5 and #6 before they closed |
-| `2.0.0-beta.1` | tagged, not published | npm rejected the relative tarball argument before upload; the signed tag and failed workflow remain immutable historical evidence |
-| `2.0.0-beta.2` | published and verified | npm `next`, MCP Registry, and an immutable GitHub prerelease agree on the signed evidence lineage and exact package |
-| `2.0.0-beta.3` | published and verified | npm `next`, MCP Registry, and the immutable GitHub prerelease agree on the signed evidence lineage and exact package |
-| `2.0.0-rc.1` | previously published | npm `next` in the 2026-09-08 audit; immutable historical release |
-| `2.0.0-rc.2` | local release preparation | targets npm `next`; not yet published; exact-source security evidence and provider checks remain required |
-| `2.0.0` | prepared from protected `main`; stable release | npm `latest`, MCP Registry, and GitHub Release agree on the signed evidence lineage and exact package |
+Every published version, its assets, and its generated notes live in [GitHub releases](https://github.com/anipotts/imessage-mcp/releases); [CHANGELOG.md](CHANGELOG.md) records what changed in each one. `2.0.0` is prepared from protected `main`.
 
 ## RC.2 verification
 
-`npm run verify` passed locally: 118 tests, all seven tools over source-tree stdio and authenticated HTTP, fresh installed-package doctor and stdio handshake, configuration-shape checks, metadata, and exact package contents. The final package contains 128 files and one 27,937-byte GIF; the previous packaged PNGs totaled 522,440 bytes. The installed production dependency graph is nine nodes, 38.8 MiB. The release preparation gate is separate from protected publication evidence.
+`npm run verify` passed locally: 118 tests, all seven tools over source-tree stdio and authenticated HTTP, fresh installed-package doctor and stdio handshake, configuration-shape checks, metadata, and exact package contents. The final package contains 128 files and one 27,937-byte GIF; the previous packaged PNGs totaled 522,440 bytes. The installed production dependency graph is nine nodes, 38.8 MiB.
 
 The search-refresh deadline regression and both decoder ordering regressions failed before the fix and passed afterward. The deadline tests cover a rebuild finishing after 61 seconds, ordinary warm timeout at 30 seconds, and a fixed 90-second maximum even when a build notice arrives late. A real synthetic SQLite update verifies that the index rebuilds and returns fresh results during one session.
 
@@ -147,4 +139,4 @@ No Tailscale Serve route was created. Endpoint mutation requires separate approv
 
 Certification excludes iPhone backup manifests, Linux, containers, Docker, public-internet HTTP, Tailscale Funnel, OAuth, multiple client tokens, persistent decoded-body indexes, semantic search, watchers, stateful sessions, old edited text, recovered unsent text, removed-reaction history, every send capability, and adversarial database-path replacement by another process running as the same macOS account.
 
-Stable is prepared from protected `main` after the fixes and documentation are merged. Both release channels verify their own source and package, including the installed tarball, privacy, untrusted-archive boundary, client namespace, package contents, and first-run setup. CI and exact-source security evidence remain required before publication.
+Stable is prepared from protected `main` after the fixes and documentation are merged. Both release channels verify their own source and package, including the installed tarball, privacy, untrusted-archive boundary, client namespace, package contents, and first-run setup. Required CI on the pull request and the tag workflow's own checks on the exact tagged revision remain required before publication.

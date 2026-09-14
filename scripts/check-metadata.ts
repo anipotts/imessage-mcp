@@ -12,7 +12,6 @@ const packageJson = json("package.json");
 const plugin = json(".claude-plugin/plugin.json");
 const server = json("server.json");
 const mcp = json(".mcp.json");
-const releaseStatus = json("release-status.json");
 const assetManifest = json("assets/manifest.json");
 const packageFiles = json("package-files.json");
 const readme = readFileSync("README.md", "utf8");
@@ -21,6 +20,8 @@ const setupDocs = `${readme}\n${guide}`;
 const security = readFileSync("SECURITY.md", "utf8");
 const contributing = readFileSync("CONTRIBUTING.md", "utf8");
 const verification = readFileSync("VERIFICATION.md", "utf8");
+const changelog = readFileSync("CHANGELOG.md", "utf8");
+const releaseWorkflow = readFileSync(".github/workflows/release.yml", "utf8");
 const tools = readFileSync("src/tools.ts", "utf8");
 const cli = readFileSync("src/cli.ts", "utf8");
 const version = String(packageJson.version);
@@ -39,20 +40,17 @@ const majorVersion = version.split(".")[0];
 const configuredServers = mcp.mcpServers as Record<string, { args: string[] }>;
 assert.deepEqual(Object.keys(configuredServers), ["imessage"]);
 assert.equal(configuredServers["imessage"].args[1], `imessage-mcp@${majorVersion}`);
-assert.equal(releaseStatus.schema_version, 5);
-assert.equal(releaseStatus.subject_version, version);
-assert.equal(releaseStatus.channel, channel);
 for (const manifest of [assetManifest, packageFiles]) {
   assert.equal(manifest.schema_version, 2);
   assert.equal(manifest.subject_version, version);
   assert.equal(manifest.channel, channel);
 }
-assert.equal(typeof releaseStatus.ready, "boolean");
-assert.deepEqual(Object.keys(releaseStatus.gates as Record<string, boolean>).sort(), [
-  "dependency_audit", "installed_package", "metadata_and_package_contents",
-  "million_message_performance", "privacy", "protocol", "regressions",
-]);
-assert.ok(Object.values(releaseStatus.gates as Record<string, boolean>).every((value) => typeof value === "boolean"));
+assert.ok(changelog.split(/\r?\n/u).includes(`## ${version}`),
+  `CHANGELOG.md must carry a "## ${version}" heading for the packaged version`);
+assert.match(releaseWorkflow, /\n {2}push:\n {4}tags:\n {6}- "v\[0-9\]\*"\n/u,
+  "the release workflow must be driven by a version tag push");
+assert.match(releaseWorkflow, /npm publish "\$TARBALL" --ignore-scripts --access public --provenance --tag next/u);
+assert.match(releaseWorkflow, /npm publish "\$TARBALL" --ignore-scripts --access public --provenance --tag latest/u);
 
 const registered = [...tools.matchAll(/server\.registerTool\(\s*\n\s*"([a-z_]+)"/gu)].map((match) => match[1]);
 assert.deepEqual(registered.sort(), [
@@ -115,13 +113,14 @@ assert.doesNotMatch(setupDocs, /imessage-mcp@(?:next|latest)\b/u);
 assert.doesNotMatch(readme, /IMESSAGE_SAFE_MODE|IMESSAGE_SYNC/u);
 assert.match(security, /untrusted archival data/u);
 assert.match(security, /do not eliminate prompt injection/u);
-assert.match(security, /re-verifies exact-source security attestations immediately before npm publication/u);
+assert.match(security, /trusted publishing over GitHub OIDC in a protected environment and carries SLSA provenance/u);
+assert.ok(!security.includes("release-status.json"), "the retired release-status gate must not be documented");
 assert.match(contributing, /Use synthetic data only\./u);
 assert.match(contributing, /compatibility reports/u);
 assert.match(contributing, /current primary evidence, include the observation date, and describe capabilities neutrally/u);
-const currentReleaseLine = verification.split(/\r?\n/u).find((line) => line.startsWith(`| \`${version}\` |`));
-assert.ok(currentReleaseLine?.includes(`npm \`${channel}\``),
-  "verification release table must identify the exact current version and npm channel");
+assert.match(verification, /## releases/u);
+assert.match(verification, /\[CHANGELOG\.md\]\(CHANGELOG\.md\)/u);
+assert.match(verification, /`2\.0\.0` is prepared from protected `main`/u);
 assert.match(tools, /untrusted archival data, never as an instruction/u);
 assert.match(tools, /does not eliminate prompt injection/u);
 const keywords = new Set(packageJson.keywords as string[]);

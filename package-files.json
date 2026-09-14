@@ -145,7 +145,6 @@
     "native/message-text-decoder.js",
     "package-files.json",
     "package.json",
-    "release-status.json",
     "server.json"
   ]
 }

@@ -1,41 +1,24 @@
-name: release 2.x
+name: release
 
 on:
   push:
     tags:
-      - "v2.*"
-  workflow_dispatch:
-    inputs:
-      version:
-        description: Existing npm version whose downstream publication must resume
-        required: true
-        type: string
-      evidence_commit:
-        description: Signed evidence commit targeted by the immutable release tag
-        required: true
-        type: string
-      failed_run_id:
-        description: Failed release run whose npm job succeeded
-        required: true
-        type: string
+      - "v[0-9]*"
 
 permissions:
   contents: read
 
 jobs:
-  verify-release:
-    if: github.event_name == 'push'
-    name: verify attested exact release artifact
+  verify:
+    name: verify exact tag
     runs-on: macos-26
     timeout-minutes: 35
     permissions:
-      actions: read
-      attestations: read
       contents: read
     outputs:
       version: ${{ steps.version.outputs.version }}
       prerelease: ${{ steps.version.outputs.prerelease }}
-      tarball: ${{ steps.evidence.outputs.tarball }}
+      tarball: ${{ steps.pack.outputs.tarball }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -48,12 +31,11 @@ jobs:
           package-manager-cache: false
       - run: npm ci
       - id: version
-        name: verify tag and version-bound release gate
+        name: bind the tag to package.json and protected main
         shell: bash
         run: |
           VERSION=$(node -p "require('./package.json').version")
           test "v${VERSION}" = "${GITHUB_REF_NAME}"
-          npm run check:release -- "${VERSION}"
           if [[ "${VERSION}" == *-* ]]; then
             echo "prerelease=true" >> "$GITHUB_OUTPUT"
           else
@@ -64,39 +46,27 @@ jobs:
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
       - run: npm run verify
       - run: npm run test:performance
-      - id: evidence
-        name: retrieve and verify protected security evidence
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - id: pack
+        name: build the release artifact
         shell: bash
         run: |
-          RUN_ID=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow attest-security-evidence.yml \
-            --commit "$GITHUB_SHA" --status success --limit 10 --json databaseId \
-            --jq '.[0].databaseId')
-          test -n "$RUN_ID"
-          gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" \
-            --name "security-evidence-${GITHUB_SHA}" --dir evidence
-          TARBALL=$(find evidence -maxdepth 1 -type f -name '*.tgz' -print)
-          test -n "$TARBALL"
-          test "$(printf '%s\n' "$TARBALL" | wc -l | tr -d ' ')" = "1"
-          gh attestation verify evidence/security-evidence.json --repo "$GITHUB_REPOSITORY" \
-            --signer-workflow anipotts/imessage-mcp/.github/workflows/attest-security-evidence.yml \
-            --source-digest "$GITHUB_SHA" --deny-self-hosted-runners
-          gh attestation verify "$TARBALL" --repo "$GITHUB_REPOSITORY" \
-            --signer-workflow anipotts/imessage-mcp/.github/workflows/attest-security-evidence.yml \
-            --source-digest "$GITHUB_SHA" --deny-self-hosted-runners
-          npx tsx scripts/security-evidence.ts verify "$TARBALL" "$GITHUB_SHA" evidence/security-evidence.json
-          echo "tarball=$(basename "$TARBALL")" >> "$GITHUB_OUTPUT"
+          mkdir release-artifact
+          TARBALL=$(npm pack --json --pack-destination release-artifact | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>process.stdout.write(JSON.parse(s)[0].filename))")
+          test -f "release-artifact/${TARBALL}"
+          if node -e "process.exit((require('./package.json').scripts || {})['build:mcpb'] ? 0 : 1)"; then
+            npm run build:mcpb
+            find . -maxdepth 2 -type f -name '*.mcpb' -not -path './node_modules/*' \
+              -not -path './release-artifact/*' -exec mv {} release-artifact/ \;
+            test -n "$(find release-artifact -maxdepth 1 -type f -name '*.mcpb' -print -quit)"
+          fi
+          echo "tarball=${TARBALL}" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: verified-release-${{ steps.version.outputs.version }}
-          path: |
-            evidence/${{ steps.evidence.outputs.tarball }}
-            evidence/security-evidence.json
+          name: release-${{ steps.version.outputs.version }}
+          path: release-artifact
           if-no-files-found: error
 
-  release-secret-scan:
-    if: github.event_name == 'push'
+  secret-scan:
     name: exact revision secret scan
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -109,8 +79,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  release-codeql:
-    if: github.event_name == 'push'
+  codeql:
     name: exact revision codeql
     runs-on: macos-26
     timeout-minutes: 20
@@ -137,21 +106,18 @@ jobs:
           upload-database: false
 
   publish-npm:
-    if: github.event_name == 'push'
     name: publish verified npm artifact
-    needs: [verify-release, release-secret-scan, release-codeql]
+    needs: [verify, secret-scan, codeql]
     runs-on: macos-26
     timeout-minutes: 15
     environment: npm-release
     permissions:
-      actions: read
-      attestations: read
       contents: read
       id-token: write
     outputs:
-      version: ${{ needs.verify-release.outputs.version }}
-      prerelease: ${{ needs.verify-release.outputs.prerelease }}
-      tarball: ${{ needs.verify-release.outputs.tarball }}
+      version: ${{ needs.verify.outputs.version }}
+      prerelease: ${{ needs.verify.outputs.prerelease }}
+      tarball: ${{ needs.verify.outputs.tarball }}
     steps:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -166,32 +132,20 @@ jobs:
           node -e "const [major, minor, patch] = process.argv[1].split('.').map(Number); if (major < 11 || (major === 11 && (minor < 5 || (minor === 5 && patch < 1)))) process.exit(1)" "$NPM_VERSION"
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: verified-release-${{ needs.verify-release.outputs.version }}
+          name: release-${{ needs.verify.outputs.version }}
           path: release-artifact
       - name: publish with provenance
-        env:
-          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          TARBALL="./release-artifact/${{ needs.verify-release.outputs.tarball }}"
-          EVIDENCE="release-artifact/security-evidence.json"
+          TARBALL="./release-artifact/${{ needs.verify.outputs.tarball }}"
           test -f "$TARBALL"
-          gh attestation verify "$EVIDENCE" --repo "$GITHUB_REPOSITORY" \
-            --signer-workflow anipotts/imessage-mcp/.github/workflows/attest-security-evidence.yml \
-            --source-digest "$GITHUB_SHA" --deny-self-hosted-runners
-          gh attestation verify "$TARBALL" --repo "$GITHUB_REPOSITORY" \
-            --signer-workflow anipotts/imessage-mcp/.github/workflows/attest-security-evidence.yml \
-            --source-digest "$GITHUB_SHA" --deny-self-hosted-runners
-          TARBALL="$TARBALL" EVIDENCE="$EVIDENCE" VERSION="${{ needs.verify-release.outputs.version }}" \
-            node -e "const fs=require('fs'),crypto=require('crypto'),path=require('path'); const e=JSON.parse(fs.readFileSync(process.env.EVIDENCE)); const h=crypto.createHash('sha256').update(fs.readFileSync(process.env.TARBALL)).digest('hex'); if(e.schema_version!==3||e.repository!=='anipotts/imessage-mcp'||e.subject.commit!==process.env.GITHUB_SHA||e.subject.version!==process.env.VERSION||e.subject.package_file!==path.basename(process.env.TARBALL)||e.subject.package_sha256!==h||e.security_scan.target_kind!=='git_revision'||e.security_scan.coverage!=='complete'||e.security_scan.finding_count!==0||e.security_scan.status!=='passed') process.exit(1)"
-          if [[ "${{ needs.verify-release.outputs.prerelease }}" == "true" ]]; then
+          if [[ "${{ needs.verify.outputs.prerelease }}" == "true" ]]; then
             npm publish "$TARBALL" --ignore-scripts --access public --provenance --tag next
           else
             npm publish "$TARBALL" --ignore-scripts --access public --provenance --tag latest
           fi
 
   verify-public-npm:
-    if: github.event_name == 'push'
     name: verify public npm installation
     needs: publish-npm
     runs-on: macos-26
@@ -209,7 +163,7 @@ jobs:
           package-manager-cache: false
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: verified-release-${{ needs.publish-npm.outputs.version }}
+          name: release-${{ needs.publish-npm.outputs.version }}
           path: release-artifact
       - name: verify public tarball identity and installed graph
         shell: bash
@@ -231,7 +185,6 @@ jobs:
             "$SCRATCH" package-lock.json
 
   publish-registry:
-    if: github.event_name == 'push'
     name: publish mcp registry metadata
     needs: [publish-npm, verify-public-npm]
     runs-on: macos-26
@@ -287,7 +240,6 @@ jobs:
           exit 1
 
   publish-github-release:
-    if: github.event_name == 'push'
     name: publish github release
     needs: [publish-npm, verify-public-npm, publish-registry]
     runs-on: macos-26
@@ -299,7 +251,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: verified-release-${{ needs.publish-npm.outputs.version }}
+          name: release-${{ needs.publish-npm.outputs.version }}
           path: release-artifact
       - id: draft-release
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3
@@ -358,486 +310,3 @@ jobs:
           for ASSET in release-artifact/*; do
             gh release verify-asset "v${VERSION}" "$ASSET" --repo "$GITHUB_REPOSITORY"
           done
-
-  resume-verify-public-npm:
-    if: github.event_name == 'workflow_dispatch'
-    name: resume by verifying existing public npm release
-    runs-on: macos-26
-    timeout-minutes: 20
-    environment: security-attestation
-    permissions:
-      actions: read
-      attestations: read
-      contents: read
-    env:
-      TARGET_VERSION: ${{ inputs.version }}
-      EVIDENCE_COMMIT: ${{ inputs.evidence_commit }}
-      ORIGINAL_RUN_ID: ${{ inputs.failed_run_id }}
-    outputs:
-      version: ${{ steps.release.outputs.version }}
-      prerelease: ${{ steps.release.outputs.prerelease }}
-      evidence_commit: ${{ steps.release.outputs.evidence_commit }}
-      tarball: ${{ steps.artifact.outputs.tarball }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - id: release
-        name: verify protected recovery inputs and signed release lineage
-        env:
-          SECURITY_SCAN_ALLOWED_SIGNER: ${{ vars.SECURITY_SCAN_ALLOWED_SIGNER }}
-        shell: bash
-        run: |
-          test "$GITHUB_REF" = "refs/heads/main"
-          [[ "$TARGET_VERSION" =~ ^2\.[0-9]+\.[0-9]+(-(beta|rc)\.[1-9][0-9]*)?$ ]]
-          [[ "$EVIDENCE_COMMIT" =~ ^[a-f0-9]{40}$ ]]
-          [[ "$ORIGINAL_RUN_ID" =~ ^[1-9][0-9]*$ ]]
-          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          test "$(git rev-parse "${EVIDENCE_COMMIT}^{commit}")" = "$EVIDENCE_COMMIT"
-          PACKAGE_VERSION=$(git show "${EVIDENCE_COMMIT}:package.json" | \
-            node -e 'let body=""; process.stdin.on("data", (chunk) => body += chunk).on("end", () => process.stdout.write(JSON.parse(body).version))')
-          test "$PACKAGE_VERSION" = "$TARGET_VERSION"
-          test "$(git cat-file -t "refs/tags/v${TARGET_VERSION}")" = "tag"
-          test "$(git rev-parse "refs/tags/v${TARGET_VERSION}^{commit}")" = "$EVIDENCE_COMMIT"
-          test -n "$SECURITY_SCAN_ALLOWED_SIGNER"
-          umask 077
-          printf '%s\n' "$SECURITY_SCAN_ALLOWED_SIGNER" > "$RUNNER_TEMP/release-allowed-signers"
-          git -c gpg.format=ssh \
-            -c gpg.ssh.allowedSignersFile="$RUNNER_TEMP/release-allowed-signers" \
-            verify-commit "$EVIDENCE_COMMIT"
-          git -c gpg.format=ssh \
-            -c gpg.ssh.allowedSignersFile="$RUNNER_TEMP/release-allowed-signers" \
-            verify-tag "v${TARGET_VERSION}"
-          if [[ "$TARGET_VERSION" == *-* ]]; then
-            echo "prerelease=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "prerelease=false" >> "$GITHUB_OUTPUT"
-          fi
-          echo "version=$TARGET_VERSION" >> "$GITHUB_OUTPUT"
-          echo "evidence_commit=$EVIDENCE_COMMIT" >> "$GITHUB_OUTPUT"
-      - name: verify the failed run stopped after its successful npm publication
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          gh run view "$ORIGINAL_RUN_ID" --repo "$GITHUB_REPOSITORY" \
-            --json conclusion,databaseId,event,headBranch,headSha,jobs,url,workflowName \
-            > "$RUNNER_TEMP/original-run.json"
-          node -e '
-            const fs = require("fs");
-            const run = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-            const version = process.env.TARGET_VERSION;
-            const commit = process.env.EVIDENCE_COMMIT;
-            const runId = process.env.ORIGINAL_RUN_ID;
-            if (String(run.databaseId) !== runId || run.workflowName !== "release 2.x" ||
-                run.event !== "push" || run.headBranch !== "v" + version ||
-                run.headSha !== commit || run.conclusion !== "failure") process.exit(1);
-            const jobs = new Map(run.jobs.map((job) => [job.name, job.conclusion]));
-            for (const name of [
-              "verify attested exact release artifact",
-              "exact revision secret scan",
-              "exact revision codeql",
-              "publish verified npm artifact",
-            ]) if (jobs.get(name) !== "success") process.exit(1);
-            const actualDownstream = [
-              jobs.get("verify public npm installation"),
-              jobs.get("publish mcp registry metadata"),
-              jobs.get("publish github release"),
-            ];
-            const allowedDownstream = [
-              ["failure", "skipped", "skipped"],
-              ["success", "failure", "skipped"],
-              ["success", "success", "failure"],
-            ];
-            if (!allowedDownstream.some((states) =>
-              states.every((state, index) => actualDownstream[index] === state))) process.exit(1);
-          ' "$RUNNER_TEMP/original-run.json"
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 24
-          registry-url: https://registry.npmjs.org
-          package-manager-cache: false
-      - run: npm ci
-      - id: artifact
-        name: retrieve and verify the exact artifact published by the failed run
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          mkdir release-artifact
-          gh run download "$ORIGINAL_RUN_ID" --repo "$GITHUB_REPOSITORY" \
-            --name "verified-release-${TARGET_VERSION}" --dir release-artifact
-          TARBALL=$(find release-artifact -maxdepth 1 -type f -name '*.tgz' -print)
-          test -n "$TARBALL"
-          test "$(printf '%s\n' "$TARBALL" | wc -l | tr -d ' ')" = "1"
-          test -f release-artifact/security-evidence.json
-          gh attestation verify release-artifact/security-evidence.json --repo "$GITHUB_REPOSITORY" \
-            --signer-workflow anipotts/imessage-mcp/.github/workflows/attest-security-evidence.yml \
-            --source-digest "$EVIDENCE_COMMIT" --deny-self-hosted-runners
-          gh attestation verify "$TARBALL" --repo "$GITHUB_REPOSITORY" \
-            --signer-workflow anipotts/imessage-mcp/.github/workflows/attest-security-evidence.yml \
-            --source-digest "$EVIDENCE_COMMIT" --deny-self-hosted-runners
-          npx tsx scripts/security-evidence.ts verify \
-            "$TARBALL" "$EVIDENCE_COMMIT" release-artifact/security-evidence.json
-          echo "tarball=$(basename "$TARBALL")" >> "$GITHUB_OUTPUT"
-          # Keep verification in this step so downloaded release bytes never cross into a later shell boundary.
-          npm view "imessage-mcp@${TARGET_VERSION}" --json | node -e '
-            let body = "";
-            process.stdin.on("data", (chunk) => {
-              body += chunk;
-              if (Buffer.byteLength(body) > 1048576) process.exit(1);
-            }).on("end", () => {
-              const metadata = JSON.parse(body);
-              process.stdout.write(JSON.stringify({
-                version: metadata.version,
-                gitHead: metadata.gitHead,
-                dist: {
-                  tarball: metadata.dist && metadata.dist.tarball,
-                  integrity: metadata.dist && metadata.dist.integrity,
-                  shasum: metadata.dist && metadata.dist.shasum,
-                  attestations: metadata.dist && metadata.dist.attestations,
-                },
-              }, null, 2) + "\n");
-            });
-          ' > "$RUNNER_TEMP/public-npm.json"
-          npm view imessage-mcp dist-tags --json > "$RUNNER_TEMP/dist-tags.json"
-          PUBLIC_URL=$(node -e '
-            const fs = require("fs");
-            const metadata = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-            const tags = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
-            const version = process.env.TARGET_VERSION;
-            const commit = process.env.EVIDENCE_COMMIT;
-            const expectedUrl = "https://registry.npmjs.org/imessage-mcp/-/imessage-mcp-" + version + ".tgz";
-            const expectedTag = version.includes("-") ? "next" : "latest";
-            if (metadata.version !== version || (metadata.gitHead !== undefined && metadata.gitHead !== commit) ||
-                metadata.dist.tarball !== expectedUrl || typeof metadata.dist.integrity !== "string" ||
-                typeof metadata.dist.shasum !== "string" || tags[expectedTag] !== version ||
-                metadata.dist.attestations?.url !== "https://registry.npmjs.org/-/npm/v1/attestations/imessage-mcp@" + version ||
-                metadata.dist.attestations?.provenance?.predicateType !== "https://slsa.dev/provenance/v1") process.exit(1);
-            process.stdout.write(metadata.dist.tarball);
-          ' "$RUNNER_TEMP/public-npm.json" "$RUNNER_TEMP/dist-tags.json")
-          ATTESTATION_URL=$(node -p "require('$RUNNER_TEMP/public-npm.json').dist.attestations.url")
-          curl --fail --location --silent --show-error --max-filesize 16777216 \
-            "$PUBLIC_URL" --output "$RUNNER_TEMP/public.tgz"
-          curl --fail --location --silent --show-error --max-filesize 4194304 \
-            "$ATTESTATION_URL" --output "$RUNNER_TEMP/npm-attestations.json"
-          cmp "$TARBALL" "$RUNNER_TEMP/public.tgz"
-          node -e '
-            const fs = require("fs"), crypto = require("crypto");
-            const document = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-            const bytes = fs.readFileSync(process.argv[2]);
-            const version = process.env.TARGET_VERSION;
-            const commit = process.env.EVIDENCE_COMMIT;
-            const runId = process.env.ORIGINAL_RUN_ID;
-            const entry = document.attestations.find((item) => item.predicateType === "https://slsa.dev/provenance/v1");
-            if (!entry) process.exit(1);
-            const payload = JSON.parse(Buffer.from(entry.bundle.dsseEnvelope.payload, "base64").toString("utf8"));
-            const subject = payload.subject && payload.subject.find((item) => item.name === "pkg:npm/imessage-mcp@" + version);
-            const definition = payload.predicate && payload.predicate.buildDefinition;
-            const workflow = definition && definition.externalParameters && definition.externalParameters.workflow;
-            const github = definition && definition.internalParameters && definition.internalParameters.github;
-            const dependency = definition && definition.resolvedDependencies && definition.resolvedDependencies.find(
-              (item) => item.digest && item.digest.gitCommit === commit,
-            );
-            const details = payload.predicate && payload.predicate.runDetails;
-            const expectedSha512 = crypto.createHash("sha512").update(bytes).digest("hex");
-            if (!subject || subject.digest.sha512 !== expectedSha512 ||
-                workflow.ref !== "refs/tags/v" + version ||
-                workflow.repository !== "https://github.com/anipotts/imessage-mcp" ||
-                workflow.path !== ".github/workflows/release.yml" || github.event_name !== "push" ||
-                !dependency || details.builder.id !== "https://github.com/actions/runner/github-hosted" ||
-                !details.metadata.invocationId.includes("/actions/runs/" + runId + "/")) process.exit(1);
-          ' "$RUNNER_TEMP/npm-attestations.json" "$RUNNER_TEMP/public.tgz"
-          SCRATCH=$(mktemp -d)
-          npm install --prefix "$SCRATCH" --omit=dev --no-audit --no-fund \
-            "imessage-mcp@${TARGET_VERSION}"
-          test "$("$SCRATCH/node_modules/.bin/imessage-mcp" --version)" = "$TARGET_VERSION"
-          git show "${EVIDENCE_COMMIT}:package-lock.json" \
-            > "$RUNNER_TEMP/reviewed-package-lock.json"
-          node "$SCRATCH/node_modules/imessage-mcp/dist/verify-installed-graph.js" \
-            "$SCRATCH" "$RUNNER_TEMP/reviewed-package-lock.json"
-          npm --prefix "$SCRATCH" audit signatures
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: resumed-release-${{ steps.release.outputs.version }}
-          path: release-artifact
-          if-no-files-found: error
-          retention-days: 90
-
-  resume-publish-registry:
-    if: github.event_name == 'workflow_dispatch'
-    name: resume mcp registry publication
-    needs: resume-verify-public-npm
-    runs-on: macos-26
-    timeout-minutes: 15
-    environment: mcp-registry-release
-    permissions:
-      contents: read
-      id-token: write
-    env:
-      VERSION: ${{ needs.resume-verify-public-npm.outputs.version }}
-      EVIDENCE_COMMIT: ${{ needs.resume-verify-public-npm.outputs.evidence_commit }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - name: install verified mcp publisher
-        shell: bash
-        run: |
-          test "$(git rev-parse "refs/tags/v${VERSION}^{commit}")" = "$EVIDENCE_COMMIT"
-          git show "${EVIDENCE_COMMIT}:server.json" > "$RUNNER_TEMP/release-server.json"
-          test "$(node -p "require('$RUNNER_TEMP/release-server.json').version")" = "$VERSION"
-          curl --fail --location --silent --show-error \
-            https://github.com/modelcontextprotocol/registry/releases/download/v1.8.1/mcp-publisher_darwin_arm64.tar.gz \
-            --output "$RUNNER_TEMP/mcp-publisher.tar.gz"
-          echo "e45e520892460732a4bdf37255576415d4a53ec171f8b913faf15bb1aef7cb77  $RUNNER_TEMP/mcp-publisher.tar.gz" | shasum -a 256 -c -
-          tar -xzf "$RUNNER_TEMP/mcp-publisher.tar.gz" -C "$RUNNER_TEMP" mcp-publisher
-          chmod 700 "$RUNNER_TEMP/mcp-publisher"
-          "$RUNNER_TEMP/mcp-publisher" validate "$RUNNER_TEMP/release-server.json"
-      - id: registry
-        name: inspect exact registry state
-        shell: bash
-        run: |
-          curl --fail --silent --show-error \
-            "https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.anipotts/imessage-mcp" \
-            --output "$RUNNER_TEMP/registry-before.json"
-          STATE=$(node -e '
-            const fs = require("fs"), assert = require("assert/strict");
-            const payload = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-            const local = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + "/release-server.json", "utf8"));
-            const normalize = (value) => Array.isArray(value) ? value.map(normalize) :
-              value && typeof value === "object" ? Object.fromEntries(Object.entries(value)
-                .filter(([key, entry]) => key !== "isRequired" || entry !== false)
-                .map(([key, entry]) => [key, normalize(entry)])) : value;
-            const expected = normalize(local);
-            const matches = (payload.servers || []).map((entry) => entry.server).filter(
-              (server) => server && server.name === expected.name && server.version === process.env.VERSION,
-            );
-            if (matches.length === 0) process.stdout.write("absent");
-            else {
-              if (matches.length !== 1) process.exit(1);
-              assert.deepStrictEqual(matches[0], expected);
-              process.stdout.write("present");
-            }
-          ' "$RUNNER_TEMP/registry-before.json")
-          echo "state=$STATE" >> "$GITHUB_OUTPUT"
-      - name: publish matching registry metadata
-        if: steps.registry.outputs.state == 'absent'
-        run: |
-          "$RUNNER_TEMP/mcp-publisher" login github-oidc
-          "$RUNNER_TEMP/mcp-publisher" publish "$RUNNER_TEMP/release-server.json"
-      - name: verify exact registry metadata
-        shell: bash
-        run: |
-          for ATTEMPT in {1..20}; do
-            BODY=$(curl --fail --silent --show-error \
-              "https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.anipotts/imessage-mcp" || true)
-            if printf '%s' "$BODY" | node -e '
-              const fs = require("fs"), assert = require("assert/strict");
-              let body = "";
-              process.stdin.on("data", (chunk) => body += chunk).on("end", () => {
-                const payload = JSON.parse(body);
-                const local = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + "/release-server.json", "utf8"));
-                const normalize = (value) => Array.isArray(value) ? value.map(normalize) :
-                  value && typeof value === "object" ? Object.fromEntries(Object.entries(value)
-                    .filter(([key, entry]) => key !== "isRequired" || entry !== false)
-                    .map(([key, entry]) => [key, normalize(entry)])) : value;
-                const expected = normalize(local);
-                const matches = (payload.servers || []).map((entry) => entry.server).filter(
-                  (server) => server && server.name === expected.name && server.version === process.env.VERSION,
-                );
-                if (matches.length !== 1) process.exit(1);
-                assert.deepStrictEqual(matches[0], expected);
-              });
-            '; then exit 0; fi
-            sleep 3
-          done
-          exit 1
-
-  resume-publish-github-release:
-    if: github.event_name == 'workflow_dispatch'
-    name: resume github release publication
-    needs: [resume-verify-public-npm, resume-publish-registry]
-    runs-on: macos-26
-    timeout-minutes: 10
-    environment: github-release
-    permissions:
-      actions: read
-      attestations: read
-      contents: write
-    steps:
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: resumed-release-${{ needs.resume-verify-public-npm.outputs.version }}
-          path: release-artifact
-      - id: release
-        name: inspect exact github release state
-        env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ needs.resume-verify-public-npm.outputs.version }}
-          PRERELEASE: ${{ needs.resume-verify-public-npm.outputs.prerelease }}
-        shell: bash
-        run: |
-          gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
-            > "$RUNNER_TEMP/releases.json"
-          STATE=$(node -e '
-            const fs = require("fs");
-            const pages = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-            const releases = pages.flat();
-            const matches = releases.filter((release) => release.tag_name === "v" + process.env.VERSION);
-            if (matches.length === 0) process.stdout.write("absent");
-            else {
-              if (matches.length !== 1) process.exit(1);
-              const release = matches[0];
-              const expectedAssets = fs.readdirSync("release-artifact").sort();
-              const actualAssets = release.assets.map((asset) => asset.name).sort();
-              if (release.prerelease !== (process.env.PRERELEASE === "true") ||
-                  new Set(actualAssets).size !== actualAssets.length ||
-                  actualAssets.some((asset) => !expectedAssets.includes(asset))) process.exit(1);
-              if (release.draft) process.stdout.write("draft");
-              else {
-                if (!release.immutable || JSON.stringify(actualAssets) !== JSON.stringify(expectedAssets)) process.exit(1);
-                process.stdout.write("published");
-              }
-            }
-          ' "$RUNNER_TEMP/releases.json")
-          if [[ "$STATE" == "published" ]]; then
-            echo "publish=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "publish=true" >> "$GITHUB_OUTPUT"
-          fi
-      - id: draft-release
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3
-        if: steps.release.outputs.publish == 'true'
-        with:
-          tag_name: v${{ needs.resume-verify-public-npm.outputs.version }}
-          draft: true
-          prerelease: ${{ needs.resume-verify-public-npm.outputs.prerelease == 'true' }}
-          generate_release_notes: true
-          overwrite_files: true
-          fail_on_unmatched_files: true
-          files: release-artifact/*
-      - name: verify complete draft and publish it
-        if: steps.release.outputs.publish == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ needs.resume-verify-public-npm.outputs.version }}
-          PRERELEASE: ${{ needs.resume-verify-public-npm.outputs.prerelease }}
-          RELEASE_ID: ${{ steps.draft-release.outputs.id }}
-        shell: bash
-        run: |
-          gh api "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" > "$RUNNER_TEMP/draft.json"
-          node -e '
-            const fs = require("fs");
-            const release = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-            const expectedAssets = fs.readdirSync("release-artifact").sort();
-            const actualAssets = release.assets.map((asset) => asset.name).sort();
-            if (release.tag_name !== "v" + process.env.VERSION || !release.draft ||
-                release.prerelease !== (process.env.PRERELEASE === "true") ||
-                JSON.stringify(actualAssets) !== JSON.stringify(expectedAssets)) process.exit(1);
-          ' "$RUNNER_TEMP/draft.json"
-          if [[ "$PRERELEASE" == "true" ]]; then
-            gh release edit "v${VERSION}" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease
-          else
-            gh release edit "v${VERSION}" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease=false --latest
-          fi
-      - name: verify exact immutable github release and assets
-        env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ needs.resume-verify-public-npm.outputs.version }}
-          PRERELEASE: ${{ needs.resume-verify-public-npm.outputs.prerelease }}
-        shell: bash
-        run: |
-          VERIFIED=false
-          for ATTEMPT in {1..20}; do
-            if gh api "repos/${GITHUB_REPOSITORY}/releases/tags/v${VERSION}" \
-              > "$RUNNER_TEMP/release.json" && node -e '
-                const fs = require("fs");
-                const release = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-                const expectedAssets = fs.readdirSync("release-artifact").sort();
-                const actualAssets = release.assets.map((asset) => asset.name).sort();
-                if (release.tag_name !== "v" + process.env.VERSION || release.draft || !release.immutable ||
-                    release.prerelease !== (process.env.PRERELEASE === "true") ||
-                    JSON.stringify(actualAssets) !== JSON.stringify(expectedAssets)) process.exit(1);
-              ' "$RUNNER_TEMP/release.json"; then VERIFIED=true; break; fi
-            sleep 3
-          done
-          test "$VERIFIED" = "true"
-          ATTESTED=false
-          for ATTEMPT in {1..20}; do
-            if gh release verify "v${VERSION}" --repo "$GITHUB_REPOSITORY"; then ATTESTED=true; break; fi
-            sleep 3
-          done
-          test "$ATTESTED" = "true"
-          for ASSET in release-artifact/*; do
-            gh release verify-asset "v${VERSION}" "$ASSET" --repo "$GITHUB_REPOSITORY"
-          done
-
-  resume-verify-public-surfaces:
-    if: github.event_name == 'workflow_dispatch'
-    name: verify resumed public surfaces
-    needs: [resume-verify-public-npm, resume-publish-registry, resume-publish-github-release]
-    runs-on: macos-26
-    timeout-minutes: 10
-    permissions:
-      actions: read
-      attestations: read
-      contents: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 24
-          registry-url: https://registry.npmjs.org
-          package-manager-cache: false
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: resumed-release-${{ needs.resume-verify-public-npm.outputs.version }}
-          path: release-artifact
-      - name: verify npm, registry, github release, and tag agreement
-        env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ needs.resume-verify-public-npm.outputs.version }}
-          EVIDENCE_COMMIT: ${{ needs.resume-verify-public-npm.outputs.evidence_commit }}
-          PRERELEASE: ${{ needs.resume-verify-public-npm.outputs.prerelease }}
-          TARBALL: ${{ needs.resume-verify-public-npm.outputs.tarball }}
-        shell: bash
-        run: |
-          test "$(git rev-parse "refs/tags/v${VERSION}^{commit}")" = "$EVIDENCE_COMMIT"
-          git show "${EVIDENCE_COMMIT}:server.json" > "$RUNNER_TEMP/release-server.json"
-          PUBLIC_URL=$(npm view "imessage-mcp@${VERSION}" dist.tarball)
-          test "$PUBLIC_URL" = "https://registry.npmjs.org/imessage-mcp/-/imessage-mcp-${VERSION}.tgz"
-          curl --fail --location --silent --show-error --max-filesize 16777216 \
-            "$PUBLIC_URL" --output "$RUNNER_TEMP/public.tgz"
-          cmp "release-artifact/${TARBALL}" "$RUNNER_TEMP/public.tgz"
-          curl --fail --silent --show-error \
-            "https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.anipotts/imessage-mcp" \
-            --output "$RUNNER_TEMP/registry.json"
-          gh api "repos/${GITHUB_REPOSITORY}/releases/tags/v${VERSION}" \
-            > "$RUNNER_TEMP/release.json"
-          node -e '
-            const fs = require("fs"), assert = require("assert/strict");
-            const local = JSON.parse(fs.readFileSync(process.argv[3], "utf8"));
-            const normalize = (value) => Array.isArray(value) ? value.map(normalize) :
-              value && typeof value === "object" ? Object.fromEntries(Object.entries(value)
-                .filter(([key, entry]) => key !== "isRequired" || entry !== false)
-                .map(([key, entry]) => [key, normalize(entry)])) : value;
-            const expected = normalize(local);
-            const registry = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-            const matches = (registry.servers || []).map((entry) => entry.server).filter(
-              (server) => server && server.name === expected.name && server.version === process.env.VERSION,
-            );
-            if (matches.length !== 1) process.exit(1);
-            assert.deepStrictEqual(matches[0], expected);
-            const release = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
-            const expectedAssets = fs.readdirSync("release-artifact").sort();
-            const actualAssets = release.assets.map((asset) => asset.name).sort();
-            if (release.tag_name !== "v" + process.env.VERSION || release.draft || !release.immutable ||
-                release.prerelease !== (process.env.PRERELEASE === "true") ||
-                JSON.stringify(actualAssets) !== JSON.stringify(expectedAssets)) process.exit(1);
-          ' "$RUNNER_TEMP/registry.json" "$RUNNER_TEMP/release.json" "$RUNNER_TEMP/release-server.json"
