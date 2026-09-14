@@ -1,6 +1,6 @@
 import { lstatSync, readdirSync, rmdirSync, unlinkSync } from "node:fs";
 import path from "node:path";
-import { defaultStateDirectory, environmentSecretFiles, stateDirectory } from "../keys.js";
+import { canonicalPath, environmentSecretFiles, stateDirectory } from "../keys.js";
 import {
   defaultConfigPath,
   formatCommand,
@@ -36,11 +36,10 @@ function purgeState(options: UninstallOptions): number {
     write("--purge deletes the generated keys permanently; repeat the command with --yes to confirm");
     return 1;
   }
+  // The directory is either the default one or the one IMESSAGE_STATE_DIR names,
+  // so containment comes from the checks below: ownership, the generated-name
+  // allowlist, and the reserved-file guard.
   const directory = stateDirectory();
-  if (directory !== defaultStateDirectory() && process.env.IMESSAGE_STATE_DIR === undefined) {
-    write(`refusing to purge ${directory}: it is not the default state directory and IMESSAGE_STATE_DIR is unset`);
-    return 1;
-  }
   let entries: string[];
   try {
     const stat = lstatSync(directory);
@@ -63,7 +62,7 @@ function purgeState(options: UninstallOptions): number {
     return 1;
   }
   const reserved = environmentSecretFiles();
-  if (entries.some((entry) => reserved.has(path.join(directory, entry)))) {
+  if (entries.some((entry) => reserved.has(canonicalPath(path.join(directory, entry))))) {
     write(`refusing to purge ${directory}: a file there is named by an IMESSAGE_*_FILE variable`);
     return 1;
   }

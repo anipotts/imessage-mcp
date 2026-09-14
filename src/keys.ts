@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import { chmodSync, closeSync, constants, existsSync, fchmodSync, lstatSync, mkdirSync, openSync, writeSync, type Stats } from "node:fs";
+import { chmodSync, closeSync, constants, existsSync, fchmodSync, lstatSync, mkdirSync, openSync, realpathSync, writeSync, type Stats } from "node:fs";
 import { userInfo } from "node:os";
 import path from "node:path";
 import { ImessageMcpError } from "./errors.js";
@@ -130,11 +130,32 @@ function octal(mode: number): string {
   return `0${(mode & 0o777).toString(8).padStart(3, "0")}`;
 }
 
+/**
+ * Canonical spelling of a path, with symbolic links resolved. `path.resolve`
+ * alone leaves two spellings of one file looking unrelated, which matters on
+ * macOS where `/tmp`, `/var`, and `/etc` are all links. A path that does not
+ * exist yet is canonicalized through its parent directory so a file named by
+ * an environment variable still compares equal once it appears.
+ */
+export function canonicalPath(value: string): string {
+  const resolved = path.resolve(value);
+  try {
+    return realpathSync(resolved);
+  } catch {
+    // the path does not exist yet, so canonicalize the directory around it
+  }
+  try {
+    return path.join(realpathSync(path.dirname(resolved)), path.basename(resolved));
+  } catch {
+    return resolved;
+  }
+}
+
 export function environmentSecretFiles(): Set<string> {
   const files = new Set<string>();
   for (const name of ["IMESSAGE_REFERENCE_KEY_FILE", "IMESSAGE_DATABASE_ID_FILE", "IMESSAGE_API_TOKEN_FILE"]) {
     const value = process.env[name];
-    if (value !== undefined && value !== "") files.add(path.resolve(value));
+    if (value !== undefined && value !== "") files.add(canonicalPath(value));
   }
   return files;
 }
@@ -187,7 +208,7 @@ export function repairDefaultState(databasePath: string, sourceMode: "live" | "c
       continue;
     }
     const file = path.join(directory, target.fileName(databasePath, sourceMode));
-    if (reserved.has(path.resolve(file))) {
+    if (reserved.has(canonicalPath(file))) {
       repairs.push({ name: target.name, status: "warn", detail: "named by an IMESSAGE_*_FILE variable and left unchanged" });
       continue;
     }

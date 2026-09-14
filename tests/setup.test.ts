@@ -7,6 +7,7 @@ import {
   mkdtempSync,
   readFileSync,
   readdirSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -253,6 +254,33 @@ describe("uninstall --purge", () => {
     }
     expect(purged).toBe(0);
     expect(existsSync(state)).toBe(false);
+  });
+
+  it("refuses to purge a pinned key file spelled through a symbolic link", async () => {
+    const state = path.join(scratch(), "state");
+    process.env.IMESSAGE_STATE_DIR = state;
+    for (const name of ["IMESSAGE_REFERENCE_KEY", "IMESSAGE_REFERENCE_KEY_FILE", "IMESSAGE_DATABASE_ID", "IMESSAGE_DATABASE_ID_FILE"]) {
+      delete process.env[name];
+    }
+    repairDefaultState(SYNTHETIC_DATABASE, "live");
+    const referenceKey = path.join(state, "reference-key");
+    // The temporary root lives under a symlinked prefix on macOS, so the two
+    // spellings differ by the link alone.
+    const pinned = path.join(realpathSync(state), "reference-key");
+    expect(pinned).not.toBe(referenceKey);
+    process.env.IMESSAGE_REFERENCE_KEY_FILE = pinned;
+    const target = clientConfig({});
+
+    const output = capture();
+    let code: number;
+    try {
+      code = await runUninstall({ client: "cursor", config: target.file, purge: true, yes: true });
+    } finally {
+      output.restore();
+    }
+    expect(code).toBe(1);
+    expect(output.lines()).toContain(`refusing to purge ${state}: a file there is named by an IMESSAGE_*_FILE variable`);
+    expect(readdirSync(state).sort()).toEqual(["database-id", "reference-key"]);
   });
 
   it("refuses to purge a state directory holding files it did not generate", async () => {

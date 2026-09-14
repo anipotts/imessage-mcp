@@ -21,7 +21,7 @@ Two private values keep opaque references stable: one protects conversation refe
 
 Keep those files private and back them up with the rest of your home directory. Losing them invalidates saved references without touching Messages data.
 
-`doctor --fix` creates a missing generated file, restores mode `0600` on those files, and restores mode `0700` on the directory. It stops there: it never changes a file named by an `IMESSAGE_*_FILE` variable, and it never touches Full Disk Access or Contacts authorization, which you grant in System Settings > Privacy & Security. `uninstall --purge --yes` deletes the generated files and the directory, and refuses when anything else is stored there.
+`doctor --fix` creates a missing generated file, restores mode `0600` on those files, and restores mode `0700` on the directory. It stops there: it never changes a file named by an `IMESSAGE_*_FILE` variable, and it never touches Full Disk Access or Contacts authorization, which you grant in System Settings > Privacy & Security. `uninstall --purge --yes` deletes the generated files and the directory, and refuses when anything else is stored there. Both guards compare paths after resolving symbolic links, so a pinned file reached through `/tmp` or `/var` is still recognized.
 
 The live database uses `reference-key` and `database-id`. A database opened with `--database` is treated as a copy and gets its own `database-id-<lineage>` file, named from the copy's path, so unrelated archives never share an identity. To pin a faithful copy that moved to a new path back onto the original lineage, pass the original value explicitly.
 
