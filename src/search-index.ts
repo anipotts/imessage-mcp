@@ -95,8 +95,151 @@ const MAX_SNIPPET_BYTES = 32 * 1024;
 const MAX_SNIPPET_CONTENT_BYTES = MAX_SNIPPET_BYTES - 6;
 const SNIPPET_CONTEXT_GRAPHEMES = 40;
 
+// Refresh granularity: source signatures are kept per 256 message ROWIDs, so a
+// new message re-indexes at most one bucket instead of the whole archive.
+const SIGNATURE_BUCKET_ROWS = 256;
+// A refresh touching more buckets than this reports itself as a build so the
+// caller extends its deadline; one touching most of a large archive rebuilds.
+const REFRESH_NOTICE_BUCKETS = 16;
+const REFRESH_REBUILD_MIN_BUCKETS = 64;
+
+interface SourceSignatures {
+  buckets: Map<number, string>;
+  conversations: Map<string, string>;
+}
+
 export function searchIndexMemoryLimit(): number {
   return Math.min(512 * MIB, Math.floor(totalmem() / 8));
+}
+
+// The rows search indexes: real messages that belong to a conversation. Every
+// query over the source uses this predicate with the message aliased as m.
+function eligibleMessageSql(request: DatabaseRequest): string {
+  const associated = columnSql(request, "message", "m", "associated_message_type", "0");
+  const itemType = columnSql(request, "message", "m", "item_type", "0");
+  const system = columnSql(request, "message", "m", "is_system_message", "0");
+  const retracted = columnSql(request, "message", "m", "date_retracted", "0");
+  return `COALESCE(${associated}, 0) = 0
+    AND COALESCE(${itemType}, 0) = 0
+    AND COALESCE(${system}, 0) = 0
+    AND COALESCE(${retracted}, 0) <= 0
+    AND EXISTS (SELECT 1 FROM chat_message_join eligible_cmj WHERE eligible_cmj.message_id = m.ROWID)`;
+}
+
+function hashValue(hash: ReturnType<typeof createHash>, value: unknown): void {
+  if (value === null || value === undefined) {
+    hash.update("\0n");
+  } else if (Buffer.isBuffer(value)) {
+    hash.update(`\0b${value.length}\0`);
+    hash.update(value);
+  } else {
+    const text = String(value);
+    hash.update(`\0${typeof value === "string" ? "s" : "v"}${Buffer.byteLength(text, "utf8")}\0`);
+    hash.update(text);
+  }
+}
+
+// Fingerprints everything a search row is derived from, in the caller's read
+// snapshot: message content and metadata per ROWID bucket, the chat and
+// attachment joins of those messages, and each conversation's names,
+// services, and participants keyed by the chat_ids value the index stores.
+// Contacts are loaded once per process, so resolved names cannot drift.
+function sourceSignatures(request: DatabaseRequest): SourceSignatures {
+  const target = request.asOf.max_message_id;
+  const size = SIGNATURE_BUCKET_ROWS;
+  // quote() serializes in SQLite without per-value JavaScript work; casting to
+  // BLOB first hex-encodes every byte, so text with an embedded NUL still counts.
+  const exact = (expression: string) => `TYPEOF(${expression}) || ':' || QUOTE(CAST(${expression} AS BLOB))`;
+  const hashes = new Map<number, ReturnType<typeof createHash>>();
+  const hashFor = (bucket: number) => {
+    let hash = hashes.get(bucket);
+    if (!hash) {
+      hash = createHash("sha1");
+      hashes.set(bucket, hash);
+    }
+    return hash;
+  };
+  const messageFields = [
+    exact("m.guid"),
+    "QUOTE(m.date)",
+    "QUOTE(m.is_from_me)",
+    "QUOTE(m.handle_id)",
+    exact("h.id"),
+    exact(columnSql(request, "message", "m", "service", "NULL")),
+    exact(columnSql(request, "message", "m", "text", "NULL")),
+    exact(columnSql(request, "message", "m", "attributedBody", "NULL")),
+  ];
+  const messages = request.db.prepare(
+    `SELECT m.ROWID, ${messageFields.join(" || ',' || ")}
+     FROM message m LEFT JOIN handle h ON h.ROWID = m.handle_id
+     WHERE m.ROWID <= @target AND ${eligibleMessageSql(request)}
+     ORDER BY m.ROWID`,
+  ).raw().iterate({ target }) as Iterable<[number, string]>;
+  for (const [rowid, fields] of messages) {
+    hashFor(Math.floor(Number(rowid) / size)).update(`m${rowid},${fields};`);
+  }
+  // Join rows are small, so each bucket's rows are concatenated in SQLite.
+  const relations: string[] = [
+    `SELECT message_id / ${size} AS bucket,
+            'j' || GROUP_CONCAT(QUOTE(message_id) || ',' || QUOTE(chat_id), ';' ORDER BY message_id, chat_id)
+     FROM chat_message_join WHERE message_id <= @target GROUP BY bucket`,
+  ];
+  if (request.capabilities.attachments === "available") {
+    const attachmentColumns = request.capabilities.tables.attachment ?? [];
+    const names = ["transfer_name", "filename"]
+      .map((column) => exact(attachmentColumns.includes(column) ? `a.${column}` : "NULL"));
+    relations.push(
+      `SELECT maj.message_id / ${size} AS bucket,
+              'a' || GROUP_CONCAT(QUOTE(maj.message_id) || ',' || QUOTE(maj.attachment_id) || ',' || ${names.join(" || ',' || ")},
+                ';' ORDER BY maj.message_id, maj.attachment_id)
+       FROM message_attachment_join maj LEFT JOIN attachment a ON a.ROWID = maj.attachment_id
+       WHERE maj.message_id <= @target GROUP BY bucket`,
+    );
+  }
+  for (const sql of relations) {
+    for (const [bucket, rows] of request.db.prepare(sql).raw().iterate({ target }) as Iterable<[number, string]>) {
+      hashFor(Number(bucket)).update(rows);
+    }
+  }
+  const buckets = new Map<number, string>();
+  for (const [bucket, hash] of hashes) buckets.set(bucket, hash.digest("base64"));
+
+  const displayName = columnSql(request, "chat", "c", "display_name", "NULL");
+  const serviceName = columnSql(request, "chat", "c", "service_name", "NULL");
+  const components = new Map<number, { chats: number[]; hash: ReturnType<typeof createHash> }>();
+  const component = (conversation: number) => {
+    let entry = components.get(conversation);
+    if (!entry) {
+      entry = { chats: [], hash: createHash("sha1") };
+      components.set(conversation, entry);
+    }
+    return entry;
+  };
+  const chats = request.db.prepare(
+    `SELECT mcp_canonical_chat(c.ROWID) AS conversation_id, c.ROWID, ${displayName}, ${serviceName}
+     FROM chat c ORDER BY conversation_id, c.ROWID`,
+  ).raw().iterate() as Iterable<unknown[]>;
+  for (const row of chats) {
+    const entry = component(Number(row[0]));
+    entry.chats.push(Number(row[1]));
+    entry.hash.update("\0c");
+    for (const value of row.slice(1)) hashValue(entry.hash, value);
+  }
+  const participants = request.db.prepare(
+    `SELECT mcp_canonical_chat(chj.chat_id) AS conversation_id, participant.id
+     FROM chat_handle_join chj JOIN handle participant ON participant.ROWID = chj.handle_id
+     ORDER BY conversation_id, participant.id`,
+  ).raw().iterate() as Iterable<unknown[]>;
+  for (const row of participants) {
+    const entry = component(Number(row[0]));
+    entry.hash.update("\0p");
+    hashValue(entry.hash, row[1]);
+  }
+  const conversations = new Map<string, string>();
+  for (const entry of components.values()) {
+    conversations.set(JSON.stringify([...entry.chats].sort((a, b) => a - b)), entry.hash.digest("base64"));
+  }
+  return { buckets, conversations };
 }
 
 // A cheap lower bound on MemorySearchIndex.estimate(), for callers that want to
@@ -113,10 +256,6 @@ export function estimateSearchIndexFloor(request: DatabaseRequest): {
 } {
   const text = columnSql(request, "message", "m", "text", "NULL");
   const body = columnSql(request, "message", "m", "attributedBody", "NULL");
-  const associated = columnSql(request, "message", "m", "associated_message_type", "0");
-  const itemType = columnSql(request, "message", "m", "item_type", "0");
-  const system = columnSql(request, "message", "m", "is_system_message", "0");
-  const retracted = columnSql(request, "message", "m", "date_retracted", "0");
   const row = request.db
     .prepare(
       `SELECT COUNT(*) AS rows,
@@ -124,12 +263,7 @@ export function estimateSearchIndexFloor(request: DatabaseRequest): {
                 + COALESCE(SUM(CASE WHEN COALESCE(LENGTH(${body}), 0) <= ${MAX_INDEX_BLOB_BYTES}
                     THEN COALESCE(LENGTH(${body}), 0) ELSE 0 END), 0) AS body_bytes
        FROM message m
-       WHERE m.ROWID <= @target
-         AND COALESCE(${associated}, 0) = 0
-         AND COALESCE(${itemType}, 0) = 0
-         AND COALESCE(${system}, 0) = 0
-         AND COALESCE(${retracted}, 0) <= 0
-         AND EXISTS (SELECT 1 FROM chat_message_join eligible_cmj WHERE eligible_cmj.message_id = m.ROWID)`,
+       WHERE m.ROWID <= @target AND ${eligibleMessageSql(request)}`,
     )
     .get({ target: request.asOf.max_message_id }) as { rows: number; body_bytes: number };
   const rows = Number(row.rows || 0);
@@ -292,6 +426,7 @@ export class MemorySearchIndex {
   private complete = false;
   private trigram = false;
   private building: Promise<void> | null = null;
+  private signatures: SourceSignatures | null = null;
 
   constructor(
     private readonly context: DatabaseContext,
@@ -345,7 +480,9 @@ export class MemorySearchIndex {
         handle_id INTEGER,
         chat_ids TEXT NOT NULL,
         filenames TEXT NOT NULL,
-        row_status TEXT NOT NULL CHECK (row_status IN ('complete', 'partial'))
+        row_status TEXT NOT NULL CHECK (row_status IN ('complete', 'partial')),
+        body_partial INTEGER NOT NULL,
+        sender_partial INTEGER NOT NULL
       );
     `);
     db.function("mcp_text_matches", { deterministic: true }, (value: unknown, query: unknown, mode: unknown) =>
@@ -393,16 +530,7 @@ export class MemorySearchIndex {
   private estimate(request: DatabaseRequest, allowPartial: boolean): IndexEstimate {
     const text = columnSql(request, "message", "m", "text", "NULL");
     const body = columnSql(request, "message", "m", "attributedBody", "NULL");
-    const associated = columnSql(request, "message", "m", "associated_message_type", "0");
-    const itemType = columnSql(request, "message", "m", "item_type", "0");
-    const system = columnSql(request, "message", "m", "is_system_message", "0");
-    const retracted = columnSql(request, "message", "m", "date_retracted", "0");
-    const eligible = `m.ROWID <= @target
-      AND COALESCE(${associated}, 0) = 0
-      AND COALESCE(${itemType}, 0) = 0
-      AND COALESCE(${system}, 0) = 0
-      AND COALESCE(${retracted}, 0) <= 0
-      AND EXISTS (SELECT 1 FROM chat_message_join eligible_cmj WHERE eligible_cmj.message_id = m.ROWID)`;
+    const eligible = `m.ROWID <= @target AND ${eligibleMessageSql(request)}`;
     const indexedBodyBytes = allowPartial
       ? `CASE WHEN COALESCE(LENGTH(${body}), 0) <= ${MAX_INDEX_BLOB_BYTES}
               THEN COALESCE(LENGTH(${body}), 0) ELSE 0 END`
@@ -538,22 +666,13 @@ export class MemorySearchIndex {
   private nextBatchTarget(request: DatabaseRequest, afterRowid: number, targetRowid: number): number {
     const text = columnSql(request, "message", "m", "text", "NULL");
     const body = columnSql(request, "message", "m", "attributedBody", "NULL");
-    const associated = columnSql(request, "message", "m", "associated_message_type", "0");
-    const itemType = columnSql(request, "message", "m", "item_type", "0");
-    const system = columnSql(request, "message", "m", "is_system_message", "0");
-    const retracted = columnSql(request, "message", "m", "date_retracted", "0");
     const rows = request.db.prepare(
       `SELECT m.ROWID AS rowid,
               COALESCE(LENGTH(CAST(${text} AS BLOB)), 0) +
                 CASE WHEN COALESCE(LENGTH(${body}), 0) <= ${MAX_INDEX_BLOB_BYTES}
                      THEN COALESCE(LENGTH(${body}), 0) ELSE 0 END AS source_bytes
        FROM message m
-       WHERE m.ROWID > @after AND m.ROWID <= @target
-         AND COALESCE(${associated}, 0) = 0
-         AND COALESCE(${itemType}, 0) = 0
-         AND COALESCE(${system}, 0) = 0
-         AND COALESCE(${retracted}, 0) <= 0
-         AND EXISTS (SELECT 1 FROM chat_message_join eligible_cmj WHERE eligible_cmj.message_id = m.ROWID)
+       WHERE m.ROWID > @after AND m.ROWID <= @target AND ${eligibleMessageSql(request)}
        ORDER BY m.ROWID
        LIMIT @limit`,
     ).all({ after: afterRowid, target: targetRowid, limit: SOURCE_BATCH_SIZE }) as Array<{ rowid: number; source_bytes: number }>;
@@ -579,10 +698,6 @@ export class MemorySearchIndex {
       THEN ${attributedBody} ELSE NULL END`;
     const bodyUnsupported = `CASE WHEN ${bodyType} NOT IN ('blob', 'null') OR (${attributedBody} IS NOT NULL
       AND LENGTH(${attributedBody}) > ${MAX_INDEX_BLOB_BYTES}) THEN 1 ELSE 0 END`;
-    const associated = columnSql(request, "message", "m", "associated_message_type", "0");
-    const itemType = columnSql(request, "message", "m", "item_type", "0");
-    const system = columnSql(request, "message", "m", "is_system_message", "0");
-    const retracted = columnSql(request, "message", "m", "date_retracted", "0");
     const attachmentColumns = request.capabilities.tables.attachment ?? [];
     const filenameSources = ["transfer_name", "filename"]
       .filter((column) => attachmentColumns.includes(column))
@@ -618,12 +733,7 @@ export class MemorySearchIndex {
                   CAST(m.date AS TEXT) AS date, m.is_from_me,
                   m.handle_id, ${selectedService} AS service
            FROM message m
-           WHERE m.ROWID > @after AND m.ROWID <= @target
-             AND COALESCE(${associated}, 0) = 0
-             AND COALESCE(${itemType}, 0) = 0
-             AND COALESCE(${system}, 0) = 0
-             AND COALESCE(${retracted}, 0) <= 0
-             AND EXISTS (SELECT 1 FROM chat_message_join eligible_cmj WHERE eligible_cmj.message_id = m.ROWID)
+           WHERE m.ROWID > @after AND m.ROWID <= @target AND ${eligibleMessageSql(request)}
            ORDER BY m.ROWID
            LIMIT @limit
          ), direct_relations AS (
@@ -699,22 +809,19 @@ export class MemorySearchIndex {
     }
   }
 
+  // Indexes each (after, target] ROWID range inside one native decoder session.
   private async populate(
     request: DatabaseRequest,
     db: Database.Database,
-    afterRowid: number,
-    targetRowid: number,
+    ranges: Array<[afterRowid: number, targetRowid: number]>,
     allowPartial: boolean,
     updateIndexes: boolean,
   ): Promise<void> {
-    await this.decoder.withSession(() => this.populateWithinDecoderSession(
-      request,
-      db,
-      afterRowid,
-      targetRowid,
-      allowPartial,
-      updateIndexes,
-    ));
+    await this.decoder.withSession(async () => {
+      for (const [afterRowid, targetRowid] of ranges) {
+        await this.populateWithinDecoderSession(request, db, afterRowid, targetRowid, allowPartial, updateIndexes);
+      }
+    });
   }
 
   private async populateWithinDecoderSession(
@@ -729,8 +836,9 @@ export class MemorySearchIndex {
       `INSERT INTO message_text(
          rowid, guid, text, normalized_text, conversation_text, normalized_conversation,
          normalized_conversation_values, attachment_text, normalized_attachments,
-         normalized_attachment_values, date, is_from_me, service, handle, handle_id, chat_ids, filenames, row_status
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         normalized_attachment_values, date, is_from_me, service, handle, handle_id, chat_ids, filenames, row_status,
+         body_partial, sender_partial
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     const insertFts = updateIndexes
       ? db.prepare(
@@ -773,7 +881,6 @@ export class MemorySearchIndex {
             row.body_unsupported || (row.attributed_body && result?.status !== "decoded")
           )));
           if (bodyPartial) {
-            this.skippedBodies += 1;
             if (!allowPartial) {
               throw new ImessageMcpError(
                 unsupportedText ? "UNSUPPORTED_SCHEMA" : "DECODE_FAILED",
@@ -785,7 +892,6 @@ export class MemorySearchIndex {
           }
           const sender = validateSender(row, this.contacts);
           if (!sender.complete) {
-            this.skippedSenders += 1;
             if (!allowPartial) {
               throw new ImessageMcpError(
                 "UNSUPPORTED_SCHEMA",
@@ -840,6 +946,8 @@ export class MemorySearchIndex {
             JSON.stringify(chatIdArray(row.chat_ids_json)),
             JSON.stringify(filenames),
             bodyPartial || !sender.complete ? "partial" : "complete",
+            bodyPartial ? 1 : 0,
+            sender.complete ? 0 : 1,
           );
           insertFts?.run(row.rowid, normalizedText, normalizedConversation, normalizedAttachments);
           insertTrigram?.run(row.rowid, normalizedText);
@@ -861,9 +969,29 @@ export class MemorySearchIndex {
     }
   }
 
-  private async build(allowPartial: boolean): Promise<void> {
+  // Partial counts come from the rows themselves, so a refresh that replaces
+  // partial rows cannot leave stale warnings behind.
+  private recountPartialRows(db: Database.Database): void {
+    const counts = db.prepare(
+      "SELECT COALESCE(SUM(body_partial), 0) AS bodies, COALESCE(SUM(sender_partial), 0) AS senders FROM message_text",
+    ).get() as { bodies: number; senders: number };
+    this.skippedBodies = Number(counts.bodies);
+    this.skippedSenders = Number(counts.senders);
+    this.complete = this.skippedBodies === 0 && this.skippedSenders === 0;
+  }
+
+  private indexTooLarge(error: unknown): unknown {
+    if ((error as { code?: string }).code === "SQLITE_FULL") {
+      return new ImessageMcpError("INDEX_TOO_LARGE", "complete in-memory search index exceeded its hard SQLite page ceiling", {
+        limit_bytes: this.memoryLimit(),
+      });
+    }
+    return error;
+  }
+
+  private async build(allowPartial: boolean, existing?: DatabaseRequest): Promise<void> {
     this.onBuild?.();
-    const request = this.context.request();
+    const request = existing ?? this.context.request();
     let db: Database.Database | null = null;
     try {
       assertMessageConversationIntegrity(request);
@@ -895,64 +1023,134 @@ export class MemorySearchIndex {
           limit_bytes: this.memoryLimit(),
         });
       }
+      const signatures = sourceSignatures(request);
       db = this.createIndex();
-      this.skippedBodies = 0;
-      this.skippedSenders = 0;
-      await this.populate(request, db, 0, request.asOf.max_message_id, allowPartial, false);
+      await this.populate(request, db, [[0, request.asOf.max_message_id]], allowPartial, false);
       this.finalizeIndex(db);
       this.enforceMemoryLimit(db);
       const previous = this.index;
       this.index = db;
       db = null;
       this.indexedWatermark = request.asOf;
-      this.complete = this.skippedBodies === 0 && this.skippedSenders === 0;
+      this.signatures = signatures;
+      this.recountPartialRows(this.index);
       previous?.close();
     } catch (error) {
-      if ((error as { code?: string }).code === "SQLITE_FULL") {
-        throw new ImessageMcpError("INDEX_TOO_LARGE", "complete in-memory search index exceeded its hard SQLite page ceiling", {
-          limit_bytes: this.memoryLimit(),
-        });
-      }
-      throw error;
+      throw this.indexTooLarge(error);
     } finally {
       db?.close();
       request.close();
     }
   }
 
-  async ensure(allowPartial: boolean): Promise<void> {
-    if (this.building) await this.building;
-    if (!this.index || (!allowPartial && !this.complete)) {
-      this.building = this.build(allowPartial);
-      try {
-        await this.building;
-      } finally {
-        this.building = null;
-      }
+  // Brings a built index up to the current snapshot by re-indexing only the
+  // ROWID buckets whose source signature changed. Every Messages write bumps
+  // data_version, including read receipts that search never sees, so comparing
+  // signatures instead of versions keeps an unrelated write from costing a
+  // full rebuild. The refresh commits atomically: a failure leaves the index,
+  // its watermark, and its signatures exactly as they were. The caller owns
+  // and closes the request.
+  private async refresh(allowPartial: boolean, request: DatabaseRequest): Promise<void> {
+    const index = this.index as Database.Database;
+    const previous = this.signatures as SourceSignatures;
+    assertMessageConversationIntegrity(request);
+    const next = sourceSignatures(request);
+    const changed = new Set<number>();
+    for (const [bucket, signature] of next.buckets) {
+      if (previous.buckets.get(bucket) !== signature) changed.add(bucket);
+    }
+    for (const bucket of previous.buckets.keys()) {
+      if (!next.buckets.has(bucket)) changed.add(bucket);
+    }
+    const changedConversations = [...new Set([...previous.conversations.keys(), ...next.conversations.keys()])]
+      .filter((key) => previous.conversations.get(key) !== next.conversations.get(key));
+    if (changedConversations.length > 0) {
+      const rows = index.prepare(
+        `SELECT DISTINCT rowid / ${SIGNATURE_BUCKET_ROWS} AS bucket FROM message_text
+         WHERE chat_ids IN (SELECT value FROM json_each(@keys))`,
+      ).all({ keys: JSON.stringify(changedConversations) }) as Array<{ bucket: number }>;
+      for (const row of rows) changed.add(Number(row.bucket));
+    }
+    if (changed.size === 0) {
+      this.indexedWatermark = request.asOf;
+      this.signatures = next;
       return;
     }
+    if (changed.size > REFRESH_REBUILD_MIN_BUCKETS && changed.size * 2 > Math.max(next.buckets.size, previous.buckets.size)) {
+      await this.build(allowPartial, request);
+      return;
+    }
+    if (changed.size > REFRESH_NOTICE_BUCKETS) this.onBuild?.();
 
+    const size = SIGNATURE_BUCKET_ROWS;
+    const ranges: Array<[number, number]> = [];
+    for (const bucket of [...changed].sort((a, b) => a - b)) {
+      const first = bucket * size;
+      const last = first + size - 1;
+      const open = ranges.at(-1);
+      if (open && open[1] + 1 === first) open[1] = last;
+      else ranges.push([first, last]);
+    }
+    const deleteFts = index.prepare(
+      `INSERT INTO message_fts(message_fts, rowid, normalized_text, normalized_conversation, normalized_attachments)
+       SELECT 'delete', rowid, normalized_text, normalized_conversation, normalized_attachments
+       FROM message_text WHERE rowid BETWEEN ? AND ?`,
+    );
+    const deleteTrigram = this.trigram
+      ? index.prepare(
+          `INSERT INTO message_trigram(message_trigram, rowid, normalized_text)
+           SELECT 'delete', rowid, normalized_text FROM message_text WHERE rowid BETWEEN ? AND ?`,
+        )
+      : null;
+    const deleteRows = index.prepare("DELETE FROM message_text WHERE rowid BETWEEN ? AND ?");
+    index.exec("BEGIN");
+    try {
+      for (const [first, last] of ranges) {
+        deleteFts.run(first, last);
+        deleteTrigram?.run(first, last);
+        deleteRows.run(first, last);
+      }
+      const target = request.asOf.max_message_id;
+      const populateRanges = ranges
+        .map(([first, last]): [number, number] => [Math.max(0, first - 1), Math.min(last, target)])
+        .filter(([after, upTo]) => after < upTo);
+      await this.populate(request, index, populateRanges, allowPartial, true);
+      index.exec("COMMIT");
+    } catch (error) {
+      if (index.inTransaction) index.exec("ROLLBACK");
+      throw this.indexTooLarge(error);
+    }
+    this.indexedWatermark = request.asOf;
+    this.signatures = next;
+    this.recountPartialRows(index);
+  }
+
+  async ensure(allowPartial: boolean): Promise<void> {
+    if (this.building) await this.building;
+    if (!this.index || !this.signatures) {
+      await this.track(this.build(allowPartial));
+      return;
+    }
     const request = this.context.request();
     try {
-      const indexed = this.indexedWatermark;
-      if (!indexed) return;
-      if (request.asOf.data_version !== indexed.data_version) {
-        request.close();
-        this.building = this.build(allowPartial);
-        try {
-          await this.building;
-        } finally {
-          this.building = null;
-        }
-        return;
+      if (this.indexedWatermark?.data_version !== request.asOf.data_version) {
+        await this.track(this.refresh(allowPartial, request));
       }
-      if (request.asOf.max_message_id > indexed.max_message_id) {
-        await this.populate(request, this.index, indexed.max_message_id, request.asOf.max_message_id, allowPartial, true);
-      }
-      this.indexedWatermark = request.asOf;
-      this.complete = this.complete && this.skippedBodies === 0 && this.skippedSenders === 0;
     } finally {
-      if (request.db.open) request.close();
+      request.close();
+    }
+    // A refresh can repair the rows that made an index partial. When unchanged
+    // partial rows remain, only a strict rebuild can tell a transient decoder
+    // failure from a body that is really undecodable.
+    if (!allowPartial && !this.complete) await this.track(this.build(false));
+  }
+
+  private async track(work: Promise<void>): Promise<void> {
+    this.building = work;
+    try {
+      await work;
+    } finally {
+      this.building = null;
     }
   }
 
@@ -1204,5 +1402,6 @@ export class MemorySearchIndex {
     this.index?.close();
     this.index = null;
     this.indexedWatermark = null;
+    this.signatures = null;
   }
 }
