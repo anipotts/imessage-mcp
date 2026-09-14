@@ -32,6 +32,7 @@
   ],
   "scripts": {
     "build": "node scripts/clean-dist.mjs && tsc",
+    "build:mcpb": "npm run build && node scripts/build-mcpb.mjs",
     "dev": "tsx src/cli.ts",
     "doctor": "tsx src/cli.ts doctor",
     "typecheck": "tsc --noEmit",

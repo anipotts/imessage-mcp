@@ -66,6 +66,21 @@ As an alternative, install it as a plugin instead:
 codex mcp add imessage -- npx -y imessage-mcp@2
 ```
 
+### Claude Desktop bundle
+
+Claude Desktop also installs from a bundle, which leaves `claude_desktop_config.json` untouched. Download `imessage-mcp.mcpb` from the [latest release](https://github.com/anipotts/imessage-mcp/releases/latest) and double-click it. The bundle carries `dist`, `bin`, `native`, and the production `node_modules`, so nothing resolves from npm at launch, and it runs on the Node.js that ships with Claude Desktop.
+
+The install dialog exposes two settings, both mapped into the launch arguments:
+
+| setting | values | default | effect |
+| --- | --- | --- | --- |
+| privacy ceiling | `full`, `redacted`, `aggregate` | `full` | the most a caller can see, passed as `--privacy` |
+| contact names | `live`, `none` | `live` | whether handles are named from unified Contacts, passed as `--contacts` |
+
+Either setting takes effect when Claude Desktop next starts the server. Full Disk Access still belongs to Claude Desktop itself, so grant it there and restart, the same as any other client.
+
+To remove it, open Settings, then Extensions, and uninstall iMessage. `uninstall --client desktop` reverses a configuration-file registration and does not touch a bundle install.
+
 ### Claude Desktop and Cursor
 
 `setup --client desktop` edits `~/Library/Application Support/Claude/claude_desktop_config.json` and `setup --client cursor` edits `~/.cursor/mcp.json`. Both applications rewrite those files while they run, so setup refuses while the application is open. Quit it first, or install the `.mcpb` bundle for Claude Desktop. The original file is copied to `<file>.bak-<unix-time>` and the replacement is written to a temporary file in the same directory and renamed into place, so an interrupted run leaves the old file intact.

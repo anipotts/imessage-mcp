@@ -104,6 +104,14 @@ To remove it:
 /plugin marketplace remove anipotts
 ```
 
+## desktop bundle
+
+Claude Desktop installs without a configuration file. Download `imessage-mcp.mcpb` from the [latest release](https://github.com/anipotts/imessage-mcp/releases/latest), double-click it, and confirm. Then grant Full Disk Access to Claude Desktop and restart it.
+
+The install dialog carries the two startup settings, the privacy ceiling and contact names. Leave them alone to get the same defaults the `npx` command starts with. [Details](docs/GUIDE.md#claude-desktop-bundle).
+
+To remove it, open Claude Desktop Settings, then Extensions, and uninstall iMessage. Your configuration file is untouched either way, because a bundle install never writes to it.
+
 ## seven tools
 
 | tool | what it does |

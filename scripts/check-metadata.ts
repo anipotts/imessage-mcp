@@ -16,6 +16,7 @@ const marketplacePlugins = marketplace.plugins as Array<Record<string, unknown>>
 const marketplacePlugin = marketplacePlugins.find((entry) => entry.name === "imessage-mcp");
 assert.ok(marketplacePlugin, "marketplace.json must list a plugin named imessage-mcp");
 const server = json("server.json");
+const desktopManifest = json("manifest.json");
 const mcp = json(".mcp.json");
 const assetManifest = json("assets/manifest.json");
 const packageFiles = json("package-files.json");
@@ -37,6 +38,11 @@ if (marketplacePlugin!.version !== undefined) {
   assert.equal(marketplacePlugin!.version, version, "marketplace.json plugin version must match package.json version");
 }
 assert.equal(server.version, version);
+assert.equal(desktopManifest.name, "imessage-mcp");
+assert.equal(desktopManifest.version, version, "manifest.json version must match package.json version");
+assert.equal((desktopManifest.server as Record<string, unknown>).type, "node");
+assert.ok(!(packageJson.files as string[]).includes("manifest.json"),
+  "the npm tarball must not carry the desktop bundle manifest");
 assert.equal(packageJson.mcpName, server.name);
 const packages = server.packages as Array<Record<string, unknown>>;
 assert.equal(packages.length, 1);
@@ -57,6 +63,8 @@ assert.ok(changelog.split(/\r?\n/u).includes(`## ${version}`),
   `CHANGELOG.md must carry a "## ${version}" heading for the packaged version`);
 assert.match(releaseWorkflow, /\n {2}push:\n {4}tags:\n {6}- "v\[0-9\]\*"\n/u,
   "the release workflow must be driven by a version tag push");
+assert.match(releaseWorkflow, /npm run build:mcpb\n {10}mv dist-mcpb\/imessage-mcp\.mcpb release-artifact\//u,
+  "the release artifact must carry the desktop bundle so the GitHub release attaches it");
 assert.match(releaseWorkflow, /npm publish "\$TARBALL" --ignore-scripts --access public --provenance --tag next/u);
 assert.match(releaseWorkflow, /npm publish "\$TARBALL" --ignore-scripts --access public --provenance --tag latest/u);
 
@@ -98,6 +106,12 @@ for (const module of ["clients", "doctor", "setup", "uninstall"]) {
     assert.ok(commandModules.has(`dist/commands/${module}${extension}`),
       `package-files.json must expect dist/commands/${module}${extension}`);
   }
+}
+assert.match(readme, /## desktop bundle/u);
+assert.match(guide, /### Claude Desktop bundle/u);
+for (const document of [readme, guide]) {
+  assert.ok(document.includes("imessage-mcp.mcpb"), "the desktop bundle must be named by its downloadable filename");
+  assert.match(document, /Settings, then Extensions/u, "removal must point at the Extensions list");
 }
 assert.match(readme, /## remove/u);
 assert.match(readme, /setup --client claude/u);

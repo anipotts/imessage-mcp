@@ -53,12 +53,9 @@ jobs:
           mkdir release-artifact
           TARBALL=$(npm pack --json --pack-destination release-artifact | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>process.stdout.write(JSON.parse(s)[0].filename))")
           test -f "release-artifact/${TARBALL}"
-          if node -e "process.exit((require('./package.json').scripts || {})['build:mcpb'] ? 0 : 1)"; then
-            npm run build:mcpb
-            find . -maxdepth 2 -type f -name '*.mcpb' -not -path './node_modules/*' \
-              -not -path './release-artifact/*' -exec mv {} release-artifact/ \;
-            test -n "$(find release-artifact -maxdepth 1 -type f -name '*.mcpb' -print -quit)"
-          fi
+          npm run build:mcpb
+          mv dist-mcpb/imessage-mcp.mcpb release-artifact/
+          test -f release-artifact/imessage-mcp.mcpb
           echo "tarball=${TARBALL}" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
