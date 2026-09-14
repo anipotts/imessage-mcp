@@ -746,6 +746,8 @@ export function registerTools(server: McpServer, runtime: ToolRuntime): void {
           .default(["text"]),
         order: z.enum(["newest", "relevance"]).default("newest"),
         service_family: serviceSchema.optional(),
+        from_me: z.boolean().optional()
+          .describe("true returns only messages you sent, false only messages you received; omit for both"),
         ...dateFields,
         limit: z.number().int().min(1).max(200).default(50),
         cursor: referenceSchema.optional(),

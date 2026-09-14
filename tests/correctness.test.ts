@@ -1346,6 +1346,90 @@ describe("2.0 data and query core", () => {
     index.close();
   });
 
+  it("partitions search on sent and received without changing the unfiltered result", async () => {
+    const index = new MemorySearchIndex(context, decoder, contacts);
+    const bounds = compileDateBounds({ timezone: "UTC" });
+    const input = {
+      query: "reply",
+      mode: "substring" as const,
+      scopes: ["text" as const],
+      order: "newest" as const,
+      bounds,
+      limit: 50,
+      allowPartial: false,
+      privacy: "full" as const,
+    };
+    try {
+      const all = await index.search(input);
+      const sent = await index.search({ ...input, fromMe: true });
+      const received = await index.search({ ...input, fromMe: false });
+      expect(all.total).toBe(3);
+      expect(sent.total).toBe(2);
+      expect(received.total).toBe(1);
+      expect(sent.total + received.total).toBe(all.total);
+      expect(sent.hits.map((hit) => hit.snippet)).toEqual(["reply two in same turn", "reply one"]);
+      expect(received.hits.map((hit) => hit.snippet)).toEqual(["thread reply"]);
+      expect(sent.hits.every((hit) => hit.sender.handle === null)).toBe(true);
+      expect(received.hits.every((hit) => hit.sender.handle === "+15550000001")).toBe(true);
+      expect([...sent.hits, ...received.hits].map((hit) => hit.snippet).sort())
+        .toEqual(all.hits.map((hit) => hit.snippet).sort());
+
+      const firstSent = await index.search({ ...input, fromMe: true, limit: 1 });
+      expect(firstSent.hasMore).toBe(true);
+      expect(firstSent.nextCursor).not.toBeNull();
+      const nextSent = await index.search({ ...input, fromMe: true, limit: 1, cursor: firstSent.nextCursor! });
+      expect(nextSent.total).toBe(2);
+      expect(nextSent.hits.map((hit) => hit.snippet)).toEqual(["reply one"]);
+      await expect(index.search({ ...input, fromMe: false, limit: 1, cursor: firstSent.nextCursor! }))
+        .rejects.toMatchObject({ reason: "INVALID_INPUT" });
+      await expect(index.search({ ...input, limit: 1, cursor: firstSent.nextCursor! }))
+        .rejects.toMatchObject({ reason: "INVALID_INPUT" });
+    } finally {
+      index.close();
+    }
+  });
+
+  it("accepts from_me through the search_messages tool and reports it in scope", async () => {
+    const runtime = new LocalToolRuntime(
+      runtimeConfig({
+        transport: "stdio",
+        databasePath: fixture.databasePath,
+        contacts: "none",
+        referenceKey: REFERENCE_KEY,
+        databaseId: DATABASE_ID,
+      }),
+      Buffer.alloc(32, 7),
+    );
+    const params = {
+      query: "reply",
+      mode: "substring",
+      scopes: ["text"],
+      order: "newest",
+      limit: 50,
+      privacy_mode: "full",
+    };
+    try {
+      const unfiltered = await runtime.call("search_messages", params);
+      const sent = await runtime.call("search_messages", { ...params, from_me: true });
+      const received = await runtime.call("search_messages", { ...params, from_me: false });
+      for (const result of [unfiltered, sent, received]) expect(result.isError).toBeUndefined();
+      expect(unfiltered.structuredContent).toMatchObject({
+        effective_scope: { from_me: "all" },
+        data: { total_matches: 3 },
+      });
+      expect(sent.structuredContent).toMatchObject({
+        effective_scope: { from_me: true },
+        data: { total_matches: 2 },
+      });
+      expect(received.structuredContent).toMatchObject({
+        effective_scope: { from_me: false },
+        data: { total_matches: 1 },
+      });
+    } finally {
+      runtime.close();
+    }
+  });
+
   it("indexes unified conversation names for outgoing direct messages", async () => {
     const namedContacts = new UnifiedContactResolver(true, [
       { identifier: "alice", name: "Alice Example", phones: ["+15550000001"], emails: [] },

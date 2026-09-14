@@ -961,6 +961,7 @@ export class MemorySearchIndex {
     scopes: SearchScope[];
     bounds: DateBounds;
     service?: ServiceFamily;
+    fromMe?: boolean;
   }): { sql: string; bindings: Record<string, unknown>; rank: string } {
     const conditions: string[] = [];
     const normalizedQuery = normalize(input.query);
@@ -1030,6 +1031,10 @@ export class MemorySearchIndex {
       bindings.date_to_nanoseconds = boundary.nanoseconds;
     }
     if (input.service) conditions.push(serviceFamilyPredicate("service", input.service));
+    if (input.fromMe !== undefined) {
+      conditions.push("is_from_me = @from_me");
+      bindings.from_me = input.fromMe ? 1 : 0;
+    }
     return { sql: conditions.join(" AND "), bindings, rank };
   }
 
@@ -1040,6 +1045,7 @@ export class MemorySearchIndex {
     order: SearchOrder;
     bounds: DateBounds;
     service?: ServiceFamily;
+    fromMe?: boolean;
     limit: number;
     cursor?: string;
     allowPartial: boolean;
@@ -1061,6 +1067,7 @@ export class MemorySearchIndex {
       order: input.order,
       bounds: input.bounds,
       service: input.service,
+      fromMe: input.fromMe,
     });
     let decodedCursor: IndexCursor | null = null;
     if (input.cursor) {
