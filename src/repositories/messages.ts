@@ -25,6 +25,7 @@ import {
 } from "../time.js";
 
 import { resolveUniqueMessageGuids } from "./message-integrity.js";
+import { MAX_ATTRIBUTED_BODY_BYTES } from "../limits.js";
 
 const ACCOUNT_HOME_DIRECTORY = userInfo().homedir;
 
@@ -106,9 +107,10 @@ interface ConversationCursor {
 }
 
 const MAX_CONVERSATION_TEXT_BYTES = 3 * 1024 * 1024;
-const MAX_SELECTED_SOURCE_BYTES = 4 * 1024 * 1024;
+// Room for one body at the decoder bound plus the rest of a page.
+const MAX_SELECTED_SOURCE_BYTES = 8 * 1024 * 1024;
 const MAX_MESSAGE_TEXT_BYTES = 3 * 1024 * 1024;
-const MAX_MESSAGE_BLOB_BYTES = 1024 * 1024;
+const MAX_MESSAGE_BLOB_BYTES = MAX_ATTRIBUTED_BODY_BYTES;
 const MAX_RELATED_ROWS = 2_000;
 const MAX_RELATED_TEXT_BYTES = 1024 * 1024;
 const MAX_RELATED_VALUE_BYTES = 4096;

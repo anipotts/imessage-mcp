@@ -11,6 +11,7 @@ import { MessageTextDecoder, populatedMessageText } from "../src/decoder.js";
 import { UnifiedContactResolver } from "../src/contacts.js";
 import { columnSql, serviceSql } from "../src/schema-sql.js";
 import { LocalToolRuntime } from "../src/tool-local.js";
+import { MAX_ATTRIBUTED_BODY_BYTES } from "../src/limits.js";
 
 interface ParityRow {
   rowid: number;
@@ -29,7 +30,7 @@ const decoder = new MessageTextDecoder();
 const MAX_SAMPLE = 500;
 const MAX_BATCH_ITEMS = 500;
 const MAX_BATCH_BYTES = 8 * 1024 * 1024;
-const MAX_BLOB_BYTES = 1024 * 1024;
+const MAX_BLOB_BYTES = MAX_ATTRIBUTED_BODY_BYTES;
 // The one-million-message reference fixture owns the 60-second index SLA. A growing live archive
 // is bounded by the supported cold-request deadline while this check verifies exact private parity.
 const MAX_COLD_SEARCH_MS = 90_000;

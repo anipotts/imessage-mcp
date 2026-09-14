@@ -15,6 +15,7 @@ import { assertMessageConversationIntegrity } from "./repositories/conversations
 import { columnSql, serviceFamilyCase, serviceFamilyPredicate, serviceSql } from "./schema-sql.js";
 import { validateSender } from "./sender.js";
 import type { DateBounds } from "./time.js";
+import { MAX_ATTRIBUTED_BODY_BYTES, MAX_ATTRIBUTED_BODY_LABEL } from "./limits.js";
 import {
   appleTimestampBoundary,
   appleTimestampBoundarySql,
@@ -83,7 +84,7 @@ const MIB = 1024 * 1024;
 const SOURCE_BATCH_SIZE = 500;
 const SOURCE_BATCH_BYTES = 8 * MIB;
 const MAX_INDEX_TEXT_BYTES = 3 * MIB;
-const MAX_INDEX_BLOB_BYTES = MIB;
+const MAX_INDEX_BLOB_BYTES = MAX_ATTRIBUTED_BODY_BYTES;
 const ESTIMATED_BYTES_PER_ROW = 224;
 const MAX_INDEX_RELATION_ROWS = 20_000_000;
 const MAX_INDEX_RELATIONS_PER_MESSAGE = 1_000;
@@ -868,7 +869,7 @@ export class MemorySearchIndex {
       assertMessageConversationIntegrity(request);
       const estimate = this.estimate(request, allowPartial);
       if (!allowPartial && estimate.max_blob_bytes > MAX_INDEX_BLOB_BYTES) {
-        throw new ImessageMcpError("DECODE_FAILED", "search index encountered an attributed-body blob above the 1 MiB decoder limit", {
+        throw new ImessageMcpError("DECODE_FAILED", `search index encountered an attributed-body blob above the ${MAX_ATTRIBUTED_BODY_LABEL} decoder limit`, {
           max_blob_bytes: estimate.max_blob_bytes,
           limit_bytes: MAX_INDEX_BLOB_BYTES,
           retry: "retry with allow_partial true to omit only oversized blob bodies",

@@ -1,7 +1,8 @@
 ObjC.import("Foundation");
 
 const MAX_ITEMS = 500;
-const MAX_BLOB_BYTES = 1024 * 1024;
+// Keep equal to MAX_ATTRIBUTED_BODY_BYTES in src/limits.ts.
+const MAX_BLOB_BYTES = 4 * 1024 * 1024;
 const MAX_INPUT_CHARS = 12 * 1024 * 1024;
 const LEGACY_MAGIC = "streamtyped";
 const LEGACY_ROOT_PREFIX_HEX = [
@@ -73,6 +74,15 @@ function decodeLegacy(data) {
   const contentOffset = rootPrefix.length;
   const encoded = readLegacyLength(bytes, contentOffset);
   if (!encoded || encoded.length < 0 || encoded.length > MAX_BLOB_BYTES) return null;
+  // An empty attributed string has no attribute runs: its zero-length text is
+  // followed directly by the two closing bytes. Messages stores these for app and
+  // edited messages without text, and they are valid, not malformed.
+  if (
+    encoded.length === 0 &&
+    encoded.next === bytes.length - 2 &&
+    byteAt(bytes, encoded.next) === 0x86 &&
+    byteAt(bytes, encoded.next + 1) === 0x86
+  ) return "";
   if (encoded.next + encoded.length >= bytes.length) return null;
   let cursor = encoded.next + encoded.length;
   if (
