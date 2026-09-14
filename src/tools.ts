@@ -272,7 +272,8 @@ interface WorkerInitErrorMessage {
 }
 
 type RuntimeWorkerMessage = WorkerResultMessage | WorkerInitErrorMessage | { type: "ready" }
-  | { type: "search_index_building"; id: number };
+  | { type: "search_index_building"; id: number }
+  | { type: "search_warmed"; ok: boolean };
 
 const COLD_SEARCH_TIMEOUT_MS = 90_000;
 
@@ -313,6 +314,7 @@ class WorkerSlot {
   private sequence = 0;
   busy = false;
   generation = 0;
+  onSearchWarmed: ((generation: number) => void) | null = null;
 
   constructor(
     readonly index: number,
@@ -412,6 +414,11 @@ class WorkerSlot {
         );
         return;
       }
+      if (message.type === "search_warmed") {
+        if (message.ok) this.onSearchWarmed?.(this.generation);
+        this.finishWarming();
+        return;
+      }
       if (message.type === "search_index_building" && this.pending?.id === message.id) {
         this.pending.onSearchBuild();
       }
@@ -426,6 +433,7 @@ class WorkerSlot {
       void this.terminateWorker(worker);
     });
     worker.on("exit", () => {
+      if (this.worker === worker) this.finishWarming();
       this.rejectWorker(worker);
       if (!this.terminating) void this.finishUnexpectedExit();
     });
@@ -494,7 +502,32 @@ class WorkerSlot {
     pending?.reject(new ImessageMcpError("DATABASE_UNAVAILABLE", "tool worker stopped before completing the request"));
   }
 
-  async call(tool: string, params: Record<string, unknown>, timeoutMs: number): Promise<CallToolResult> {
+  warming: Promise<void> | null = null;
+  private resolveWarming: (() => void) | null = null;
+
+  // Asks the running worker to build its search index in the background. The
+  // worker runs it before any later request, so this slot stays reserved until
+  // the build reports back; callers route around it or wait for it.
+  warmSearch(): void {
+    if (!this.worker || this.warming) return;
+    this.warming = new Promise<void>((resolve) => {
+      this.resolveWarming = resolve;
+    });
+    this.worker.postMessage({ type: "warm_search" });
+  }
+
+  private finishWarming(): void {
+    this.resolveWarming?.();
+    this.resolveWarming = null;
+    this.warming = null;
+  }
+
+  async call(
+    tool: string,
+    params: Record<string, unknown>,
+    timeoutMs: number,
+    context: { searchBuilding?: boolean } = {},
+  ): Promise<CallToolResult> {
     if (this.busy) throw new ImessageMcpError("QUERY_BUDGET_EXCEEDED", "tool concurrency limit is active");
     this.busy = true;
     try {
@@ -532,7 +565,7 @@ class WorkerSlot {
             reject(error);
           },
         };
-        worker.postMessage({ type: "call", id, tool, params });
+        worker.postMessage({ type: "call", id, tool, params, search_building: context.searchBuilding === true });
       });
     } finally {
       this.busy = false;
@@ -584,12 +617,27 @@ export class ToolRuntime {
   private readonly decoderLock = new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT * 4);
   private readonly slots: WorkerSlot[];
   private searchReadyGeneration = -1;
+  private searchWarmRequested = false;
 
   constructor(readonly config: RuntimeConfig) {
     this.slots = [
       new WorkerSlot(0, config, this.maskingKey, this.decoderLock),
       new WorkerSlot(1, config, this.maskingKey, this.decoderLock),
     ];
+    this.slots[0].onSearchWarmed = (generation) => {
+      if (this.slots[0].isLiveGeneration(generation)) this.searchReadyGeneration = generation;
+    };
+  }
+
+  // The first search on a large archive builds the whole index, which can take a
+  // minute. Starting that build after the first other tool call means someone who
+  // is using the server gets a fast first search, while a server that is started
+  // and never used (a client probing its tools) spends nothing on it.
+  private maybeWarmSearch(tool: string, result: CallToolResult): void {
+    if (this.searchWarmRequested || tool === "search_messages" || result.isError) return;
+    if (process.env.IMESSAGE_WARM_SEARCH === "0") return;
+    this.searchWarmRequested = true;
+    this.slots[0].warmSearch();
   }
 
   async initialize(): Promise<void> {
@@ -604,7 +652,7 @@ export class ToolRuntime {
   private select(tool: string): WorkerSlot | null {
     if (tool === "search_messages" || tool === "server_status") return this.slots[0].busy ? null : this.slots[0];
     if (!this.slots[1].busy) return this.slots[1];
-    if (!this.slots[0].busy) return this.slots[0];
+    if (!this.slots[0].busy && !this.slots[0].warming) return this.slots[0];
     return null;
   }
 
@@ -614,12 +662,24 @@ export class ToolRuntime {
     let result: CallToolResult;
     try {
       privacy = requestedPrivacy(this.config, params);
-      const slot = this.select(tool);
+      const searchSlot = this.slots[0];
+      let slot: WorkerSlot | null;
+      let context: { searchBuilding?: boolean } = {};
+      if (searchSlot.warming && tool === "server_status" && !this.slots[1].busy) {
+        // Answer from the other worker instead of waiting out the build.
+        slot = this.slots[1];
+        context = { searchBuilding: true };
+      } else {
+        // A search waits for the background build it would otherwise repeat.
+        if (searchSlot.warming && (tool === "search_messages" || tool === "server_status")) await searchSlot.warming;
+        slot = this.select(tool);
+      }
       if (!slot) throw new ImessageMcpError("QUERY_BUDGET_EXCEEDED", "two tool calls are already active");
       const warmSearch = tool === "search_messages" && slot.isLiveGeneration(this.searchReadyGeneration);
       const timeoutMs = tool === "search_messages" && !warmSearch ? COLD_SEARCH_TIMEOUT_MS : 30_000;
-      result = await slot.call(tool, params, timeoutMs);
+      result = await slot.call(tool, params, timeoutMs, context);
       if (tool === "search_messages" && !result.isError) this.searchReadyGeneration = slot.generation;
+      this.maybeWarmSearch(tool, result);
     } catch (error) {
       result = errorResult(tool, error, privacy, this.maskingKey);
     }
@@ -814,77 +874,42 @@ function daysAgoIsoDate(days: number): string {
   return new Date(Date.now() - ms).toISOString().slice(0, 10);
 }
 
-const promptContactArg = z.string().trim().min(1).max(4096)
-  .describe("contact name or handle to look up with resolve_contact");
-const promptDaysArg = z.string().regex(/^\d{1,4}$/u).optional()
-  .describe("how many days back to read, default 7");
-const promptIntentArg = z.string().trim().min(1).max(4096).optional()
-  .describe("what the user wants to say in the reply");
-const promptQueryArg = z.string().trim().min(1).max(4096)
-  .describe("text to search for with search_messages");
+// Prompts take no arguments. A client opens a form for any declared argument, and
+// these read everything they need from the archive, so picking one from the menu
+// starts the conversation immediately. Anything the user adds in plain words,
+// such as a name, still steers the assistant.
+function textPrompt(text: string) {
+  return { messages: [{ role: "user" as const, content: { type: "text" as const, text } }] };
+}
+
+const READ_ONLY_NOTE = "This iMessage server is read-only: it cannot send, react, or mark anything read.";
 
 export function registerPrompts(server: McpServer): void {
   server.registerPrompt(
     "catch_up",
     {
-      title: "Catch up with a contact",
-      description: "Summarize what needs a reply from a recent conversation.",
-      argsSchema: { contact: promptContactArg, days: promptDaysArg },
+      title: "Catch me up",
+      description: "Who is waiting on you across your recent conversations, and what they need.",
     },
-    ({ contact, days }) => {
-      const windowDays = days && /^\d{1,4}$/u.test(days) ? Number.parseInt(days, 10) : 7;
-      const dateFrom = daysAgoIsoDate(windowDays);
-      return {
-        messages: [{
-          role: "user" as const,
-          content: {
-            type: "text" as const,
-            text: `This server is read-only; it cannot send messages. Resolve the contact "${contact}" with resolve_contact. If it resolves to one conversation, call get_conversation for it with date_from set to ${dateFrom} (the last ${windowDays} day(s)), and read the returned events in order. Then summarize, in your own words, what in that window needs a reply or action from the user, quoting the original text only where necessary to make the summary clear. If resolve_contact returns multiple candidates or none, report that instead of guessing.`,
-          },
-        }],
-      };
-    },
+    () => textPrompt(`${READ_ONLY_NOTE} Catch me up on my messages. Call list_conversations with kind "direct" and date_from ${daysAgoIsoDate(3)}, limit 25. For each conversation with recent activity, call get_conversation with limit 20 and check whether the latest message came from someone else and asks for or needs a reply. Skip verification codes, delivery notices, and other automated senders. Then tell me, most urgent first, who is waiting on me and what they need, one short line each, quoting only what the line needs. If I named a person, focus on them instead, using resolve_contact. If nothing is waiting, say so plainly.`),
   );
 
   server.registerPrompt(
     "draft_reply",
     {
       title: "Draft a reply",
-      description: "Draft a reply in the user's texting style. Does not send it.",
-      argsSchema: { contact: promptContactArg, intent: promptIntentArg },
+      description: "A reply in your own texting style to whoever is waiting on you. It is never sent.",
     },
-    ({ contact, intent }) => {
-      const intentLine = intent
-        ? ` The user wants the reply to say, in substance: ${intent}.`
-        : "";
-      return {
-        messages: [{
-          role: "user" as const,
-          content: {
-            type: "text" as const,
-            text: `This server is read-only; it has no tool to send a message. Resolve the contact "${contact}" with resolve_contact, then call get_conversation for the resolved conversation and read the latest messages to learn the user's own texting style (length, punctuation, tone, emoji use) from their prior outgoing messages in that thread.${intentLine} Draft one reply written in that style. Return only the draft text, with no preamble or explanation, and note that the user must send it themselves since this server cannot send messages.`,
-          },
-        }],
-      };
-    },
+    () => textPrompt(`${READ_ONLY_NOTE} Draft a reply for me. If I named a person, find them with resolve_contact. Otherwise call list_conversations with kind "direct" and date_from ${daysAgoIsoDate(3)}, and pick the most recent conversation whose latest message came from someone else. Read it with get_conversation, and learn my texting style from my own outgoing messages in that thread: length, capitalization, punctuation, and emoji. If I said what I want to say, keep that meaning. Return one draft only, with no preamble, and remind me in one short line that I have to send it myself because this server cannot send messages.`),
   );
 
   server.registerPrompt(
-    "who_said",
+    "recap",
     {
-      title: "Who said that",
-      description: "Find who said something, when, and in which conversation.",
-      argsSchema: { query: promptQueryArg },
+      title: "Recap my week",
+      description: "This week in messages: volume, busiest conversations, and anyone still waiting.",
     },
-    ({ query }) => ({
-      messages: [{
-        role: "user" as const,
-        content: {
-          type: "text" as const,
-          text: `Call search_messages with query "${query}" to find matches. From the results, list, for each distinct match, who said it, the timestamp, and which conversation it was in. Keep the list short and do not quote more of each message than the query itself needs.`,
-        },
-      }],
-    }),
+    () => textPrompt(`${READ_ONLY_NOTE} Recap my last seven days of messages. Call analyze_communication with metric "message_count", scope "global", and date_from ${daysAgoIsoDate(7)}, then call list_conversations with the same date_from and limit 10. Tell me how many messages I sent and received, my busiest conversations by message count, and any conversation where the latest message is from someone else, which you can confirm with get_conversation. Keep it to a few short lines and do not quote message text.`),
   );
 }
 

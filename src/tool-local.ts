@@ -86,6 +86,18 @@ export class LocalToolRuntime {
     this.search = new MemorySearchIndex(this.database, this.decoder, this.contacts, onSearchBuild);
   }
 
+  // Builds the in-memory search index ahead of the first search. Searches default
+  // to a complete index, so warm that first; a complete build rejects early (from
+  // its size estimate) when the archive has bodies it cannot index, and then the
+  // partial index a caller would retry with is the useful one to have ready.
+  async warmSearch(): Promise<void> {
+    try {
+      await this.search.ensure(false);
+    } catch {
+      await this.search.ensure(true);
+    }
+  }
+
   close(): void {
     this.search.close();
     this.database.close();
@@ -124,11 +136,11 @@ export class LocalToolRuntime {
     return [...values];
   }
 
-  async call(tool: string, params: ToolParams): Promise<CallToolResult> {
+  async call(tool: string, params: ToolParams, context: { searchBuilding?: boolean } = {}): Promise<CallToolResult> {
     let privacy = this.config.privacy_ceiling;
     try {
       privacy = requestedPrivacy(this.config, params);
-      if (tool === "server_status") return this.serverStatus(privacy);
+      if (tool === "server_status") return this.serverStatus(privacy, context.searchBuilding === true);
       if (tool === "resolve_contact") return this.resolveContact(params, privacy);
       if (tool === "list_conversations") return this.listConversations(params, privacy);
       if (tool === "get_conversation") return await this.getConversation(params, privacy);
@@ -300,7 +312,9 @@ export class LocalToolRuntime {
     }
   }
 
-  private serverStatus(privacy: PrivacyMode): CallToolResult {
+  // searchBuilding: the search index lives in the other worker, which is building
+  // it right now, so this worker's own idle index would misreport the server.
+  private serverStatus(privacy: PrivacyMode, searchBuilding = false): CallToolResult {
     const request = this.database.request();
     try {
       const detectedServices = this.detectedServices(request);
@@ -317,7 +331,7 @@ export class LocalToolRuntime {
           detected_services: detectedServices,
           schema_capabilities: this.database.capabilities,
           decoder_health: this.decoder.healthState(),
-          index_state: this.search.state(),
+          index_state: searchBuilding ? { ...this.search.state(), state: "building" as const } : this.search.state(),
           as_of: watermarkToken(request.asOf),
         },
       });
