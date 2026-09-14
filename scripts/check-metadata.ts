@@ -33,7 +33,7 @@ assert.equal(packages.length, 1);
 assert.equal(packages[0].identifier, "imessage-mcp");
 assert.equal(packages[0].version, version);
 assert.equal((packageJson.os as string[]).join(","), "darwin");
-assert.equal((packageJson.engines as Record<string, string>).node, "^22.0.0 || ^24.0.0 || ^26.0.0");
+assert.equal((packageJson.engines as Record<string, string>).node, ">=22.0.0");
 const configuredServers = mcp.mcpServers as Record<string, { args: string[] }>;
 assert.deepEqual(Object.keys(configuredServers), ["imessage-history"]);
 assert.equal(configuredServers["imessage-history"].args[1], `imessage-mcp@${version}`);

@@ -15,7 +15,7 @@ Try questions like:
 
 ## setup
 
-You need macOS 14+, Node.js 22, 24, or 26, and Messages history on this Mac.
+You need macOS 14+, Node.js 22 or newer, and Messages history on this Mac.
 
 Create the two private setup files once, then run the diagnostic:
 

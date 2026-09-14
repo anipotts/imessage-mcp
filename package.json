@@ -65,7 +65,7 @@
     "vitest": "4.1.11"
   },
   "engines": {
-    "node": "^22.0.0 || ^24.0.0 || ^26.0.0"
+    "node": ">=22.0.0"
   },
   "os": [
     "darwin"
@@ -101,5 +101,10 @@
   "homepage": "https://github.com/anipotts/imessage-mcp",
   "bugs": {
     "url": "https://github.com/anipotts/imessage-mcp/issues"
+  },
+  "allowScripts": {
+    "esbuild": true,
+    "better-sqlite3": true,
+    "fsevents": true
   }
 }

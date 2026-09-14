@@ -42,11 +42,11 @@ export async function doctor(config: RuntimeConfig, json: boolean): Promise<numb
   }
   checks.push({ name: "platform", status: process.platform === "darwin" ? "pass" : "fail", detail: process.platform === "darwin" ? "macOS detected" : "macOS is required" });
   const nodeMajor = Number(process.versions.node.split(".")[0]);
-  const nodeSupported = [22, 24, 26].includes(nodeMajor);
+  const nodeSupported = nodeMajor >= 22;
   checks.push({
     name: "node",
     status: nodeSupported ? "pass" : "fail",
-    detail: nodeSupported ? `supported Node ${process.versions.node}` : `Node ${process.versions.node}; use active Node 22, 24, or 26`,
+    detail: nodeSupported ? `supported Node ${process.versions.node}` : `Node ${process.versions.node}; requires Node 22 or newer`,
   });
   try {
     accessSync(config.database_path, constants.R_OK);

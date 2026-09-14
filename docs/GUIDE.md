@@ -5,7 +5,7 @@ This guide contains the operational detail intentionally kept out of the main RE
 ## requirements and doctor
 
 - macOS 14 or newer on Apple silicon or Intel
-- active Node.js 22, 24, or 26
+- active Node.js 22 or newer
 - a live Mac `chat.db` or a faithful copy of that Mac schema
 - Full Disk Access for the application or shell launching the MCP server
 
