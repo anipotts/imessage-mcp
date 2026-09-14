@@ -11,6 +11,19 @@ Use synthetic data only. Do not attach or commit Messages databases, WAL files, 
 
 2.x remains read-only. Sending, modifying Messages or Contacts, persistent body indexes, public HTTP exposure, and live private-data fixtures are outside contribution scope.
 
+## dependency updates
+
+Dependabot pull requests merge themselves once every required check passes and the branch is current with `main`. Two workflows do this with one fine-grained token owned by the repository owner, because GitHub starts no workflow runs for merges made with the built-in token, and Dependabot ignores rebase requests from bots.
+
+Create the token at github.com/settings/personal-access-tokens with access to this repository only and these permissions: Contents, Pull requests, and Workflows set to read and write. Then store it twice, once for Dependabot runs and once for scheduled runs. Each command prompts for the value, so it never lands in shell history:
+
+```sh
+gh secret set DEPENDABOT_AUTOMERGE_TOKEN --repo anipotts/imessage-mcp --app dependabot
+gh secret set DEPENDABOT_AUTOMERGE_TOKEN --repo anipotts/imessage-mcp --app actions
+```
+
+Without the secret both workflows pass with a warning and change nothing. Renew the token before it expires.
+
 ## compatibility reports
 
 Open a bug report with the exact package version, macOS version, Node version, Mac architecture, source mode (`live` or `copy`), service family, transport, privacy ceiling, Contacts mode, tool name, stable error reason, and sanitized timing. Include the relevant `doctor --contacts none --privacy aggregate --json` check names and pass/warn/fail states, not private values.

@@ -1,0 +1,39 @@
+name: dependabot auto-merge
+
+# Turns on auto-merge for every Dependabot pull request as soon as it opens or
+# updates. The merge itself still waits for every required check and for the
+# branch to be up to date with main, exactly like a human pull request.
+#
+# The token belongs to the repository owner, not the workflow: merges made with
+# the built-in GITHUB_TOKEN start no workflow runs, so main would get no push
+# checks, and pull requests that change workflow files need a token that may
+# write workflows. Store the same fine-grained token under this name as both a
+# Dependabot secret and an Actions secret; see CONTRIBUTING.md.
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+
+permissions:
+  contents: read
+
+jobs:
+  enable:
+    name: enable dependabot auto-merge
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      # A step condition, not a job condition, so pull requests from anyone else
+      # show a passing job instead of a skipped check.
+      - name: enable auto-merge
+        if: github.event.pull_request.user.login == 'dependabot[bot]'
+        env:
+          GH_TOKEN: ${{ secrets.DEPENDABOT_AUTOMERGE_TOKEN }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        shell: bash
+        run: |
+          if [[ -z "$GH_TOKEN" ]]; then
+            echo "::warning title=dependabot auto-merge::DEPENDABOT_AUTOMERGE_TOKEN is not set as a Dependabot secret, so auto-merge stays off for this pull request"
+            exit 0
+          fi
+          gh pr merge --auto --merge "$PR_URL"
