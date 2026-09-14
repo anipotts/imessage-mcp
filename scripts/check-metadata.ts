@@ -156,6 +156,16 @@ for (const keyword of ["read-only", "privacy", "local-first", "codex", "cursor",
 }
 assert.equal(readFileSync("package.json", "utf8").includes("smithery"), false);
 
+// allowScripts is @lavamoat/allow-scripts configuration. The published package
+// must not advertise an install-script allowlist nothing enforces.
+if (packageJson.allowScripts !== undefined) {
+  const developmentDependencies = (packageJson.devDependencies ?? {}) as Record<string, string>;
+  assert.ok(developmentDependencies["@lavamoat/allow-scripts"],
+    "allowScripts needs @lavamoat/allow-scripts as a devDependency or it enforces nothing");
+  assert.ok(existsSync(".npmrc") && /^\s*ignore-scripts\s*=\s*true\s*$/mu.test(readFileSync(".npmrc", "utf8")),
+    "allowScripts needs ignore-scripts=true in .npmrc or install scripts still run unfiltered");
+}
+
 for (const file of ["README.md", "docs/GUIDE.md", "docs/DEMO.md", "docs/BENCHMARK.md"]) {
   for (const [, target] of readFileSync(file, "utf8").matchAll(/!?\[[^\]]*\]\(([^)]+)\)/gu)) {
     if (/^(?:https?:|#)/u.test(target)) continue;

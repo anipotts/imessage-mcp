@@ -100,10 +100,5 @@
   "homepage": "https://github.com/anipotts/imessage-mcp",
   "bugs": {
     "url": "https://github.com/anipotts/imessage-mcp/issues"
-  },
-  "allowScripts": {
-    "esbuild": true,
-    "better-sqlite3": true,
-    "fsevents": true
   }
 }
