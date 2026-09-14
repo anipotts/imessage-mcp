@@ -8,6 +8,11 @@ on:
 permissions:
   contents: read
 
+# A release tag is immutable, so its run is never superseded or cancelled.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   verify:
     name: verify exact tag
@@ -147,7 +152,7 @@ jobs:
     name: verify public npm installation
     needs: publish-npm
     runs-on: macos-26
-    timeout-minutes: 10
+    timeout-minutes: 15
     permissions:
       contents: read
     steps:
@@ -167,10 +172,10 @@ jobs:
         shell: bash
         run: |
           VERSION="${{ needs.publish-npm.outputs.version }}"
-          for ATTEMPT in {1..20}; do
+          for ATTEMPT in {1..60}; do
             URL=$(npm view "imessage-mcp@${VERSION}" dist.tarball 2>/dev/null || true)
             if [[ -n "$URL" ]]; then break; fi
-            sleep 3
+            sleep 5
           done
           test -n "$URL"
           curl --fail --location --silent --show-error "$URL" --output public.tgz
@@ -213,7 +218,7 @@ jobs:
         shell: bash
         run: |
           VERSION="${{ needs.publish-npm.outputs.version }}"
-          for ATTEMPT in {1..20}; do
+          for ATTEMPT in {1..60}; do
             BODY=$(curl --fail --silent --show-error \
               "https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.anipotts/imessage-mcp" || true)
             if printf '%s' "$BODY" | VERSION="$VERSION" node -e "
@@ -233,7 +238,7 @@ jobs:
                 assert.deepStrictEqual(matches[0], expected);
               });
             "; then exit 0; fi
-            sleep 3
+            sleep 5
           done
           exit 1
 
@@ -241,7 +246,7 @@ jobs:
     name: publish github release
     needs: [publish-npm, verify-public-npm, publish-registry]
     runs-on: macos-26
-    timeout-minutes: 10
+    timeout-minutes: 20
     environment: github-release
     permissions:
       attestations: read
@@ -285,7 +290,7 @@ jobs:
             gh release edit "v${VERSION}" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease=false --latest
           fi
           VERIFIED=false
-          for ATTEMPT in {1..20}; do
+          for ATTEMPT in {1..60}; do
             if gh api "repos/${GITHUB_REPOSITORY}/releases/tags/v${VERSION}" \
               > "$RUNNER_TEMP/release.json" && node -e '
                 const fs = require("fs");
@@ -296,13 +301,13 @@ jobs:
                     release.prerelease !== (process.env.PRERELEASE === "true") ||
                     JSON.stringify(actualAssets) !== JSON.stringify(expectedAssets)) process.exit(1);
               ' "$RUNNER_TEMP/release.json"; then VERIFIED=true; break; fi
-            sleep 3
+            sleep 5
           done
           test "$VERIFIED" = "true"
           ATTESTED=false
-          for ATTEMPT in {1..20}; do
+          for ATTEMPT in {1..60}; do
             if gh release verify "v${VERSION}" --repo "$GITHUB_REPOSITORY"; then ATTESTED=true; break; fi
-            sleep 3
+            sleep 5
           done
           test "$ATTESTED" = "true"
           for ASSET in release-artifact/*; do
