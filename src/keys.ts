@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import { closeSync, constants, existsSync, fchmodSync, mkdirSync, openSync, writeSync } from "node:fs";
+import { chmodSync, closeSync, constants, existsSync, fchmodSync, lstatSync, mkdirSync, openSync, writeSync, type Stats } from "node:fs";
 import { userInfo } from "node:os";
 import path from "node:path";
 import { ImessageMcpError } from "./errors.js";
@@ -15,10 +15,14 @@ export interface ResolvedSecret {
 const REFERENCE_KEY_LABEL = "opaque-reference key";
 const DATABASE_ID_LABEL = "database-lineage identity";
 
+export function defaultStateDirectory(): string {
+  return path.join(userInfo().homedir, "Library", "Application Support", "imessage-mcp");
+}
+
 export function stateDirectory(): string {
   const override = process.env.IMESSAGE_STATE_DIR;
   if (override !== undefined && override !== "") return path.resolve(override);
-  return path.join(userInfo().homedir, "Library", "Application Support", "imessage-mcp");
+  return defaultStateDirectory();
 }
 
 export function databaseIdFileName(databasePath: string, sourceMode: "live" | "copy"): string {
@@ -85,4 +89,147 @@ export function resolveDatabaseId(databasePath: string, sourceMode: "live" | "co
     value: defaultSecret(databaseIdFileName(databasePath, sourceMode), DATABASE_ID_LABEL),
     source: "default file",
   };
+}
+
+export interface StateRepair {
+  name: string;
+  status: "pass" | "warn";
+  detail: string;
+}
+
+interface SecretTarget {
+  name: string;
+  label: string;
+  directVariable: string;
+  fileVariable: string;
+  fileName: (databasePath: string, sourceMode: "live" | "copy") => string;
+}
+
+const SECRET_TARGETS: SecretTarget[] = [
+  {
+    name: "reference_key",
+    label: REFERENCE_KEY_LABEL,
+    directVariable: "IMESSAGE_REFERENCE_KEY",
+    fileVariable: "IMESSAGE_REFERENCE_KEY_FILE",
+    fileName: () => "reference-key",
+  },
+  {
+    name: "database_id",
+    label: DATABASE_ID_LABEL,
+    directVariable: "IMESSAGE_DATABASE_ID",
+    fileVariable: "IMESSAGE_DATABASE_ID_FILE",
+    fileName: databaseIdFileName,
+  },
+];
+
+function ownedByCaller(stat: Stats): boolean {
+  return !process.getuid || stat.uid === process.getuid();
+}
+
+function octal(mode: number): string {
+  return `0${(mode & 0o777).toString(8).padStart(3, "0")}`;
+}
+
+export function environmentSecretFiles(): Set<string> {
+  const files = new Set<string>();
+  for (const name of ["IMESSAGE_REFERENCE_KEY_FILE", "IMESSAGE_DATABASE_ID_FILE", "IMESSAGE_API_TOKEN_FILE"]) {
+    const value = process.env[name];
+    if (value !== undefined && value !== "") files.add(path.resolve(value));
+  }
+  return files;
+}
+
+/**
+ * Creates missing default key files and restores owner-only modes. It never
+ * touches a file named by an IMESSAGE_*_FILE variable, and it never changes
+ * Full Disk Access or Contacts authorization.
+ */
+export function repairDefaultState(databasePath: string, sourceMode: "live" | "copy"): StateRepair[] {
+  const repairs: StateRepair[] = [];
+  const directory = stateDirectory();
+  const reserved = environmentSecretFiles();
+  let usable = false;
+  try {
+    const stat = lstatSync(directory);
+    if (!stat.isDirectory()) {
+      repairs.push({ name: "state_dir", status: "warn", detail: `${directory} is not a directory; move it aside and run doctor --fix again` });
+    } else if (!ownedByCaller(stat)) {
+      repairs.push({ name: "state_dir", status: "warn", detail: `${directory} belongs to another user and was left unchanged` });
+    } else {
+      usable = true;
+      const mode = stat.mode & 0o777;
+      if (mode === 0o700) {
+        repairs.push({ name: "state_dir", status: "pass", detail: `${directory} already has mode 0700` });
+      } else {
+        chmodSync(directory, 0o700);
+        repairs.push({ name: "state_dir", status: "pass", detail: `${directory} mode changed from ${octal(mode)} to 0700` });
+      }
+    }
+  } catch {
+    try {
+      mkdirSync(directory, { recursive: true, mode: 0o700 });
+      chmodSync(directory, 0o700);
+      usable = true;
+      repairs.push({ name: "state_dir", status: "pass", detail: `${directory} created with mode 0700` });
+    } catch {
+      repairs.push({ name: "state_dir", status: "warn", detail: `${directory} could not be created` });
+    }
+  }
+  if (!usable) return repairs;
+
+  for (const target of SECRET_TARGETS) {
+    if (process.env[target.directVariable] !== undefined || process.env[target.fileVariable] !== undefined) {
+      repairs.push({
+        name: target.name,
+        status: "pass",
+        detail: "configured by the environment; the default file was neither created nor changed",
+      });
+      continue;
+    }
+    const file = path.join(directory, target.fileName(databasePath, sourceMode));
+    if (reserved.has(path.resolve(file))) {
+      repairs.push({ name: target.name, status: "warn", detail: "named by an IMESSAGE_*_FILE variable and left unchanged" });
+      continue;
+    }
+    let stat: Stats | null = null;
+    try {
+      stat = lstatSync(file);
+    } catch {
+      stat = null;
+    }
+    if (stat === null) {
+      try {
+        generateDefaultFile(file, target.label);
+        repairs.push({ name: target.name, status: "pass", detail: `${file} created with mode 0600` });
+      } catch {
+        repairs.push({ name: target.name, status: "warn", detail: `${file} could not be created` });
+      }
+      continue;
+    }
+    if (!stat.isFile()) {
+      repairs.push({ name: target.name, status: "warn", detail: `${file} is not a regular file and was left unchanged` });
+      continue;
+    }
+    if (!ownedByCaller(stat)) {
+      repairs.push({ name: target.name, status: "warn", detail: `${file} belongs to another user and was left unchanged` });
+      continue;
+    }
+    const mode = stat.mode & 0o777;
+    if (mode === 0o600) {
+      repairs.push({ name: target.name, status: "pass", detail: `${file} already has mode 0600` });
+      continue;
+    }
+    try {
+      chmodSync(file, 0o600);
+      repairs.push({ name: target.name, status: "pass", detail: `${file} mode changed from ${octal(mode)} to 0600` });
+    } catch {
+      repairs.push({ name: target.name, status: "warn", detail: `${file} mode could not be changed` });
+    }
+  }
+  repairs.push({
+    name: "permissions",
+    status: "pass",
+    detail: "Full Disk Access and Contacts were not touched; grant them in System Settings > Privacy & Security",
+  });
+  return repairs;
 }

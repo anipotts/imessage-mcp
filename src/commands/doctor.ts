@@ -2,7 +2,7 @@ import { accessSync, constants, existsSync, readFileSync, statSync } from "node:
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { RuntimeConfig } from "../config.js";
-import { stateDirectory, type SecretSource } from "../keys.js";
+import { stateDirectory, type SecretSource, type StateRepair } from "../keys.js";
 import { DatabaseContext } from "../database.js";
 import { MessageTextDecoder } from "../decoder.js";
 import { UnifiedContactResolver } from "../contacts.js";
@@ -14,7 +14,7 @@ interface DoctorCheck {
   detail: string;
 }
 
-export async function doctor(config: RuntimeConfig, json: boolean): Promise<number> {
+export async function doctor(config: RuntimeConfig, json: boolean, repairs: StateRepair[] = []): Promise<number> {
   const checks: DoctorCheck[] = [];
   try {
     const packageRoot = join(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -140,9 +140,10 @@ export async function doctor(config: RuntimeConfig, json: boolean): Promise<numb
       checks.push({ name: "http_auth", status: "fail", detail: "configure one 32-byte token source; token files must be operator-owned regular files with mode 0600" });
     }
   }
-  const output = { status: checks.some((check) => check.status === "fail") ? "fail" : checks.some((check) => check.status === "warn") ? "warn" : "pass", source_mode: config.source_mode, privacy_ceiling: config.privacy_ceiling, checks };
+  const output = { status: checks.some((check) => check.status === "fail") ? "fail" : checks.some((check) => check.status === "warn") ? "warn" : "pass", source_mode: config.source_mode, privacy_ceiling: config.privacy_ceiling, checks, ...(repairs.length > 0 ? { repairs } : {}) };
   if (json) process.stdout.write(JSON.stringify(output, null, 2) + "\n");
   else {
+    for (const repair of repairs) process.stdout.write(`fix  ${repair.name}: ${repair.detail}\n`);
     process.stdout.write(`imessage-mcp doctor: ${output.status}\n`);
     for (const check of checks) process.stdout.write(`${check.status.padEnd(4)} ${check.name}: ${check.detail}\n`);
   }

@@ -46,6 +46,14 @@ Claude Desktop and Cursor:
 
 2. Restart the client and grant Full Disk Access to it when macOS asks.
 
+One command does the same thing for any of the four clients, then prints the diagnostic summary:
+
+```sh
+npx -y imessage-mcp@2 setup --client claude
+```
+
+`--client` takes `claude`, `codex`, `desktop`, or `cursor`. Claude Desktop and Cursor rewrite their configuration files while they run, so quit the application first; setup backs the file up before it edits anything.
+
 There is nothing else to create. The server generates its two private values on
 first run under `~/Library/Application Support/imessage-mcp`, and reuses them
 after a restart so saved conversation references keep working.
@@ -65,6 +73,20 @@ stdio starts at `--privacy full` and `--contacts live`, matching what Messages a
 If `doctor` reports a database permission problem, grant Full Disk Access to the application launching the server, restart it, and run the diagnostic again. macOS grants that access to the whole application or shell, not narrowly to `imessage-mcp`. The diagnostic explains failed checks without changing settings.
 
 A faithful database copy keeps its references only on the identity it was created with; an unrelated archive gets its own. [Details](docs/GUIDE.md#live-and-copied-databases).
+
+If the generated key files ever lose their owner-only modes, repair them without touching any other setting:
+
+```sh
+npx -y imessage-mcp@2 doctor --fix
+```
+
+## remove
+
+```sh
+npx -y imessage-mcp@2 uninstall --client claude
+```
+
+Other servers in a Claude Desktop or Cursor configuration are left alone. Add `--purge --yes` to also delete the generated key files, which permanently invalidates saved conversation references.
 
 ## seven tools
 

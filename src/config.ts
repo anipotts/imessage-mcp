@@ -26,6 +26,17 @@ export function resolveDefaultDatabasePath(): string {
 
 export const DEFAULT_DATABASE_PATH = resolveDefaultDatabasePath();
 
+export interface DatabaseSelection {
+  path: string;
+  sourceMode: "live" | "copy";
+}
+
+export function resolveDatabaseSelection(databasePath?: string): DatabaseSelection {
+  const configured = databasePath ?? process.env.IMESSAGE_DB;
+  const resolved = path.resolve(configured ?? DEFAULT_DATABASE_PATH);
+  return { path: resolved, sourceMode: resolved === path.resolve(DEFAULT_DATABASE_PATH) ? "live" : "copy" };
+}
+
 function parsePrivacy(value: string | undefined, fallback: PrivacyMode): PrivacyMode {
   if (!value) return fallback;
   if (value === "full" || value === "redacted" || value === "aggregate") return value;
@@ -62,9 +73,9 @@ export function runtimeConfig(input: {
     );
   }
 
-  const configuredDatabasePath = input.databasePath ?? process.env.IMESSAGE_DB;
-  const databasePath = path.resolve(configuredDatabasePath ?? DEFAULT_DATABASE_PATH);
-  const sourceMode = databasePath === path.resolve(DEFAULT_DATABASE_PATH) ? "live" : "copy";
+  const selection = resolveDatabaseSelection(input.databasePath);
+  const databasePath = selection.path;
+  const sourceMode = selection.sourceMode;
   const contactsRaw = input.contacts ?? process.env.IMESSAGE_CONTACTS;
   if (contactsRaw && contactsRaw !== "live" && contactsRaw !== "none") {
     throw new ImessageMcpError("INVALID_INPUT", "contacts must be live or none");

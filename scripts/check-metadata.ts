@@ -22,6 +22,7 @@ const security = readFileSync("SECURITY.md", "utf8");
 const contributing = readFileSync("CONTRIBUTING.md", "utf8");
 const verification = readFileSync("VERIFICATION.md", "utf8");
 const tools = readFileSync("src/tools.ts", "utf8");
+const cli = readFileSync("src/cli.ts", "utf8");
 const version = String(packageJson.version);
 const channel = version.includes("-") ? "next" : "latest";
 
@@ -75,6 +76,25 @@ assert.match(guide, /different identity for every unrelated archive/u);
 assert.match(guide, /They do not launch Codex, Claude Desktop, Claude Code, or Cursor/u);
 assert.ok(!setupDocs.includes("imessage-history"), "the retired imessage-history namespace must not be documented");
 assert.ok((setupDocs.match(/\bimessage\b(?!-mcp)/gu) ?? []).length >= 5, "all named client examples must use the imessage namespace");
+for (const command of ["setup", "uninstall"]) {
+  assert.match(cli, new RegExp(`imessage-mcp ${command} --client claude\\|codex\\|desktop\\|cursor`, "u"),
+    `the CLI help must document the ${command} command`);
+}
+assert.match(cli, /--fix\s+Repair generated key files and modes \(doctor\)/u);
+const commandModules = new Set(packageFiles.expected_paths as string[]);
+for (const module of ["clients", "doctor", "setup", "uninstall"]) {
+  for (const extension of [".js", ".js.map", ".d.ts", ".d.ts.map"]) {
+    assert.ok(commandModules.has(`dist/commands/${module}${extension}`),
+      `package-files.json must expect dist/commands/${module}${extension}`);
+  }
+}
+assert.match(readme, /## remove/u);
+assert.match(readme, /setup --client claude/u);
+assert.match(readme, /uninstall --client claude/u);
+assert.match(readme, /doctor --fix/u);
+assert.match(guide, /setup --client claude\|codex\|desktop\|cursor/u);
+assert.match(guide, /<file>\.bak-<unix-time>/u);
+assert.match(guide, /never touches Full Disk Access or Contacts authorization/u);
 assert.match(guide, /IMESSAGE_REFERENCE_KEY_FILE/u);
 assert.match(guide, /IMESSAGE_DATABASE_ID_FILE/u);
 assert.match(guide, /## state directory/u);

@@ -21,6 +21,8 @@ Two private values keep opaque references stable: one protects conversation refe
 
 Keep those files private and back them up with the rest of your home directory. Losing them invalidates saved references without touching Messages data.
 
+`doctor --fix` creates a missing generated file, restores mode `0600` on those files, and restores mode `0700` on the directory. It stops there: it never changes a file named by an `IMESSAGE_*_FILE` variable, and it never touches Full Disk Access or Contacts authorization, which you grant in System Settings > Privacy & Security. `uninstall --purge --yes` deletes the generated files and the directory, and refuses when anything else is stored there.
+
 The live database uses `reference-key` and `database-id`. A database opened with `--database` is treated as a copy and gets its own `database-id-<lineage>` file, named from the copy's path, so unrelated archives never share an identity. To pin a faithful copy that moved to a new path back onto the original lineage, pass the original value explicitly.
 
 Explicit configuration still wins over the generated defaults. Use operator-owned, non-symlink regular files with mode `0600` through `IMESSAGE_REFERENCE_KEY_FILE` and `IMESSAGE_DATABASE_ID_FILE`. Protected supervisors may instead use `IMESSAGE_REFERENCE_KEY` and `IMESSAGE_DATABASE_ID`. Set at most one source for each value.
@@ -33,19 +35,35 @@ The MCP client key is `imessage` everywhere: `.mcp.json`, this guide, and every 
 
 All persistent examples pin the major version with `imessage-mcp@2`, so installs receive fixes without ever resolving to a prerelease. Each client authorizes at its runtime defaults; add `--contacts none --privacy redacted` to start redacted instead. See [privacy](#privacy-and-untrusted-history).
 
-### Claude Code
+`setup` covers all four clients and ends by running the doctor checks in process:
 
 ```sh
-claude mcp add imessage -- npx -y imessage-mcp@2
+npx -y imessage-mcp@2 setup --client claude|codex|desktop|cursor
+```
+
+It accepts `--scope user|project` for Claude Code, `--contacts` and `--privacy` to pin the startup modes into the registered command, and `--config <path>` to edit a configuration file somewhere other than the default. `uninstall` takes the same `--client` and reverses one registration, leaving every other configured server in place.
+
+### Claude Code
+
+`setup --client claude` runs this command for you:
+
+```sh
+claude mcp add imessage -s user -- npx -y imessage-mcp@2
 ```
 
 ### Codex
+
+`setup --client codex` runs this command for you:
 
 ```sh
 codex mcp add imessage -- npx -y imessage-mcp@2
 ```
 
 ### Claude Desktop and Cursor
+
+`setup --client desktop` edits `~/Library/Application Support/Claude/claude_desktop_config.json` and `setup --client cursor` edits `~/.cursor/mcp.json`. Both applications rewrite those files while they run, so setup refuses while the application is open. Quit it first, or install the `.mcpb` bundle for Claude Desktop. The original file is copied to `<file>.bak-<unix-time>` and the replacement is written to a temporary file in the same directory and renamed into place, so an interrupted run leaves the old file intact.
+
+The merged entry is the same shape you would write by hand:
 
 ```json
 {
@@ -58,7 +76,9 @@ codex mcp add imessage -- npx -y imessage-mcp@2
 }
 ```
 
-Grant Full Disk Access to the launching client, restart it, and call `server_status`. Automated tests launch the installed server through the MCP SDK and check a JSON configuration shape. They do not launch Codex, Claude Desktop, Claude Code, or Cursor.
+Grant Full Disk Access to the launching client, restart it, and call `server_status`. Automated tests launch the installed server through the MCP SDK, check a JSON configuration shape, and drive `setup` against recording stand-ins for the client binaries. They do not launch Codex, Claude Desktop, Claude Code, or Cursor.
+
+To reverse any of these, run `uninstall --client <name>`. It calls the same client binary with `mcp remove`, or edits the same JSON file with the same backup and atomic replacement, and leaves every other configured server untouched.
 
 ## privacy and untrusted history
 
