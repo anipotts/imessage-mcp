@@ -6,6 +6,7 @@ import { stateDirectory, type SecretSource, type StateRepair } from "../keys.js"
 import { DatabaseContext } from "../database.js";
 import { MessageTextDecoder } from "../decoder.js";
 import { UnifiedContactResolver } from "../contacts.js";
+import { estimateSearchIndexFloor, searchIndexMemoryLimit } from "../search-index.js";
 import { validateHttpConfiguration } from "../transport.js";
 
 interface DoctorCheck {
@@ -14,7 +15,44 @@ interface DoctorCheck {
   detail: string;
 }
 
-export async function doctor(config: RuntimeConfig, json: boolean, repairs: StateRepair[] = []): Promise<number> {
+const MIB = 1024 * 1024;
+const SEARCH_INDEX_WARN_RATIO = 0.9;
+
+function formatBytes(value: number): string {
+  return value >= MIB ? `${(value / MIB).toFixed(1)} MiB` : `${value} bytes`;
+}
+
+function searchIndexCapacity(database: DatabaseContext, limitBytes: number): DoctorCheck {
+  const request = database.request();
+  try {
+    const estimate = estimateSearchIndexFloor(request);
+    const status = estimate.estimated_bytes > limitBytes
+      ? "fail"
+      : estimate.estimated_bytes >= limitBytes * SEARCH_INDEX_WARN_RATIO
+        ? "warn"
+        : "pass";
+    const comparison = `${estimate.rows} indexable messages need at least ${formatBytes(estimate.estimated_bytes)} ` +
+      `against the ${formatBytes(limitBytes)} in-memory search ceiling`;
+    return {
+      name: "search_index_capacity",
+      status,
+      detail: status === "pass"
+        ? comparison
+        : `${comparison}; search_messages ${status === "fail" ? "will" : "may"} fail with INDEX_TOO_LARGE`,
+    };
+  } finally {
+    request.close();
+  }
+}
+
+export async function doctor(
+  config: RuntimeConfig,
+  json: boolean,
+  repairs: StateRepair[] = [],
+  // Internal seam so tests can exercise the capacity check against a small
+  // synthetic archive. The CLI never sets it and always uses the real ceiling.
+  options: { searchIndexMemoryLimitBytes?: number } = {},
+): Promise<number> {
   const checks: DoctorCheck[] = [];
   try {
     const packageRoot = join(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -57,6 +95,11 @@ export async function doctor(config: RuntimeConfig, json: boolean, repairs: Stat
   }
   let canonicalDatabasePath = config.database_path;
   let schemaCheck: DoctorCheck;
+  let capacityCheck: DoctorCheck = {
+    name: "search_index_capacity",
+    status: "warn",
+    detail: "the search index size could not be estimated without a readable schema",
+  };
   try {
     const database = new DatabaseContext(
       config.database_path,
@@ -67,6 +110,15 @@ export async function doctor(config: RuntimeConfig, json: boolean, repairs: Stat
     try {
       canonicalDatabasePath = database.canonicalPath;
       schemaCheck = { name: "schema", status: database.capabilities.required_core === "available" ? "pass" : "fail", detail: `schema ${database.capabilities.schema_fingerprint.slice(0, 12)}` };
+      try {
+        capacityCheck = searchIndexCapacity(database, options.searchIndexMemoryLimitBytes ?? searchIndexMemoryLimit());
+      } catch {
+        capacityCheck = {
+          name: "search_index_capacity",
+          status: "warn",
+          detail: "the search index size could not be estimated from this archive",
+        };
+      }
     } finally {
       database.close();
     }
@@ -85,6 +137,7 @@ export async function doctor(config: RuntimeConfig, json: boolean, repairs: Stat
     checks.push({ name: "wal_read", status: "pass", detail: "no active WAL is present" });
   }
   checks.push(schemaCheck);
+  checks.push(capacityCheck);
   if (config.contacts_mode === "none") {
     checks.push({ name: "contacts", status: "pass", detail: "disabled by --contacts none; using handles only" });
   } else {

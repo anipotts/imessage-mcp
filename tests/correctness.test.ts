@@ -10,7 +10,7 @@ import { UnifiedContactResolver } from "../src/contacts.js";
 import { assertCopiedDatabaseSourceBoundary, DatabaseContext } from "../src/database.js";
 import { MessageTextDecoder } from "../src/decoder.js";
 import { MAX_REFERENCE_LENGTH, MAX_SYNC_CURSOR_LENGTH } from "../src/references.js";
-import { MemorySearchIndex } from "../src/search-index.js";
+import { estimateSearchIndexFloor, MemorySearchIndex } from "../src/search-index.js";
 import { LocalToolRuntime } from "../src/tool-local.js";
 import { APPLE_EPOCH_UNIX_SECONDS, appleTimestampToIso, compileDateBounds } from "../src/time.js";
 import { analyze } from "../src/repositories/analytics.js";
@@ -183,6 +183,66 @@ describe("2.0 data and query core", () => {
       stdout.mockRestore();
       writer.close();
       doctorFixture.cleanup();
+    }
+  });
+
+  it("warns before an oversized archive fails its first search", async () => {
+    const capacityFixture = createFixture();
+    const capacityConfig = runtimeConfig({
+      transport: "stdio",
+      databasePath: capacityFixture.databasePath,
+      contacts: "none",
+      referenceKey: REFERENCE_KEY,
+      databaseId: DATABASE_ID,
+    });
+    const capacityContext = new DatabaseContext(capacityFixture.databasePath, REFERENCE_KEY, DATABASE_ID);
+    const request = capacityContext.request();
+    let estimated = 0;
+    try {
+      const estimate = estimateSearchIndexFloor(request);
+      estimated = estimate.estimated_bytes;
+      expect(estimate.rows).toBeGreaterThan(0);
+      expect(estimated).toBeGreaterThan(estimate.rows * 224);
+    } finally {
+      request.close();
+      capacityContext.close();
+    }
+
+    const output: string[] = [];
+    const stdout = vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      output.push(String(chunk));
+      return true;
+    });
+    const run = async (
+      json: boolean,
+      limitBytes?: number,
+    ): Promise<{ code: number; text: string }> => {
+      output.length = 0;
+      const code = await doctor(capacityConfig, json, [], { searchIndexMemoryLimitBytes: limitBytes });
+      return { code, text: output.join("") };
+    };
+    const capacityOf = (text: string): { name: string; status: string; detail: string } => {
+      const parsed = JSON.parse(text) as { checks: Array<{ name: string; status: string; detail: string }> };
+      return parsed.checks.find((check) => check.name === "search_index_capacity")!;
+    };
+    try {
+      const healthy = capacityOf((await run(true)).text);
+      expect(healthy.status).toBe("pass");
+      expect(healthy.detail).toMatch(/indexable messages need at least .+ against the .+ in-memory search ceiling$/u);
+
+      const near = capacityOf((await run(true, Math.ceil(estimated / 0.95))).text);
+      expect(near.status).toBe("warn");
+      expect(near.detail).toMatch(/may fail with INDEX_TOO_LARGE$/u);
+      expect(near.detail).toContain(`${estimated} bytes`);
+
+      const over = await run(false, Math.floor(estimated / 2));
+      expect(over.code).toBe(1);
+      expect(over.text).toMatch(
+        new RegExp(`^fail search_index_capacity: .+${estimated} bytes.+will fail with INDEX_TOO_LARGE$`, "mu"),
+      );
+    } finally {
+      stdout.mockRestore();
+      capacityFixture.cleanup();
     }
   });
 

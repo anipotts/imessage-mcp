@@ -12,6 +12,7 @@ this file follows [keep a changelog](https://keepachangelog.com/en/1.1.0/), and 
 - titles and output schemas on all seven read-only tools.
 - prompts for the common history questions.
 - a claude code plugin marketplace entry.
+- a `search_index_capacity` check in `doctor`, so an archive too large for the in-memory search ceiling is reported before the first search pays for a cold build and fails with `INDEX_TOO_LARGE`.
 - an mcpb bundle attached to every release.
 
 ### changed

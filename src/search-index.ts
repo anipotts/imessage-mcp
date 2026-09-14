@@ -94,6 +94,48 @@ const MAX_SNIPPET_BYTES = 32 * 1024;
 const MAX_SNIPPET_CONTENT_BYTES = MAX_SNIPPET_BYTES - 6;
 const SNIPPET_CONTEXT_GRAPHEMES = 40;
 
+export function searchIndexMemoryLimit(): number {
+  return Math.min(512 * MIB, Math.floor(totalmem() / 8));
+}
+
+// A cheap lower bound on MemorySearchIndex.estimate(), for callers that want to
+// know whether a build would be refused before paying for one. It reuses the
+// same eligibility predicate, the same ESTIMATED_BYTES_PER_ROW row allowance,
+// the same doubled body bytes, and the same MAX_INDEX_BLOB_BYTES bound on
+// attributedBody, and it skips only the relationship queries, which add bytes
+// and never subtract them. Compare it against searchIndexMemoryLimit(), the
+// ceiling build() enforces, so the two cannot drift apart.
+export function estimateSearchIndexFloor(request: DatabaseRequest): {
+  rows: number;
+  body_bytes: number;
+  estimated_bytes: number;
+} {
+  const text = columnSql(request, "message", "m", "text", "NULL");
+  const body = columnSql(request, "message", "m", "attributedBody", "NULL");
+  const associated = columnSql(request, "message", "m", "associated_message_type", "0");
+  const itemType = columnSql(request, "message", "m", "item_type", "0");
+  const system = columnSql(request, "message", "m", "is_system_message", "0");
+  const retracted = columnSql(request, "message", "m", "date_retracted", "0");
+  const row = request.db
+    .prepare(
+      `SELECT COUNT(*) AS rows,
+              COALESCE(SUM(LENGTH(CAST(${text} AS BLOB))), 0)
+                + COALESCE(SUM(CASE WHEN COALESCE(LENGTH(${body}), 0) <= ${MAX_INDEX_BLOB_BYTES}
+                    THEN COALESCE(LENGTH(${body}), 0) ELSE 0 END), 0) AS body_bytes
+       FROM message m
+       WHERE m.ROWID <= @target
+         AND COALESCE(${associated}, 0) = 0
+         AND COALESCE(${itemType}, 0) = 0
+         AND COALESCE(${system}, 0) = 0
+         AND COALESCE(${retracted}, 0) <= 0
+         AND EXISTS (SELECT 1 FROM chat_message_join eligible_cmj WHERE eligible_cmj.message_id = m.ROWID)`,
+    )
+    .get({ target: request.asOf.max_message_id }) as { rows: number; body_bytes: number };
+  const rows = Number(row.rows || 0);
+  const bodyBytes = Number(row.body_bytes || 0);
+  return { rows, body_bytes: bodyBytes, estimated_bytes: rows * ESTIMATED_BYTES_PER_ROW + bodyBytes * 2 };
+}
+
 function normalize(value: string): string {
   return value.normalize("NFKC").toLocaleLowerCase("en-US");
 }
@@ -275,7 +317,7 @@ export class MemorySearchIndex {
   }
 
   private memoryLimit(): number {
-    return Math.min(512 * MIB, Math.floor(totalmem() / 8));
+    return searchIndexMemoryLimit();
   }
 
   private createIndex(): Database.Database {
