@@ -2,6 +2,13 @@
 
 this file follows [keep a changelog](https://keepachangelog.com/en/1.1.0/), and this project follows semantic versioning.
 
+## 2.1.1
+
+### fixed
+
+- a default search, conversation page, or sync failed with `DECODE_FAILED` on archives holding an empty attributed string, which Messages stores for app and edited messages without text. these archives have no attribute runs and were treated as malformed; they now decode to empty text, and every other malformed archive still fails closed.
+- long pasted messages above 1 MiB could not be decoded, so search needed `allow_partial` on archives that have one. the attributed-body bound is now 4 MiB, shared by the native decoder, search, conversation pages, and sync; the per-page and per-sync source budgets grow to 8 MiB so such a body fits, while the decoder's per-call input and output budgets and the 3 MiB decoded-text cap are unchanged.
+
 ## 2.1.0
 
 ### fixed
