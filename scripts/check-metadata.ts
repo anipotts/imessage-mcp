@@ -101,6 +101,8 @@ for (const file of ["dependabot-automerge.yml", "dependabot-rebase.yml"]) {
   assert.doesNotMatch(workflow, /^ {4}if:/mu, `${file} must not use job-level conditions, which surface as skipped checks`);
   assert.doesNotMatch(workflow, /pull_request_target/u, `${file} must never run pull request code with secrets`);
 }
+assert.match(readFileSync(".github/workflows/dependabot-rebase.yml", "utf8"), /compare\/main\.\.\./u,
+  "the rebase workflow must measure how far behind main a pull request is with the compare API");
 const codeqlWorkflow = readFileSync(".github/workflows/codeql.yml", "utf8");
 assert.match(codeqlWorkflow, /name: Analyze \(\$\{\{ matrix\.language \}\}\)/u,
   "codeql.yml job names must match the Analyze checks the branch ruleset requires");

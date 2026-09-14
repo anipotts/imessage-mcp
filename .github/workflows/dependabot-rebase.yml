@@ -37,7 +37,7 @@ jobs:
             exit 0
           fi
           gh pr list --repo "$REPO" --author app/dependabot --state open --limit 50 \
-            --json number,url,autoMergeRequest,mergeStateStatus,headRefOid > "$RUNNER_TEMP/prs.json"
+            --json number,url,autoMergeRequest,headRefOid > "$RUNNER_TEMP/prs.json"
           jq -c '.[]' "$RUNNER_TEMP/prs.json" | while read -r pr; do
             number=$(jq -r .number <<<"$pr")
             url=$(jq -r .url <<<"$pr")
@@ -45,12 +45,17 @@ jobs:
               gh pr merge --auto --merge "$url"
               echo "#${number}: auto-merge enabled"
             fi
-            if [[ "$(jq -r .mergeStateStatus <<<"$pr")" != "BEHIND" ]]; then
+            # Ask GitHub how far behind main the head is instead of reading
+            # mergeStateStatus, which reads UNKNOWN for a while after every push
+            # to main, exactly when this workflow runs.
+            head=$(jq -r .headRefOid <<<"$pr")
+            behind=$(gh api "repos/${REPO}/compare/main...${head}" --jq .behind_by)
+            if [[ "$behind" == "0" ]]; then
               continue
             fi
             # Ask once per head commit: skip when the newest comment already asks
             # for a rebase and was posted after the current head was pushed.
-            head_date=$(gh api "repos/${REPO}/commits/$(jq -r .headRefOid <<<"$pr")" --jq .commit.committer.date)
+            head_date=$(gh api "repos/${REPO}/commits/${head}" --jq .commit.committer.date)
             last=$(gh api "repos/${REPO}/issues/${number}/comments?per_page=100" \
               --jq 'map(select(.body == "@dependabot rebase")) | last | .created_at // ""')
             if [[ -n "$last" && "$last" > "$head_date" ]]; then
