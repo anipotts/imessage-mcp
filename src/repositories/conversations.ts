@@ -7,7 +7,7 @@ import type { DatabaseContext, DatabaseRequest } from "../database.js";
 import { assertFrozenTraversal, parseWatermark, watermarkToken } from "../database.js";
 import { ImessageMcpError } from "../errors.js";
 import { decodeReference, encodeReference } from "../references.js";
-import { serviceFamilyCase, serviceSql } from "../schema-sql.js";
+import { chatShapeSql, serviceFamilyCase, serviceSql } from "../schema-sql.js";
 import type { DateBounds } from "../time.js";
 import {
   appleTimestampBoundary,
@@ -366,11 +366,7 @@ function loadRaw(request: DatabaseRequest, filters: ConversationFilters, maxMess
   const chatColumns = request.capabilities.tables.chat ?? [];
   const displayName = chatColumns.includes("display_name") ? "c.display_name" : "NULL";
   const chatService = chatColumns.includes("service_name") ? "c.service_name" : "NULL";
-  const groupEvidence = [
-    chatColumns.includes("style") ? "COALESCE(c.style, 0) = 43" : "0",
-    chatColumns.includes("group_id") ? "COALESCE(c.group_id, '') <> ''" : "0",
-    chatColumns.includes("display_name") ? "COALESCE(c.display_name, '') <> ''" : "0",
-  ].join(" OR ");
+  const shape = chatShapeSql(request, "c");
   const messageService = serviceFamilyCase(serviceSql(request, "m", "relation_chat"));
   const userMessage = userMessagePredicate(request);
   const systemMessage = systemMessagePredicate(request);
@@ -426,10 +422,8 @@ function loadRaw(request: DatabaseRequest, filters: ConversationFilters, maxMess
                 json_group_array(DISTINCT c.ROWID) AS chat_ids,
                 json_group_array(DISTINCT ${displayName}) FILTER (WHERE ${displayName} IS NOT NULL) AS display_names,
                 json_group_array(DISTINCT ${classifiedChatService}) AS chat_services,
-                MAX(CASE WHEN ${groupEvidence} THEN 1 ELSE 0 END) AS group_evidence,
-                ${chatColumns.includes("style")
-                  ? "MIN(CASE WHEN COALESCE(c.style, 0) = 45 THEN 1 ELSE 0 END)"
-                  : "0"} AS direct_evidence
+                MAX(CASE WHEN ${shape.group} THEN 1 ELSE 0 END) AS group_evidence,
+                MIN(CASE WHEN ${shape.direct} THEN 1 ELSE 0 END) AS direct_evidence
          FROM chat c
          GROUP BY mcp_canonical_chat(c.ROWID)
        )

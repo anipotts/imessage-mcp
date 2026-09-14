@@ -3,7 +3,7 @@ import { makeBudget } from "../contracts.js";
 import type { DatabaseContext, DatabaseRequest } from "../database.js";
 import { normalizeHandle } from "../contacts.js";
 import { ImessageMcpError } from "../errors.js";
-import { columnSql, serviceFamilyCase, serviceSql } from "../schema-sql.js";
+import { chatShapeSql, columnSql, serviceFamilyCase, serviceSql } from "../schema-sql.js";
 import type { DateBounds } from "../time.js";
 import {
   appleTimestampBoundary,
@@ -160,12 +160,7 @@ function responseTime(
   const base = baseCte(request, scope, bounds);
   const participantConversation = canonicalConversationSql(request, "participant.chat_id");
   const chatConversation = canonicalConversationSql(request, "shape_chat.ROWID");
-  const chatColumns = request.capabilities.tables.chat ?? [];
-  const groupEvidence = [
-    chatColumns.includes("style") ? "COALESCE(shape_chat.style, 0) = 43" : "0",
-    chatColumns.includes("group_id") ? "COALESCE(shape_chat.group_id, '') <> ''" : "0",
-    chatColumns.includes("display_name") ? "COALESCE(shape_chat.display_name, '') <> ''" : "0",
-  ].join(" OR ");
+  const shape = chatShapeSql(request, "shape_chat");
   const cte = `${base.sql},
     participant_counts AS (
       SELECT ${participantConversation} AS conversation_id,
@@ -175,10 +170,8 @@ function responseTime(
     ),
     conversation_shapes AS (
       SELECT ${chatConversation} AS conversation_id,
-             MAX(CASE WHEN ${groupEvidence} THEN 1 ELSE 0 END) AS group_evidence,
-             ${chatColumns.includes("style")
-               ? "MIN(CASE WHEN COALESCE(shape_chat.style, 0) = 45 THEN 1 ELSE 0 END)"
-               : "0"} AS direct_evidence
+             MAX(CASE WHEN ${shape.group} THEN 1 ELSE 0 END) AS group_evidence,
+             MIN(CASE WHEN ${shape.direct} THEN 1 ELSE 0 END) AS direct_evidence
       FROM chat shape_chat
       GROUP BY ${chatConversation}
     ),

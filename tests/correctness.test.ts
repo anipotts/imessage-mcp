@@ -2053,6 +2053,51 @@ describe("2.0 data and query core", () => {
     expect(formatted.service_partitions).toEqual(exact.service_partitions);
   });
 
+  it("classifies modern one-to-one chats as direct even though Apple fills group_id for them", () => {
+    // Current macOS writes a group_id GUID on every chat, one-to-one included, and
+    // marks the shape in chat.style: 45 for one-to-one, 43 for groups.
+    const isolated = createFixture();
+    const db = new Database(isolated.databasePath);
+    db.prepare("UPDATE chat SET style=45, group_id='modern-direct-' || ROWID WHERE ROWID IN (1, 2, 3)").run();
+    db.prepare("UPDATE chat SET display_name='Named One To One' WHERE ROWID=3").run();
+    db.prepare("UPDATE chat SET style=43, display_name=NULL WHERE ROWID=4").run();
+    db.close();
+    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID);
+    const list = (kind?: "direct" | "group") => listConversations({
+      context: isolatedContext,
+      contacts: new UnifiedContactResolver(false),
+      filters: { bounds: compileDateBounds({ timezone: "UTC" }), ...(kind ? { kind } : {}) },
+      limit: 50,
+      privacy: "full",
+    }).conversations;
+    try {
+      const all = list();
+      const imessage = all.find((conversation) => conversation.service_families.includes("imessage"));
+      const incoming = all.find((conversation) => conversation.message_count > 0 && conversation.participants.some((p) => p.handle === "unknown@example.test"));
+      const group = all.find((conversation) => conversation.service_families.includes("rcs"));
+      expect(imessage).toMatchObject({ kind: "direct" });
+      expect(incoming).toMatchObject({ kind: "direct" });
+      expect(group).toMatchObject({ kind: "group" });
+      // References are opaque per request, so compare the filtered listings by shape.
+      const direct = list("direct");
+      expect(direct.every((conversation) => conversation.kind === "direct")).toBe(true);
+      expect(direct.some((conversation) => conversation.service_families.includes("imessage"))).toBe(true);
+      const groups = list("group");
+      expect(groups.map((conversation) => conversation.service_families)).toEqual([["rcs"]]);
+      const response = analyze({
+        context: isolatedContext,
+        scope: { kind: "conversation", chatIds: [1, 2] },
+        metric: "response_time",
+        bounds: compileDateBounds({ timezone: "UTC" }),
+        sessionGapHours: 8,
+      });
+      expect(Number(response.overall.samples)).toBeGreaterThan(0);
+    } finally {
+      isolatedContext.close();
+      isolated.cleanup();
+    }
+  });
+
   it("keeps Apple-linked direct service variants direct when their handles differ", () => {
     const isolated = createFixture();
     const db = new Database(isolated.databasePath);
