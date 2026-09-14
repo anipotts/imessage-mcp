@@ -12,7 +12,7 @@ This guide contains the operational detail intentionally kept out of the main RE
 `doctor` is read-only. It checks Node, database and WAL readability, schema capabilities, Contacts availability, native decoding, secret-file permissions, package state, and transport configuration. It prints remediation without opening settings or changing permissions.
 
 ```sh
-npx -y imessage-mcp@2.0.0-rc.2 doctor --contacts none --privacy redacted
+npx -y imessage-mcp@2 doctor --contacts none --privacy redacted
 ```
 
 ## state directory
@@ -25,20 +25,24 @@ The live database uses `reference-key` and `database-id`. A database opened with
 
 Explicit configuration still wins over the generated defaults. Use operator-owned, non-symlink regular files with mode `0600` through `IMESSAGE_REFERENCE_KEY_FILE` and `IMESSAGE_DATABASE_ID_FILE`. Protected supervisors may instead use `IMESSAGE_REFERENCE_KEY` and `IMESSAGE_DATABASE_ID`. Set at most one source for each value.
 
+## names
+
+The MCP client key is `imessage` everywhere: `.mcp.json`, this guide, and every client example. The npm package, GitHub repository, and Claude Code plugin all stay `imessage-mcp` so the plugin name cannot collide with an official channel plugin named `imessage`. The MCP Registry name stays `io.github.anipotts/imessage-mcp`, the registry-mandated reverse-DNS format. The `McpServer` handshake reports its `serverInfo.name` as `imessage-mcp`.
+
 ## client setup
 
-All examples use the collision-resistant namespace `imessage-history`, disable Contacts, and start with a redacted privacy ceiling.
+All persistent examples pin the major version with `imessage-mcp@2`, so installs receive fixes without ever resolving to a prerelease. Each client authorizes at its runtime defaults; add `--contacts none --privacy redacted` to start redacted instead. See [privacy](#privacy-and-untrusted-history).
 
 ### Claude Code
 
 ```sh
-claude mcp add imessage-history -- npx -y imessage-mcp@2.0.0-rc.2 --contacts none --privacy redacted
+claude mcp add imessage -- npx -y imessage-mcp@2
 ```
 
 ### Codex
 
 ```sh
-codex mcp add imessage-history -- npx -y imessage-mcp@2.0.0-rc.2 --contacts none --privacy redacted
+codex mcp add imessage -- npx -y imessage-mcp@2
 ```
 
 ### Claude Desktop and Cursor
@@ -46,9 +50,9 @@ codex mcp add imessage-history -- npx -y imessage-mcp@2.0.0-rc.2 --contacts none
 ```json
 {
   "mcpServers": {
-    "imessage-history": {
+    "imessage": {
       "command": "npx",
-      "args": ["-y", "imessage-mcp@2.0.0-rc.2", "--contacts", "none", "--privacy", "redacted"]
+      "args": ["-y", "imessage-mcp@2"]
     }
   }
 }

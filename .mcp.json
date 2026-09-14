@@ -1,8 +1,8 @@
 {
   "mcpServers": {
-    "imessage-history": {
+    "imessage": {
       "command": "npx",
-      "args": ["-y", "imessage-mcp@2.0.0-rc.2", "--contacts", "none", "--privacy", "redacted"]
+      "args": ["-y", "imessage-mcp@2"]
     }
   }
 }

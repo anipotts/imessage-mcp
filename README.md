@@ -17,25 +17,50 @@ Try questions like:
 
 You need macOS 14+, Node.js 22 or newer, and Messages history on this Mac.
 
-Add it to Claude Code:
+Two steps.
+
+1. Add it to Claude Code:
 
 ```sh
-claude mcp add imessage-history -- npx -y imessage-mcp@2.0.0-rc.2 --contacts none --privacy redacted
+claude mcp add imessage -- npx -y imessage-mcp@2
 ```
+
+Codex:
+
+```sh
+codex mcp add imessage -- npx -y imessage-mcp@2
+```
+
+Claude Desktop and Cursor:
+
+```json
+{
+  "mcpServers": {
+    "imessage": {
+      "command": "npx",
+      "args": ["-y", "imessage-mcp@2"]
+    }
+  }
+}
+```
+
+2. Restart the client and grant Full Disk Access to it when macOS asks.
 
 There is nothing else to create. The server generates its two private values on
 first run under `~/Library/Application Support/imessage-mcp`, and reuses them
 after a restart so saved conversation references keep working.
 
+A bare `npx imessage-mcp` without `@2` resolves to the 1.x line until `latest` moves; the setup command above pins the major version.
+
 To check the setup without a client, run the read-only diagnostic:
 
 ```sh
-npx -y imessage-mcp@2.0.0-rc.2 doctor --contacts none --privacy redacted
+npx -y imessage-mcp@2 doctor --contacts none --privacy redacted
 ```
 
-Restart the client and ask it to list your five most recent conversations. See the [setup guide](docs/GUIDE.md#client-setup) for Codex, Claude Desktop, and Cursor.
+Ask the client to list your five most recent conversations. See the [setup guide](docs/GUIDE.md#client-setup) for more on each client.
 
-This setup returns names, masked handles, and calendar days, with no message bodies. To read message text, change the startup argument to `--privacy full` and restart the client. Search works in redacted mode too; its results omit the text. `--contacts none` avoids reading this Mac's Contacts store.
+stdio starts at `--privacy full` and `--contacts live`, matching what Messages and Contacts already authorize on this Mac. To start redacted (names, masked handles, and calendar days, with no message bodies) or without Contacts, add `--contacts none --privacy redacted` to the setup command above. Search works in redacted mode too; its results omit the text.
 
 If `doctor` reports a database permission problem, grant Full Disk Access to the application launching the server, restart it, and run the diagnostic again. macOS grants that access to the whole application or shell, not narrowly to `imessage-mcp`. The diagnostic explains failed checks without changing settings.
 

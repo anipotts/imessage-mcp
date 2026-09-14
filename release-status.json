@@ -1,7 +1,7 @@
 {
   "schema_version": 5,
-  "subject_version": "2.0.0-rc.2",
-  "channel": "next",
+  "subject_version": "2.0.0",
+  "channel": "latest",
   "ready": true,
   "security_scan": {
     "authority": "signed_evidence_commit",

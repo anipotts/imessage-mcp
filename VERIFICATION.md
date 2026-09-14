@@ -14,7 +14,7 @@ Last updated: 2026-09-08 (local); new benchmark and demo timestamps are recorded
 | `2.0.0-beta.3` | published and verified | npm `next`, MCP Registry, and the immutable GitHub prerelease agree on the signed evidence lineage and exact package |
 | `2.0.0-rc.1` | previously published | npm `next` in the 2026-09-08 audit; immutable historical release |
 | `2.0.0-rc.2` | local release preparation | targets npm `next`; not yet published; exact-source security evidence and provider checks remain required |
-| `2.0.0` | planned from protected `main` | same exact-source CI and publication checks; reviewed runtime changes are allowed |
+| `2.0.0` | prepared from protected `main`; stable release | npm `latest`, MCP Registry, and GitHub Release agree on the signed evidence lineage and exact package |
 
 ## RC.2 verification
 

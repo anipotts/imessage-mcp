@@ -231,9 +231,8 @@ async function main(): Promise<void> {
     const installedMcp = JSON.parse(readFileSync(path.join(installedRoot, ".mcp.json"), "utf8")) as {
       mcpServers: Record<string, { args: string[] }>;
     };
-    assert.deepEqual(Object.keys(installedMcp.mcpServers), ["imessage-history"]);
-    assert.deepEqual(installedMcp.mcpServers["imessage-history"].args.slice(-4),
-      ["--contacts", "none", "--privacy", "redacted"]);
+    assert.deepEqual(Object.keys(installedMcp.mcpServers), ["imessage"]);
+    assert.deepEqual(installedMcp.mcpServers["imessage"].args, ["-y", `imessage-mcp@${packageVersionValue.split(".")[0]}`]);
     const binary = path.join(install, "node_modules", ".bin", "imessage-mcp");
     assert.equal(execFileSync(binary, ["--version"], { cwd: install, encoding: "utf8" }).trim(), packageVersionValue);
     for (const args of [["--help"], ["-h"], ["help"]]) {
@@ -277,7 +276,7 @@ async function main(): Promise<void> {
 
     const clientConfig = {
       mcpServers: {
-        "imessage-history": {
+        "imessage": {
           command: binary,
           args: ["--database", fixture.databasePath, "--contacts", "none", "--privacy", "redacted"],
           env: {
@@ -291,8 +290,8 @@ async function main(): Promise<void> {
     const configFile = path.join(scratch, "mcp-config.json");
     writeFileSync(configFile, JSON.stringify(clientConfig));
     const configured = JSON.parse(readFileSync(configFile, "utf8")) as typeof clientConfig;
-    assert.equal(configured.mcpServers["imessage-history"].command, binary);
-    assert.deepEqual(configured.mcpServers["imessage-history"].args.slice(-4),
+    assert.equal(configured.mcpServers["imessage"].command, binary);
+    assert.deepEqual(configured.mcpServers["imessage"].args.slice(-4),
       ["--contacts", "none", "--privacy", "redacted"]);
     process.stdout.write(
       `installed tarball verification passed: ${installedNodes} dependency nodes, ` +

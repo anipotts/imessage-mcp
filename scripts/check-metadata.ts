@@ -34,11 +34,10 @@ assert.equal(packages[0].identifier, "imessage-mcp");
 assert.equal(packages[0].version, version);
 assert.equal((packageJson.os as string[]).join(","), "darwin");
 assert.equal((packageJson.engines as Record<string, string>).node, ">=22.0.0");
+const majorVersion = version.split(".")[0];
 const configuredServers = mcp.mcpServers as Record<string, { args: string[] }>;
-assert.deepEqual(Object.keys(configuredServers), ["imessage-history"]);
-assert.equal(configuredServers["imessage-history"].args[1], `imessage-mcp@${version}`);
-assert.deepEqual(configuredServers["imessage-history"].args.slice(-4),
-  ["--contacts", "none", "--privacy", "redacted"]);
+assert.deepEqual(Object.keys(configuredServers), ["imessage"]);
+assert.equal(configuredServers["imessage"].args[1], `imessage-mcp@${majorVersion}`);
 assert.equal(releaseStatus.schema_version, 5);
 assert.equal(releaseStatus.subject_version, version);
 assert.equal(releaseStatus.channel, channel);
@@ -74,8 +73,8 @@ assert.match(readme, /does not eliminate prompt injection/u);
 assert.match(guide, /faithful copy.*same reference key and database identity/u);
 assert.match(guide, /different identity for every unrelated archive/u);
 assert.match(guide, /They do not launch Codex, Claude Desktop, Claude Code, or Cursor/u);
-assert.ok(!readme.includes("`mcpServers.imessage`"), "generic imessage client namespace must not be documented");
-assert.ok((setupDocs.match(/imessage-history/gu) ?? []).length >= 5, "all named client examples must use imessage-history");
+assert.ok(!setupDocs.includes("imessage-history"), "the retired imessage-history namespace must not be documented");
+assert.ok((setupDocs.match(/\bimessage\b(?!-mcp)/gu) ?? []).length >= 5, "all named client examples must use the imessage namespace");
 assert.match(guide, /IMESSAGE_REFERENCE_KEY_FILE/u);
 assert.match(guide, /IMESSAGE_DATABASE_ID_FILE/u);
 assert.match(guide, /## state directory/u);
@@ -88,10 +87,11 @@ for (const name of ["IMESSAGE_REFERENCE_KEY_FILE", "IMESSAGE_DATABASE_ID_FILE"])
   assert.equal(variable.isRequired, false, `${name} is generated on first run and must not be required`);
   assert.match(String(variable.description), /generated on first run/u);
 }
-const documentedVersions = [...setupDocs.matchAll(/imessage-mcp@([0-9][0-9A-Za-z.-]*)/gu)].map((match) => match[1]);
-assert.ok(documentedVersions.length >= 5, "every install and persistent client example must use an exact package version");
-assert.deepEqual([...new Set(documentedVersions)], [version]);
-assert.doesNotMatch(readme, /imessage-mcp@(?:next|latest)\b/u);
+const documentedSpecs = [...setupDocs.matchAll(/imessage-mcp@([0-9][0-9A-Za-z.-]*)/gu)].map((match) => match[1]);
+assert.ok(documentedSpecs.length >= 5, "every install and persistent client example must use the major version range");
+assert.deepEqual([...new Set(documentedSpecs)], [majorVersion],
+  "every documented spec must equal imessage-mcp@<major>, never a prerelease or exact version");
+assert.doesNotMatch(setupDocs, /imessage-mcp@(?:next|latest)\b/u);
 assert.doesNotMatch(readme, /IMESSAGE_SAFE_MODE|IMESSAGE_SYNC/u);
 assert.match(security, /untrusted archival data/u);
 assert.match(security, /do not eliminate prompt injection/u);
