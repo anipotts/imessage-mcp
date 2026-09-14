@@ -8,6 +8,20 @@ Last updated: 2026-09-14 (local); new benchmark and demo timestamps are recorded
 
 Every published version, its assets, and its generated notes live in [GitHub releases](https://github.com/anipotts/imessage-mcp/releases); [CHANGELOG.md](CHANGELOG.md) records what changed in each one. `2.0.0` is prepared from protected `main`.
 
+## `2.1.2` verification
+
+Run on 2026-09-14. 2.1.1 compared `PRAGMA data_version` to decide whether its search index was current, and every Messages commit changes that value, so nearly any write, including read receipts, forced a full rebuild. Live measurements below read the archive read-only and record timings only.
+
+| evidence | result |
+| --- | --- |
+| fixture suite | 160 tests passed. A new refresh suite compares every refreshed index row by row against a fresh index built from the same snapshot, after edits, appends, deletions, retractions, a conversation rename, a new participant, a renamed attachment, and a message moved between conversations. Both full-text tables pass SQLite's integrity check after each one. A write search never reads re-indexes nothing, an edit re-indexes only its bucket, and a failed strict refresh leaves the index byte-for-byte unchanged |
+| million-message fixture | 27.322 s cold. After a timestamp write search never reads, the next search took 5.462 s; after one edited message, 6.189 s. 2.1.1 rebuilt in 25.779 s in both cases |
+| live refresh | at a load average near 6, a cold build took 69.0 s. A refresh with nothing changed took 1.0 s, and a refresh that re-indexed one bucket took 1.1 to 1.3 s. Under heavier load (average near 15), natural refreshes after real Messages writes took 4.0 to 5.6 s against an 86.1 s cold build |
+| desktop bundle | 6.8 MB, launched through its own `mcp_config` at each privacy ceiling |
+| bounded live parity | 375 of 375 stratified attributed bodies matched; seven tools with zero leaked probe values; no private values emitted; cold search 74.5 s at a load average near 16 |
+
+A refresh reads every eligible message once to fingerprint it, so its cost grows with archive size but involves no decoding and no full-text rebuild. The first search in a session is still a cold build.
+
 ## `2.1.1` verification
 
 Run on 2026-09-14. On a real archive, 2.1.0's default search still failed: archived empty attributed strings (app and edited messages without text) were treated as malformed, and a long pasted body sat above the 1 MiB bound. Only lengths, archive signatures, and message-type flags were inspected; no content was read.
