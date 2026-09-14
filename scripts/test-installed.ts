@@ -231,7 +231,17 @@ async function main(): Promise<void> {
       mcpServers: Record<string, { args: string[] }>;
     };
     assert.deepEqual(Object.keys(installedMcp.mcpServers), ["imessage"]);
-    assert.deepEqual(installedMcp.mcpServers["imessage"].args, ["-y", `imessage-mcp@${packageVersionValue.split(".")[0]}`]);
+    // The shipped example is the project-scoped file, not the plugin's server
+    // definition, so it starts redacted. The plugin declares its own entry at
+    // the runtime defaults in .claude-plugin/plugin.json.
+    assert.deepEqual(installedMcp.mcpServers["imessage"].args, [
+      "-y",
+      `imessage-mcp@${packageVersionValue.split(".")[0]}`,
+      "--contacts",
+      "none",
+      "--privacy",
+      "redacted",
+    ]);
     const binary = path.join(install, "node_modules", ".bin", "imessage-mcp");
     assert.equal(execFileSync(binary, ["--version"], { cwd: install, encoding: "utf8" }).trim(), packageVersionValue);
     for (const args of [["--help"], ["-h"], ["help"]]) {
