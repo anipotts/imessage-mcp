@@ -21,6 +21,8 @@ import { PROMPT_ARGUMENTS, TOOL_NAMES } from "./test-protocol.js";
 interface Manifest {
   name: string;
   version: string;
+  icon: string;
+  icons: Array<{ src: string; size: string }>;
   server: { type: string; entry_point: string; mcp_config: { command: string; args: string[] } };
   compatibility: { platforms: string[] };
   user_config: Record<string, { default?: string }>;
@@ -76,6 +78,9 @@ async function launch(
     const server = client.getServerVersion();
     assert.equal(server?.name, "imessage-mcp");
     assert.equal(server?.version, manifest.version, "the bundle must report the manifest version");
+    assert.equal(server?.title, "iMessage");
+    assert.deepEqual(server?.icons?.map((icon) => icon.mimeType), ["image/svg+xml", "image/png"],
+      "the bundled server must announce its icons in the handshake");
 
     const tools = await client.listTools();
     assert.deepEqual(tools.tools.map((tool) => tool.name).sort(), TOOL_NAMES);
@@ -120,6 +125,10 @@ try {
   assert.deepEqual(manifest.compatibility.platforms, ["darwin"]);
   assert.equal(manifest.server.type, "node");
   assert.ok(existsSync(path.join(root, manifest.server.entry_point)), "entry point missing from bundle");
+  for (const icon of [{ src: manifest.icon, size: "512x512" }, ...manifest.icons]) {
+    const bytes = readFileSync(path.join(root, icon.src));
+    assert.equal(`${bytes.readUInt32BE(16)}x${bytes.readUInt32BE(20)}`, icon.size, `${icon.src} is not ${icon.size}`);
+  }
   assert.ok(!existsSync(path.join(root, "src")) && !existsSync(path.join(root, "tests")), "bundle must not carry sources or tests");
   const prebuilds = readdirSync(path.join(root, "node_modules", "better-sqlite3", "prebuilds")).sort();
   assert.deepEqual(prebuilds, ["darwin-arm64.node", "darwin-x64.node"]);

@@ -68,7 +68,12 @@ describe.skipIf(!existsSync(bundle))("packed desktop bundle", () => {
 
   it("carries the runtime tree and nothing else at the top level", () => {
     const top = [...new Set(entries.map((entry) => entry.split("/")[0]))].sort();
-    expect(top).toEqual(["bin", "dist", "manifest.json", "native", "node_modules", "package.json"]);
+    expect(top).toEqual(["assets", "bin", "dist", "manifest.json", "native", "node_modules", "package.json"]);
+    const assets = entries.filter((entry) => entry.startsWith("assets/") && !entry.endsWith("/")).sort();
+    expect(assets).toEqual([
+      "assets/icon-128.png", "assets/icon-16.png", "assets/icon-256.png",
+      "assets/icon-32.png", "assets/icon-512.png", "assets/icon-64.png", "assets/icon.svg",
+    ]);
     expect(entries).toContain("bin/imessage-mcp.js");
     expect(entries).toContain("dist/index.js");
     expect(entries).toContain("native/message-text-decoder.js");
