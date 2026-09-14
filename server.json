@@ -5,12 +5,12 @@
   "description": "Read-only MCP for iMessage, SMS, MMS, and RCS history already present in Apple Messages on Mac.",
   "icons": [
     {
-      "src": "https://raw.githubusercontent.com/anipotts/imessage-mcp/v2.1.1/assets/icon.svg",
+      "src": "https://raw.githubusercontent.com/anipotts/imessage-mcp/v2.1.2/assets/icon.svg",
       "mimeType": "image/svg+xml",
       "sizes": ["any"]
     },
     {
-      "src": "https://raw.githubusercontent.com/anipotts/imessage-mcp/v2.1.1/assets/icon-512.png",
+      "src": "https://raw.githubusercontent.com/anipotts/imessage-mcp/v2.1.2/assets/icon-512.png",
       "mimeType": "image/png",
       "sizes": ["512x512"]
     }
@@ -19,12 +19,12 @@
     "url": "https://github.com/anipotts/imessage-mcp",
     "source": "github"
   },
-  "version": "2.1.1",
+  "version": "2.1.2",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "imessage-mcp",
-      "version": "2.1.1",
+      "version": "2.1.2",
       "transport": {
         "type": "stdio"
       },

@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "imessage-mcp",
   "display_name": "iMessage",
-  "version": "2.1.1",
+  "version": "2.1.2",
   "description": "Read-only MCP for iMessage, SMS, MMS, and RCS history in Apple Messages on Mac",
   "author": {
     "name": "Ani Potts",

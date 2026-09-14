@@ -2,6 +2,12 @@
 
 this file follows [keep a changelog](https://keepachangelog.com/en/1.1.0/), and this project follows semantic versioning.
 
+## 2.1.2
+
+### fixed
+
+- search rebuilt its whole index after almost every Messages write, because any commit (a read receipt, a delivery update) changed the database version it compared. on a real archive that turned a warm search back into a cold one of a minute or more. the index now keeps a fingerprint of its sources for every 256 message ROWIDs and every conversation, and a refresh re-indexes only the ranges whose fingerprint changed: edits, appends, deletions, retractions, renamed conversations, new participants, and attachment names. writes search never reads cost one fingerprint pass and no re-indexing. a refresh commits atomically, so a strict search that fails part way leaves the previous index intact, and a repaired row clears its partial warning without a rebuild.
+
 ## 2.1.1
 
 ### fixed

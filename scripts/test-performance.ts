@@ -14,6 +14,7 @@ import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/cli
 import { LocalToolRuntime } from "../src/tool-local.js";
 
 const REFERENCE_MESSAGES = 1_000_000;
+const REFRESH_CEILING_MS = 30_000;
 
 function selectedMessageCount(): number {
   const argument = process.argv.find((value) => value.startsWith("--messages="));
@@ -330,13 +331,23 @@ async function main(): Promise<void> {
     }));
     structured(shortSubstring.value);
 
-    // Simulate a live Messages update using only the task-owned synthetic database.
-    const writer = new Database(databasePath);
-    try {
-      writer.prepare("UPDATE message SET text = ? WHERE ROWID = 1").run("refresh-marker-unique");
-    } finally {
-      writer.close();
-    }
+    // Simulate live Messages updates using only the task-owned synthetic database:
+    // a timestamp write search never reads, then an edit it must pick up.
+    const write = (sql: string, ...values: unknown[]) => {
+      const writer = new Database(databasePath);
+      try {
+        writer.prepare(sql).run(...values);
+      } finally {
+        writer.close();
+      }
+    };
+    write("UPDATE chat_message_join SET message_date = message_date + 1 WHERE message_id = ?", messageCount);
+    const receipt = await timed(() => runtime!.call("search_messages", {
+      query: "needle4242", mode: "substring", scopes: ["text"], order: "newest", limit: 50,
+      privacy_mode: "aggregate",
+    }));
+    assert.equal((structured(receipt.value).data as { total_matches: number }).total_matches, coldData.total_matches);
+    write("UPDATE message SET text = ? WHERE ROWID = 1", "refresh-marker-unique");
     const refresh = await timed(() => runtime!.call("search_messages", {
       query: "refresh-marker-unique", mode: "exact", scopes: ["text"], order: "newest", limit: 50,
       privacy_mode: "aggregate",
@@ -345,7 +356,9 @@ async function main(): Promise<void> {
 
     if (messageCount === REFERENCE_MESSAGES) {
       assert.ok(cold.duration_ms < 60_000, `cold search took ${cold.duration_ms.toFixed(1)} ms`);
-      assert.ok(refresh.duration_ms < 90_000, `refresh search took ${refresh.duration_ms.toFixed(1)} ms`);
+      // A refresh re-indexes changed buckets only, inside the 30-second warm budget.
+      assert.ok(receipt.duration_ms < REFRESH_CEILING_MS, `receipt refresh search took ${receipt.duration_ms.toFixed(1)} ms`);
+      assert.ok(refresh.duration_ms < REFRESH_CEILING_MS, `edit refresh search took ${refresh.duration_ms.toFixed(1)} ms`);
       assert.ok(warm.duration_ms < 2_000, `warm search took ${warm.duration_ms.toFixed(1)} ms`);
       assert.ok(shortSubstring.duration_ms < 2_000, `one-character warm search took ${shortSubstring.duration_ms.toFixed(1)} ms`);
     }
@@ -366,6 +379,7 @@ async function main(): Promise<void> {
       },
       cold_index_ms: Math.round(cold.duration_ms),
       warm_search_ms: Math.round(warm.duration_ms),
+      receipt_refresh_ms: Math.round(receipt.duration_ms),
       refresh_index_ms: Math.round(refresh.duration_ms),
       one_character_search_ms: Math.round(shortSubstring.duration_ms),
       http_two_client_ms: Math.round(http_concurrency_ms),
