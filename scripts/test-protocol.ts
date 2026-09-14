@@ -23,6 +23,8 @@ const TOOL_TITLES: Record<string, string> = {
 
 const TOOL_NAMES = Object.keys(TOOL_TITLES).sort();
 
+const ANALYTICS_METRICS = ["message_count", "response_time", "streaks", "initiation"] as const;
+
 type JsonSchema = Record<string, unknown>;
 
 function resolveRef(root: JsonSchema, ref: string): JsonSchema {
@@ -112,6 +114,27 @@ function structured(result: { structuredContent?: unknown }): Record<string, unk
   return result.structuredContent as Record<string, unknown>;
 }
 
+/**
+ * Holds a successful result to the schema its own tool advertises. Running it
+ * on every tool in every privacy mode is what catches a privacy-layer change
+ * that strips a field the schema marks required.
+ */
+function assertMatchesOutputSchema(
+  schemas: Map<string, JsonSchema>,
+  name: string,
+  result: { isError?: boolean; structuredContent?: unknown },
+): void {
+  assert.equal(result.isError, undefined, `${name} must succeed`);
+  const schema = schemas.get(name);
+  assert.ok(schema, `${name} must advertise an output schema`);
+  assert.deepEqual(schemaErrors(schema, structured(result), schema), [], `${name} result must match its output schema`);
+}
+
+async function outputSchemas(client: Client): Promise<Map<string, JsonSchema>> {
+  const listed = await client.listTools();
+  return new Map(listed.tools.map((tool) => [tool.name, tool.outputSchema as JsonSchema]));
+}
+
 async function exercise(client: Client, privacy: "full" | "redacted"): Promise<string> {
   const listedTools = await client.listTools();
   assert.deepEqual(listedTools.tools.map((tool) => tool.name).sort(), TOOL_NAMES);
@@ -154,23 +177,23 @@ async function exercise(client: Client, privacy: "full" | "redacted"): Promise<s
   assert.equal((structured(missingConversation).error as { reason?: string }).reason, "INVALID_INPUT");
   assert.equal("data" in structured(missingConversation), false);
 
+  const schemas = new Map([...listedByName].map(([name, tool]) => [name, tool.outputSchema as JsonSchema]));
+
   const status = await client.callTool({ name: "server_status", arguments: { privacy_mode: privacy } });
-  assert.equal(status.isError, undefined);
+  assertMatchesOutputSchema(schemas, "server_status", status);
   assert.equal(structured(status).api_version, "2.0");
-  const statusOutputSchema = listedByName.get("server_status")?.outputSchema as JsonSchema;
-  assert.deepEqual(schemaErrors(statusOutputSchema, structured(status), statusOutputSchema), []);
 
   const contact = await client.callTool({
     name: "resolve_contact",
     arguments: { query: "+15550000001", privacy_mode: privacy },
   });
-  assert.equal(contact.isError, undefined);
+  assertMatchesOutputSchema(schemas, "resolve_contact", contact);
 
   const conversations = await client.callTool({
     name: "list_conversations",
     arguments: { limit: 50, privacy_mode: privacy },
   });
-  assert.equal(conversations.isError, undefined);
+  assertMatchesOutputSchema(schemas, "list_conversations", conversations);
   const conversationData = structured(conversations).data as { conversations: Array<{ conversation_ref: string }> };
   assert.ok(conversationData.conversations.length >= 4);
   const conversationRef = conversationData.conversations[0].conversation_ref;
@@ -180,7 +203,7 @@ async function exercise(client: Client, privacy: "full" | "redacted"): Promise<s
     name: "get_conversation",
     arguments: { conversation_ref: conversationRef, limit: 5, privacy_mode: privacy },
   });
-  assert.equal(timeline.isError, undefined);
+  assertMatchesOutputSchema(schemas, "get_conversation", timeline);
 
   const search = await client.callTool({
     name: "search_messages",
@@ -193,19 +216,21 @@ async function exercise(client: Client, privacy: "full" | "redacted"): Promise<s
       privacy_mode: privacy,
     },
   });
-  assert.equal(search.isError, undefined);
+  assertMatchesOutputSchema(schemas, "search_messages", search);
 
-  const analytics = await client.callTool({
-    name: "analyze_communication",
-    arguments: { metric: "message_count", scope: "global", privacy_mode: privacy },
-  });
-  assert.equal(analytics.isError, undefined);
+  for (const metric of ANALYTICS_METRICS) {
+    const analytics = await client.callTool({
+      name: "analyze_communication",
+      arguments: { metric, scope: "global", privacy_mode: privacy },
+    });
+    assertMatchesOutputSchema(schemas, "analyze_communication", analytics);
+  }
 
   const sync = await client.callTool({
     name: "sync_messages",
     arguments: { limit: 5, privacy_mode: privacy },
   });
-  assert.equal(sync.isError, undefined);
+  assertMatchesOutputSchema(schemas, "sync_messages", sync);
 
   if (privacy === "redacted") {
     const output = JSON.stringify([conversations, timeline, search, sync]);
@@ -245,10 +270,8 @@ async function exercisePrompts(client: Client): Promise<void> {
 }
 
 async function exerciseAggregate(client: Client, conversationRef: string): Promise<void> {
+  const schemas = await outputSchemas(client);
   const status = await client.callTool({ name: "server_status", arguments: { privacy_mode: "aggregate" } });
-  const listed = await client.listTools();
-  const statusOutputSchema = listed.tools.find((tool) => tool.name === "server_status")?.outputSchema as JsonSchema;
-  assert.deepEqual(schemaErrors(statusOutputSchema, structured(status), statusOutputSchema), []);
   const contact = await client.callTool({
     name: "resolve_contact",
     arguments: { query: "+15550000001", privacy_mode: "aggregate" },
@@ -272,20 +295,30 @@ async function exerciseAggregate(client: Client, conversationRef: string): Promi
       privacy_mode: "aggregate",
     },
   });
-  const analytics = await client.callTool({
-    name: "analyze_communication",
-    arguments: { metric: "message_count", scope: "global", privacy_mode: "aggregate" },
-  });
+  const metrics = [];
+  for (const metric of ANALYTICS_METRICS) {
+    metrics.push(await client.callTool({
+      name: "analyze_communication",
+      arguments: { metric, scope: "global", privacy_mode: "aggregate" },
+    }));
+  }
   const sync = await client.callTool({
     name: "sync_messages",
     arguments: { limit: 5, privacy_mode: "aggregate" },
   });
-  for (const result of [status, contact, conversations, timeline, search, analytics, sync]) {
-    assert.equal(result.isError, undefined);
-  }
+  const named: Array<[string, { isError?: boolean; structuredContent?: unknown }]> = [
+    ["server_status", status],
+    ["resolve_contact", contact],
+    ["list_conversations", conversations],
+    ["get_conversation", timeline],
+    ["search_messages", search],
+    ...metrics.map((result) => ["analyze_communication", result] as [string, typeof result]),
+    ["sync_messages", sync],
+  ];
+  for (const [name, result] of named) assertMatchesOutputSchema(schemas, name, result);
   const syncData = structured(sync).data as { cursor?: string };
   assert.match(syncData.cursor ?? "", /^im2_/u);
-  const output = JSON.stringify([status, contact, conversations, timeline, search, analytics, sync]);
+  const output = JSON.stringify([status, contact, conversations, timeline, search, ...metrics, sync]);
   assert.doesNotMatch(output, /blob exact|thread reply|photo\.png|Synthetic Group|\+1555000000|unknown@example/u);
   assert.doesNotMatch(output, /"(?:message|conversation)_ref"/u);
 }
