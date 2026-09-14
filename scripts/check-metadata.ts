@@ -50,6 +50,12 @@ const desktopIcons = desktopManifest.icons as Array<{ src: string; size: string 
 assert.deepEqual(desktopIcons.map((icon) => icon.size), ["16x16", "32x32", "64x64", "128x128", "256x256", "512x512"]);
 for (const icon of desktopIcons) assert.equal(pngSize(icon.src), icon.size, `${icon.src} must be ${icon.size}`);
 assert.equal(desktopManifest.icon, "assets/icon-512.png");
+for (const [key, setting] of Object.entries(desktopManifest.user_config as Record<string, { required?: boolean; default?: string }>)) {
+  // Claude Desktop leaves an extension disabled after install while any required
+  // setting is unsaved, even one with a default.
+  assert.notEqual(setting.required, true, `manifest.json user_config.${key} must not be required, or the extension installs disabled`);
+  assert.ok(setting.default, `manifest.json user_config.${key} needs a default`);
+}
 const registryIcons = server.icons as Array<{ src: string; mimeType: string; sizes: string[] }>;
 const rawBase = `https://raw.githubusercontent.com/anipotts/imessage-mcp/v${version}/`;
 assert.deepEqual(registryIcons.map((icon) => icon.src),
@@ -141,7 +147,7 @@ assert.deepEqual(registered.sort(), [
 ]);
 
 const registeredPrompts = [...tools.matchAll(/server\.registerPrompt\(\s*\n\s*"([a-z_]+)"/gu)].map((match) => match[1]);
-assert.deepEqual(registeredPrompts.sort(), ["catch_up", "draft_reply", "who_said"]);
+assert.deepEqual(registeredPrompts.sort(), ["catch_up", "draft_reply", "recap"]);
 assert.match(readme, /## prompts/u);
 for (const prompt of registeredPrompts) assert.ok(readme.includes(`\`${prompt}\``), `README must document prompt ${prompt}`);
 

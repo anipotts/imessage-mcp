@@ -17,9 +17,18 @@ Try questions like:
 
 ## setup
 
-You need macOS 14+, Node.js 22 or newer, and Messages history on this Mac.
+You need macOS 14 or newer and Messages history on this Mac.
 
-Two steps.
+### Claude Desktop
+
+1. Download [imessage-mcp.mcpb](https://github.com/anipotts/imessage-mcp/releases/latest/download/imessage-mcp.mcpb) and double-click it. Claude Desktop shows an install dialog; click Install. It turns on by itself and brings its own runtime, so there is nothing else to install.
+2. Give Claude access to Messages: System Settings, Privacy & Security, Full Disk Access, turn on Claude, then quit and reopen Claude Desktop.
+
+Then just ask, for example "who have I been texting most this week". To remove it, open Claude Desktop Settings, Extensions, iMessage, and uninstall.
+
+### Claude Code, Codex, and Cursor
+
+These need Node.js 22 or newer.
 
 1. Add it to Claude Code:
 
@@ -33,7 +42,7 @@ Codex:
 codex mcp add imessage -- npx -y imessage-mcp@2
 ```
 
-Claude Desktop and Cursor:
+Cursor, or Claude Desktop without the bundle:
 
 ```json
 {
@@ -130,15 +139,15 @@ Every 2.x tool reads data only. The server cannot send or modify messages, and i
 
 ## prompts
 
-The server also advertises three prompts, which a compatible client (Claude Code included) surfaces as slash commands.
+You never need these: ask in plain words ("catch me up with Kapil", "who texted me about dinner") and the assistant calls the tools itself. The three prompts are one-click starters in the client's prompt menu (slash commands in Claude Code). None takes an input, so choosing one starts right away; add a name or detail in your own words if you want to steer it.
 
-| prompt | arguments | what it asks the assistant to do |
-| --- | --- | --- |
-| `catch_up` | `contact`, `days` (default 7) | resolve the contact, read the recent conversation, and summarize what needs a reply |
-| `draft_reply` | `contact`, `intent` (optional) | read the latest messages and draft a reply in the user's own style, for the user to send |
-| `who_said` | `query` | search messages and list who said it, when, and in which conversation |
+| prompt | what it does |
+| --- | --- |
+| `catch_up` | finds who is waiting on you across the last three days of one-to-one chats, and what they need |
+| `draft_reply` | drafts a reply in your own texting style to whoever is waiting, or to the person you name |
+| `recap` | sums up your last seven days: messages sent and received, busiest conversations, anyone still waiting |
 
-Prompts are text templates the client sends back to the assistant; none of them can send a message, since the server has no send tool.
+Prompts only tell the assistant which tools to call. None of them can send a message, since the server has no send tool.
 
 ## privacy
 

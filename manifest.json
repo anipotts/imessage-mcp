@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "imessage-mcp",
   "display_name": "iMessage",
-  "version": "2.0.1",
+  "version": "2.1.0",
   "description": "Read-only MCP for iMessage, SMS, MMS, and RCS history in Apple Messages on Mac",
   "author": {
     "name": "Ani Potts",
@@ -69,14 +69,14 @@
       "title": "Privacy ceiling",
       "description": "full, redacted, or aggregate. redacted returns names, masked handles, and calendar days with no message bodies. aggregate returns counts only.",
       "default": "full",
-      "required": true
+      "required": false
     },
     "contacts": {
       "type": "string",
       "title": "Contact names",
       "description": "live reads your unified Contacts to name handles. none leaves handles unnamed.",
       "default": "live",
-      "required": true
+      "required": false
     }
   }
 }
