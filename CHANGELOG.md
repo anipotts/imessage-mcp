@@ -2,6 +2,16 @@
 
 this file follows [keep a changelog](https://keepachangelog.com/en/1.1.0/), and this project follows semantic versioning.
 
+## 2.0.1
+
+### added
+
+- an icon. the server announces it in the mcp handshake (`serverInfo.icons`, with a title and website), the desktop bundle carries it at every size claude desktop draws, and the mcp registry entry points at it, so clients show the same mark everywhere.
+
+### changed
+
+- ci and security runs on `main` are never cancelled by a later push or schedule, and release polls wait up to five minutes for npm, the registry, and attestations.
+
 ## 2.0.0
 
 ### added

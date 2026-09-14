@@ -38,6 +38,16 @@ for (const entry of ["dist", "bin", "native", "package.json", "package-lock.json
   cpSync(source, path.join(stage, entry), { recursive: true });
 }
 
+// The server reads its handshake icons from assets/ at startup, and the manifest
+// points Claude Desktop at the sized PNGs, so the icon set rides along. The demo
+// GIF and other documentation images stay out of the bundle.
+const manifest = JSON.parse(readFileSync(path.join(repository, "manifest.json"), "utf8"));
+const iconFiles = new Set(["assets/icon.svg", manifest.icon, ...manifest.icons.map((icon) => icon.src)]);
+mkdirSync(path.join(stage, "assets"), { recursive: true });
+for (const file of iconFiles) {
+  cpSync(path.join(repository, file), path.join(stage, file));
+}
+
 // better-sqlite3 ships its own prebuilt binaries, so no install script has to run.
 run("npm", ["ci", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund"], stage);
 // pack already drops lockfiles, source maps, and declarations. Delete the lock
