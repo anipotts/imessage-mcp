@@ -177,15 +177,12 @@ for (const keyword of ["read-only", "privacy", "local-first", "codex", "cursor",
 }
 assert.equal(readFileSync("package.json", "utf8").includes("smithery"), false);
 
-// allowScripts is @lavamoat/allow-scripts configuration. The published package
-// must not advertise an install-script allowlist nothing enforces.
-if (packageJson.allowScripts !== undefined) {
-  const developmentDependencies = (packageJson.devDependencies ?? {}) as Record<string, string>;
-  assert.ok(developmentDependencies["@lavamoat/allow-scripts"],
-    "allowScripts needs @lavamoat/allow-scripts as a devDependency or it enforces nothing");
-  assert.ok(existsSync(".npmrc") && /^\s*ignore-scripts\s*=\s*true\s*$/mu.test(readFileSync(".npmrc", "utf8")),
-    "allowScripts needs ignore-scripts=true in .npmrc or install scripts still run unfiltered");
-}
+// allowScripts is npm's native install-script allowlist (npm approve-scripts, npm 11.11+).
+// Only the three dependencies with install scripts are approved, so a fresh npm ci
+// prints no allow-scripts warning and nothing else may run an install script.
+assert.deepEqual(Object.keys(packageJson.allowScripts as Record<string, boolean>).sort(),
+  ["better-sqlite3", "esbuild", "fsevents"]);
+assert.ok(Object.values(packageJson.allowScripts as Record<string, boolean>).every((value) => value === true));
 
 for (const file of ["README.md", "docs/GUIDE.md", "docs/DEMO.md", "docs/BENCHMARK.md"]) {
   for (const [, target] of readFileSync(file, "utf8").matchAll(/!?\[[^\]]*\]\(([^)]+)\)/gu)) {
