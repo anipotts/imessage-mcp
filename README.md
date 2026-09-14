@@ -88,6 +88,22 @@ npx -y imessage-mcp@2 uninstall --client claude
 
 Other servers in a Claude Desktop or Cursor configuration are left alone. Add `--purge --yes` to also delete the generated key files, which permanently invalidates saved conversation references.
 
+## plugin
+
+Claude Code can also install it by name, as an alternative to `claude mcp add`:
+
+```sh
+/plugin marketplace add anipotts/imessage-mcp
+/plugin install imessage-mcp@anipotts
+```
+
+To remove it:
+
+```sh
+/plugin uninstall imessage-mcp@anipotts
+/plugin marketplace remove anipotts
+```
+
 ## seven tools
 
 | tool | what it does |

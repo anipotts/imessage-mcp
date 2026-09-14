@@ -51,6 +51,13 @@ It accepts `--scope user|project` for Claude Code, `--contacts` and `--privacy` 
 claude mcp add imessage -s user -- npx -y imessage-mcp@2
 ```
 
+As an alternative, install it as a plugin instead:
+
+```sh
+/plugin marketplace add anipotts/imessage-mcp
+/plugin install imessage-mcp@anipotts
+```
+
 ### Codex
 
 `setup --client codex` runs this command for you:

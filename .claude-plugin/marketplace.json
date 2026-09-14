@@ -1,0 +1,15 @@
+{
+  "name": "anipotts",
+  "description": "Ani Potts's Claude Code plugins.",
+  "owner": {
+    "name": "Ani Potts",
+    "url": "https://github.com/anipotts"
+  },
+  "plugins": [
+    {
+      "name": "imessage-mcp",
+      "source": "./",
+      "description": "Read-only MCP for iMessage, SMS, MMS, and RCS history already present in Apple Messages on Mac."
+    }
+  ]
+}

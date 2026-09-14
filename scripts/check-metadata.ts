@@ -10,6 +10,11 @@ function json(file: string): Record<string, unknown> {
 
 const packageJson = json("package.json");
 const plugin = json(".claude-plugin/plugin.json");
+assert.ok(existsSync(".claude-plugin/marketplace.json"), "marketplace.json must exist for /plugin marketplace add");
+const marketplace = json(".claude-plugin/marketplace.json");
+const marketplacePlugins = marketplace.plugins as Array<Record<string, unknown>>;
+const marketplacePlugin = marketplacePlugins.find((entry) => entry.name === "imessage-mcp");
+assert.ok(marketplacePlugin, "marketplace.json must list a plugin named imessage-mcp");
 const server = json("server.json");
 const mcp = json(".mcp.json");
 const assetManifest = json("assets/manifest.json");
@@ -28,6 +33,9 @@ const version = String(packageJson.version);
 const channel = version.includes("-") ? "next" : "latest";
 
 assert.equal(plugin.version, version);
+if (marketplacePlugin!.version !== undefined) {
+  assert.equal(marketplacePlugin!.version, version, "marketplace.json plugin version must match package.json version");
+}
 assert.equal(server.version, version);
 assert.equal(packageJson.mcpName, server.name);
 const packages = server.packages as Array<Record<string, unknown>>;
