@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "subject_version": "2.1.0",
+  "subject_version": "2.1.1",
   "channel": "latest",
   "expected_paths": [
     ".claude-plugin/marketplace.json",
@@ -12,8 +12,8 @@
     "SECURITY.md",
     "VERIFICATION.md",
     "assets/demo.gif",
-    "assets/icon.svg",
     "assets/icon-64.png",
+    "assets/icon.svg",
     "assets/manifest.json",
     "bin/imessage-mcp.js",
     "dist/cli.d.ts",
@@ -72,6 +72,10 @@
     "dist/keys.d.ts.map",
     "dist/keys.js",
     "dist/keys.js.map",
+    "dist/limits.d.ts",
+    "dist/limits.d.ts.map",
+    "dist/limits.js",
+    "dist/limits.js.map",
     "dist/privacy.d.ts",
     "dist/privacy.d.ts.map",
     "dist/privacy.js",

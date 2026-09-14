@@ -8,6 +8,21 @@ Last updated: 2026-09-14 (local); new benchmark and demo timestamps are recorded
 
 Every published version, its assets, and its generated notes live in [GitHub releases](https://github.com/anipotts/imessage-mcp/releases); [CHANGELOG.md](CHANGELOG.md) records what changed in each one. `2.0.0` is prepared from protected `main`.
 
+## `2.1.1` verification
+
+Run on 2026-09-14. On a real archive, 2.1.0's default search still failed: archived empty attributed strings (app and edited messages without text) were treated as malformed, and a long pasted body sat above the 1 MiB bound. Only lengths, archive signatures, and message-type flags were inspected; no content was read.
+
+| evidence | result |
+| --- | --- |
+| cause | the empty archives are byte-identical to what Foundation produces for an empty `NSAttributedString`; Foundation decodes them to a zero-length string |
+| fixture suite | 158 tests passed, including synthetic empty archives for both root classes, a Foundation body above 1 MiB decoded exactly and found by strict search, strict conversation page, and strict sync, oversized bodies still rejected at the new 4 MiB bound, and the native decoder's bound kept equal to the TypeScript one |
+| live strict search | default searches without `allow_partial` returned `completeness: complete` with an index state of `ready`; before the fix the same searches failed with `DECODE_FAILED` |
+| desktop bundle | 6.8 MB, launched through its own `mcp_config` at each privacy ceiling |
+| million-message fixture | 27.809 s cold and 25.779 s after an update, measured under heavy machine load (the same benchmark measured 15.409 s earlier that day) |
+| bounded live parity | 375 of 375 stratified attributed bodies matched; seven tools with zero leaked probe values; no private values emitted; cold search 89.3 s under that load, close to the 90 s request ceiling |
+
+Indexing the long body itself costs tens of milliseconds. The cold-search time is dominated by machine load and by a full index rebuild that runs whenever Messages writes to the database, which predates this release and is tracked separately.
+
 ## `2.1.0` verification
 
 Run on the release branch on 2026-09-14 after using 2.0.1 against a real archive surfaced the conversation-kind bug, the prompt form, and the slow first search.

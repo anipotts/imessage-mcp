@@ -26,6 +26,7 @@ import {
 import { normalizeReactionParent } from "./messages.js";
 import { resolveUniqueMessageGuids } from "./message-integrity.js";
 import { assertMessageConversationIntegrity, type ConversationCatalog } from "./conversations.js";
+import { MAX_ATTRIBUTED_BODY_BYTES, MAX_ATTRIBUTED_BODY_LABEL } from "../limits.js";
 
 export type ChangeType =
   | "message_created"
@@ -98,8 +99,9 @@ interface RawChange extends Record<string, unknown> {
   group_title: string | null;
 }
 
-const MAX_SYNC_SOURCE_BYTES = 4 * 1024 * 1024;
-const MAX_SYNC_BLOB_BYTES = 1024 * 1024;
+// Room for one body at the decoder bound plus the rest of a batch.
+const MAX_SYNC_SOURCE_BYTES = 8 * 1024 * 1024;
+const MAX_SYNC_BLOB_BYTES = MAX_ATTRIBUTED_BODY_BYTES;
 const MAX_SYNC_METADATA_BYTES = 1024 * 1024;
 const MAX_SYNC_METADATA_VALUE_BYTES = 4096;
 const MAX_SYNC_MESSAGE_ROWS = 10_000_000;
@@ -1003,7 +1005,7 @@ function hydrateBodies(request: DatabaseRequest, rows: RawChange[], allowPartial
     });
   }
   if (!allowPartial && Number(stats.unsupported_bodies) > 0) {
-    throw new ImessageMcpError("DECODE_FAILED", "a changed message body exceeds the 1 MiB decoder limit", {
+    throw new ImessageMcpError("DECODE_FAILED", `a changed message body exceeds the ${MAX_ATTRIBUTED_BODY_LABEL} decoder limit`, {
       skipped_count: Number(stats.unsupported_bodies),
       limit_bytes: MAX_SYNC_BLOB_BYTES,
       retry: "retry with allow_partial true to omit only oversized changed bodies",

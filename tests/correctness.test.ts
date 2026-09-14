@@ -13,6 +13,7 @@ import { MAX_REFERENCE_LENGTH, MAX_SYNC_CURSOR_LENGTH } from "../src/references.
 import { estimateSearchIndexFloor, MemorySearchIndex } from "../src/search-index.js";
 import { LocalToolRuntime } from "../src/tool-local.js";
 import { APPLE_EPOCH_UNIX_SECONDS, appleTimestampToIso, compileDateBounds } from "../src/time.js";
+import { MAX_ATTRIBUTED_BODY_BYTES } from "../src/limits.js";
 import { analyze } from "../src/repositories/analytics.js";
 import { ConversationCatalog, listConversations, resolveConversationReference } from "../src/repositories/conversations.js";
 import { getConversationEvents, resolveMessageReference } from "../src/repositories/messages.js";
@@ -26,6 +27,8 @@ import {
   foundationEditSummary,
   foundationLegacyDateArchive,
   type Fixture,
+  foundationAttributedBodyFromStdin,
+  foundationEmptyAttributedBody,
 } from "./fixture.js";
 
 const REFERENCE_KEY = Buffer.alloc(32, 0x5a);
@@ -1554,11 +1557,162 @@ describe("2.0 data and query core", () => {
     }
   });
 
+  describe("archived empty attributed strings", () => {
+    it("decode to empty text for both root classes, while empty data stays malformed", async () => {
+      const decoder = new MessageTextDecoder();
+      expect(await decoder.decode([
+        foundationEmptyAttributedBody(false),
+        foundationEmptyAttributedBody(true),
+        Buffer.alloc(0),
+        Buffer.from("040b73747265616d74797065648186", "hex"),
+      ])).toEqual([
+        { status: "decoded", text: "" },
+        { status: "decoded", text: "" },
+        { status: "malformed" },
+        { status: "malformed" },
+      ]);
+    }, 60_000);
+
+    it("do not make a strict search or conversation page fail", async () => {
+      const isolated = createFixture();
+      const db = new Database(isolated.databasePath);
+      db.prepare("UPDATE message SET text=NULL, attributedBody=? WHERE ROWID=1").run(foundationEmptyAttributedBody(false));
+      db.close();
+      const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID);
+      const index = new MemorySearchIndex(isolatedContext, new MessageTextDecoder(), new UnifiedContactResolver(false));
+      try {
+        const result = await index.search({
+          query: "a",
+          mode: "substring",
+          scopes: ["text"],
+          order: "newest",
+          bounds: compileDateBounds({ timezone: "UTC" }),
+          limit: 50,
+          privacy: "full",
+          allowPartial: false,
+        });
+        expect(result.warnings ?? []).toEqual([]);
+        const page = await getConversationEvents({
+          context: isolatedContext,
+          contacts: new UnifiedContactResolver(false),
+          decoder: new MessageTextDecoder(),
+          chatIds: [1, 2],
+          limit: 200,
+          bounds: compileDateBounds({ timezone: "UTC" }),
+          privacy: "full",
+          includeAttachmentPaths: false,
+          allowPartial: false,
+        });
+        expect(page.warnings ?? []).toEqual([]);
+      } finally {
+        index.close();
+        isolatedContext.close();
+        isolated.cleanup();
+      }
+    }, 60_000);
+  });
+
+  describe("attributed bodies above the former 1 MiB decoder bound", () => {
+    // A long pasted message: about 1.4 MiB of text in a body well past 1 MiB, the
+    // shape that made every strict search on a real archive fail before 2.1.1.
+    const needle = "zephyrlongpastemarker";
+    const text = `${"the quick brown fox jumps over the lazy dog ".repeat(34_000)}${needle}`;
+    let body: Buffer;
+    beforeAll(() => {
+      body = foundationAttributedBodyFromStdin(text);
+      expect(body.length).toBeGreaterThan(1024 * 1024);
+      expect(body.length).toBeLessThanOrEqual(MAX_ATTRIBUTED_BODY_BYTES);
+    }, 120_000);
+
+    it("decodes the body exactly", async () => {
+      const [decoded] = await new MessageTextDecoder().decode([body]);
+      expect(decoded).toMatchObject({ status: "decoded" });
+      expect((decoded as { text: string }).text).toBe(text);
+    }, 120_000);
+
+    it("finds it in a strict search, without allow_partial", async () => {
+      const isolated = createFixture();
+      const db = new Database(isolated.databasePath);
+      db.prepare("UPDATE message SET text=NULL, attributedBody=? WHERE ROWID=1").run(body);
+      db.close();
+      const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID);
+      const index = new MemorySearchIndex(isolatedContext, new MessageTextDecoder(), new UnifiedContactResolver(false));
+      try {
+        const result = await index.search({
+          query: needle,
+          mode: "substring",
+          scopes: ["text"],
+          order: "newest",
+          bounds: compileDateBounds({ timezone: "UTC" }),
+          limit: 50,
+          privacy: "full",
+          allowPartial: false,
+        });
+        expect(result.warnings ?? []).toEqual([]);
+        expect(result.hits).toHaveLength(1);
+      } finally {
+        index.close();
+        isolatedContext.close();
+        isolated.cleanup();
+      }
+    }, 120_000);
+
+    it("returns it from a strict get_conversation page", async () => {
+      const isolated = createFixture();
+      const db = new Database(isolated.databasePath);
+      db.prepare("UPDATE message SET text=NULL, attributedBody=? WHERE ROWID=1").run(body);
+      db.close();
+      const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID);
+      try {
+        const page = await getConversationEvents({
+          context: isolatedContext,
+          contacts: new UnifiedContactResolver(false),
+          decoder: new MessageTextDecoder(),
+          chatIds: [1, 2],
+          limit: 200,
+          bounds: compileDateBounds({ timezone: "UTC" }),
+          privacy: "full",
+          includeAttachmentPaths: false,
+          allowPartial: false,
+        });
+        expect(page.warnings ?? []).toEqual([]);
+        expect(page.events.some((event) => typeof event.text === "string" && event.text.endsWith(needle))).toBe(true);
+      } finally {
+        isolatedContext.close();
+        isolated.cleanup();
+      }
+    }, 120_000);
+
+    it("syncs it without allow_partial", async () => {
+      const fixture = createFixture();
+      const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, DATABASE_ID, "live");
+      const contacts = new UnifiedContactResolver(false);
+      const decoder = new MessageTextDecoder();
+      try {
+        const first = await syncMessages({ context, contacts, decoder, limit: 50, allowPartial: false, privacy: "full" });
+        const db = new Database(fixture.databasePath);
+        const date = appleNanoseconds("2026-08-10T12:00:00Z");
+        db.prepare(`INSERT INTO message(ROWID,guid,text,attributedBody,handle_id,date,is_from_me,service)
+                    VALUES (21,'long-paste-sync',NULL,?,1,?,0,'iMessage')`).run(body, date);
+        db.prepare("INSERT INTO chat_message_join(chat_id,message_id,message_date,index_state) VALUES (1,21,?,0)").run(date);
+        db.close();
+        const next = await syncMessages({ context, contacts, decoder, cursor: first.cursor, limit: 50, allowPartial: false, privacy: "full" });
+        expect(next.warnings ?? []).toEqual([]);
+        expect(next.changes).toEqual(expect.arrayContaining([
+          expect.objectContaining({ change_type: "message_created", row_status: "complete" }),
+        ]));
+      } finally {
+        context.close();
+        fixture.cleanup();
+      }
+    }, 120_000);
+  });
+
   it("never loads oversized search blobs and omits only their bodies in partial mode", async () => {
     const isolated = createFixture();
     const db = new Database(isolated.databasePath);
     db.prepare("UPDATE message SET text=NULL, attributedBody=? WHERE ROWID=1")
-      .run(Buffer.alloc(1024 * 1024 + 1, 0x61));
+      .run(Buffer.alloc(MAX_ATTRIBUTED_BODY_BYTES + 1, 0x61));
     db.prepare("UPDATE chat SET display_name='Oversized Search Match' WHERE ROWID IN (1, 2)").run();
     db.close();
     const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID);
@@ -2266,7 +2420,7 @@ describe("stateless sync", () => {
       const date = appleNanoseconds("2026-08-10T12:00:00Z");
       db.prepare(`INSERT INTO message(ROWID,guid,text,attributedBody,handle_id,date,is_from_me,service)
                   VALUES (21,'oversized-sync',NULL,?,1,?,0,'iMessage')`)
-        .run(Buffer.alloc(1024 * 1024 + 1, 0x61), date);
+        .run(Buffer.alloc(MAX_ATTRIBUTED_BODY_BYTES + 1, 0x61), date);
       db.prepare("INSERT INTO chat_message_join(chat_id,message_id,message_date,index_state) VALUES (1,21,?,0)")
         .run(date);
       db.close();
@@ -3052,7 +3206,7 @@ describe("stateless sync", () => {
 describe("Foundation fixtures", () => {
   it("preserves input positions around oversized bodies", async () => {
     const decoder = new MessageTextDecoder();
-    const oversized = Buffer.alloc(1024 * 1024 + 1);
+    const oversized = Buffer.alloc(MAX_ATTRIBUTED_BODY_BYTES + 1);
     expect(await decoder.decode([
       foundationAttributedBody("before"), oversized, foundationAttributedBody("after"),
     ])).toEqual([
@@ -3062,7 +3216,7 @@ describe("Foundation fixtures", () => {
 
   it("preserves input positions around oversized edit summaries", async () => {
     const decoder = new MessageTextDecoder();
-    const oversized = Buffer.alloc(1024 * 1024 + 1);
+    const oversized = Buffer.alloc(MAX_ATTRIBUTED_BODY_BYTES + 1);
     expect(await decoder.decodeEditMetadata([
       foundationEditSummary([0, 100]), oversized, foundationEditSummary([0, 200, 300]),
     ])).toEqual([

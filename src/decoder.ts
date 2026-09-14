@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ImessageMcpError } from "./errors.js";
+import { MAX_ATTRIBUTED_BODY_BYTES } from "./limits.js";
 
 export type DecodeResult =
   | { status: "decoded"; text: string }
@@ -17,7 +18,7 @@ export type EditMetadataResult =
 const SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), "../native/message-text-decoder.js");
 const MAX_BATCH_ITEMS = 500;
 const MAX_BATCH_BYTES = 8 * 1024 * 1024;
-const MAX_BLOB_BYTES = 1024 * 1024;
+const MAX_BLOB_BYTES = MAX_ATTRIBUTED_BODY_BYTES;
 const MAX_OUTPUT_BYTES = 16 * 1024 * 1024;
 const MAX_DECODED_TEXT_BYTES = 3 * 1024 * 1024;
 

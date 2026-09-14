@@ -25,6 +25,35 @@ export function foundationAttributedBody(text: string): Buffer {
   return Buffer.from(execFileSync("/usr/bin/osascript", ["-l", "JavaScript", "-e", script, text], { encoding: "utf8" }).trim(), "base64");
 }
 
+// What Messages stores for app and edited messages without text: an archived
+// empty attributed string, which has no attribute runs.
+export function foundationEmptyAttributedBody(mutable = false): Buffer {
+  const className = mutable ? "NSMutableAttributedString" : "NSAttributedString";
+  const script = `ObjC.import("Foundation"); function run() {
+    const data = $.NSArchiver.archivedDataWithRootObject($.${className}.alloc.init);
+    return ObjC.unwrap(data.base64EncodedStringWithOptions(0));
+  }`;
+  return Buffer.from(execFileSync("/usr/bin/osascript", ["-l", "JavaScript", "-e", script], { encoding: "utf8" }).trim(), "base64");
+}
+
+// Same archive as foundationAttributedBody, with the text on stdin: long pasted
+// messages exceed the size osascript accepts as a command argument.
+export function foundationAttributedBodyFromStdin(text: string): Buffer {
+  const script = `ObjC.import("Foundation"); function run() {
+    const input = $.NSFileHandle.fileHandleWithStandardInput.readDataToEndOfFile;
+    const text = $.NSString.alloc.initWithDataEncoding(input, $.NSUTF8StringEncoding);
+    const object = $.NSMutableAttributedString.alloc.init;
+    object.mutableString.appendString(text);
+    const data = $.NSArchiver.archivedDataWithRootObject(object);
+    return ObjC.unwrap(data.base64EncodedStringWithOptions(0));
+  }`;
+  return Buffer.from(execFileSync("/usr/bin/osascript", ["-l", "JavaScript", "-e", script], {
+    encoding: "utf8",
+    input: text,
+    maxBuffer: 64 * 1024 * 1024,
+  }).trim(), "base64");
+}
+
 export function foundationAttributedBodyWithRuns(text: string): Buffer {
   const script = `ObjC.import("Foundation"); function run(argv) {
     const object = $.NSMutableAttributedString.alloc.init;
