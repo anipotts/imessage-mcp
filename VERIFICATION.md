@@ -8,6 +8,22 @@ Last updated: 2026-09-14 (local); new benchmark and demo timestamps are recorded
 
 Every published version, its assets, and its generated notes live in [GitHub releases](https://github.com/anipotts/imessage-mcp/releases); [CHANGELOG.md](CHANGELOG.md) records what changed in each one. `2.0.0` is prepared from protected `main`.
 
+## `2.1.0` verification
+
+Run on the release branch on 2026-09-14 after using 2.0.1 against a real archive surfaced the conversation-kind bug, the prompt form, and the slow first search.
+
+| evidence | result |
+| --- | --- |
+| fixture suite | 151 tests passed, including a regression test that seeds a current-macOS one-to-one chat (`style` 45 with a `group_id`) and checks `list_conversations`, the `direct` and `group` filters, and response-time analytics |
+| protocol | seven tools and three input-free prompts over stdio and authenticated HTTP; a fresh server reaches a ready search index after one non-search call with no search, and stays cold with `IMESSAGE_WARM_SEARCH=0` |
+| live conversation kinds | on a real archive, 2.0.1 reported every recent conversation as a group and its `direct` filter returned none; 2.1.0 separates one-to-one chats from groups in agreement with `chat.style` and participant counts |
+| live warm search | after one `list_conversations` call, `server_status` answered in 1 to 2 ms reporting `building` and `resolve_contact` in 2 ms while the index built; a search that arrived mid-build waited for it, and the next search took 9 ms |
+| package and bundle | installed tarball passed with nine dependency nodes; 6.8 MB desktop bundle launched through its own `mcp_config` at each privacy ceiling; manifest validation passed with both settings optional |
+| million-message fixture | 15.409 s cold index, 5 ms warm search, 16.503 s after a database update |
+| bounded live parity | 375 of 375 stratified attributed bodies matched across iMessage, SMS/MMS, and RCS; seven tools in aggregate mode with zero leaked probe values; no private values emitted |
+
+A complete index is not possible on that archive because an attributed body exceeds the decoder's 1 MiB limit, so a default search reports `DECODE_FAILED` in under a second and a retry with `allow_partial` succeeds. The background build prepares that partial index.
+
 ## `2.0.1` verification
 
 Run on the release branch on 2026-09-14. 2.0.1 adds the icon and the ci concurrency fix; runtime behavior is unchanged, so every 2.0.0 gate was repeated rather than replaced.
@@ -30,7 +46,7 @@ Run on the release branch on 2026-09-14 with `npm run preflight`, which chains `
 | package | 144 allowlisted files, 213.2 kB packed; installed dependency graph unchanged at nine nodes |
 | desktop bundle | 6.7 MB `imessage-mcp.mcpb` after dropping the six non-Mac sqlite binaries; unpacked and launched through the manifest's own `mcp_config` at each privacy ceiling (full, redacted, aggregate) with handles; each launch reported version 2.0.0, listed seven titled tools with output schemas and three prompts, opened a synthetic database through the bundled `darwin-arm64` sqlite binary, and refused to raise the ceiling above the dialog setting; a fourth launch confirmed that live Contacts against a copied database exits 1 with `INVALID_INPUT` and no path in the message; the Intel launch runs on the `macos 26 intel package smoke` job |
 | million-message fixture | 15.416 s cold index, 4 ms warm search, 15.546 s after a database update |
-| bounded live parity | 375 of 375 stratified attributed bodies matched the populated text column across iMessage, SMS/MMS, and RCS; seven tools passed in aggregate mode with zero leaked probe values; cold search 42.3 s on a 174,534-message archive; no private values emitted |
+| bounded live parity | 375 of 375 stratified attributed bodies matched the populated text column across iMessage, SMS/MMS, and RCS; seven tools passed in aggregate mode with zero leaked probe values; cold search 42.3 s; no private values emitted |
 
 The bundle launch test replaces the earlier claim that the bundle had only been schema-validated. What it does not cover is the Claude Desktop install dialog itself, which is a manual double-click on each release.
 

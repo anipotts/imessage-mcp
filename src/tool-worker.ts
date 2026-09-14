@@ -17,6 +17,7 @@ interface CallMessage {
   id: number;
   tool: string;
   params: Record<string, unknown>;
+  search_building?: boolean;
 }
 
 if (!parentPort) throw new Error("tool worker requires a parent port");
@@ -47,21 +48,38 @@ try {
   setImmediate(() => process.exit(1));
 }
 
-port.on("message", async (message: CallMessage | { type: "close" }) => {
+// One request at a time per worker: a request holds this worker's database
+// connection, so the background index build and tool calls take turns.
+let queue: Promise<void> = Promise.resolve();
+const serially = (work: () => Promise<void>) => {
+  queue = queue.then(work, work);
+};
+
+port.on("message", (message: CallMessage | { type: "close" } | { type: "warm_search" }) => {
   if (message.type === "close") {
     runtime?.close();
     port.close();
     return;
   }
   if (!runtime) return;
-  let result;
-  activeRequestId = message.id;
-  try {
-    result = await runtime.call(message.tool, message.params);
-  } catch (error) {
-    result = errorResult(message.tool, error, runtime.config.privacy_ceiling, runtime.maskingKey);
-  } finally {
-    activeRequestId = null;
+  const active = runtime;
+  if (message.type === "warm_search") {
+    serially(async () => {
+      const ok = await active.warmSearch().then(() => true, () => false);
+      port.postMessage({ type: "search_warmed", ok });
+    });
+    return;
   }
-  port.postMessage({ type: "result", id: message.id, result });
+  serially(async () => {
+    let result;
+    activeRequestId = message.id;
+    try {
+      result = await active.call(message.tool, message.params, { searchBuilding: message.search_building === true });
+    } catch (error) {
+      result = errorResult(message.tool, error, active.config.privacy_ceiling, active.maskingKey);
+    } finally {
+      activeRequestId = null;
+    }
+    port.postMessage({ type: "result", id: message.id, result });
+  });
 });

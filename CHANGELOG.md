@@ -2,6 +2,22 @@
 
 this file follows [keep a changelog](https://keepachangelog.com/en/1.1.0/), and this project follows semantic versioning.
 
+## 2.1.0
+
+### fixed
+
+- one-to-one chats were reported as groups on current macOS, which writes a `group_id` on every chat. conversation kind now follows Apple's `chat.style` (45 one-to-one, 43 group) and only falls back to `group_id` and a display name when style is missing or unrecognized. `list_conversations` with `kind: "direct"` returned nothing before this; response-time analytics also skipped those chats.
+
+### changed
+
+- prompts take no inputs, so choosing one from a client's prompt menu starts immediately instead of opening a form. `catch_up` and `draft_reply` find who is waiting on you themselves; `recap` replaces `who_said`, which only worked with a typed phrase.
+- the desktop bundle's two settings are optional with defaults, so Claude Desktop enables the extension right after install instead of waiting for Configure.
+- the readme leads with the one-click desktop install through a stable `releases/latest/download` link.
+
+### added
+
+- the search index starts building in the background after the first successful non-search call, so the first search does not pay for a cold build. a search that arrives mid-build waits for that build, and `server_status` answers from the other worker and reports `building`. set `IMESSAGE_WARM_SEARCH=0` to build only on first search.
+
 ## 2.0.1
 
 ### added

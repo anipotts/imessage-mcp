@@ -256,32 +256,32 @@ async function exercise(client: Client, privacy: "full" | "redacted"): Promise<s
 }
 
 export const PROMPT_ARGUMENTS: Record<string, string[]> = {
-  catch_up: ["contact", "days"],
-  draft_reply: ["contact", "intent"],
-  who_said: ["query"],
+  catch_up: [],
+  draft_reply: [],
+  recap: [],
 };
 
 async function exercisePrompts(client: Client): Promise<void> {
   const listed = await client.listPrompts();
   assert.deepEqual(listed.prompts.map((prompt) => prompt.name).sort(), Object.keys(PROMPT_ARGUMENTS).sort());
   for (const prompt of listed.prompts) {
-    const expectedArgs = PROMPT_ARGUMENTS[prompt.name];
-    assert.deepEqual((prompt.arguments ?? []).map((argument) => argument.name).sort(), [...expectedArgs].sort());
+    // A declared argument makes clients open a form before the prompt can be used.
+    assert.deepEqual(prompt.arguments ?? [], [], `${prompt.name} must take no arguments`);
+    assert.ok(prompt.title, `${prompt.name} needs a title`);
   }
-
-  const contactName = "Synthetic Test Contact";
-  const catchUp = await client.getPrompt({ name: "catch_up", arguments: { contact: contactName, days: "3" } });
-  const catchUpText = catchUp.messages.map((message) => (message.content as { text?: string }).text ?? "").join("\n");
-  assert.match(catchUpText, new RegExp(contactName.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
-  assert.match(catchUpText, /read-only/u);
-
-  const draft = await client.getPrompt({ name: "draft_reply", arguments: { contact: contactName } });
-  const draftText = draft.messages.map((message) => (message.content as { text?: string }).text ?? "").join("\n");
-  assert.match(draftText, /cannot send/u);
-
-  const whoSaid = await client.getPrompt({ name: "who_said", arguments: { query: "synthetic phrase" } });
-  const whoSaidText = whoSaid.messages.map((message) => (message.content as { text?: string }).text ?? "").join("\n");
-  assert.match(whoSaidText, /synthetic phrase/u);
+  const text = async (name: string) => (await client.getPrompt({ name, arguments: {} })).messages
+    .map((message) => (message.content as { text?: string }).text ?? "").join("\n");
+  const isoDate = /date_from \d{4}-\d{2}-\d{2}/u;
+  const catchUp = await text("catch_up");
+  assert.match(catchUp, /read-only/u);
+  assert.match(catchUp, isoDate);
+  assert.match(catchUp, /list_conversations/u);
+  const draft = await text("draft_reply");
+  assert.match(draft, /cannot send/u);
+  assert.match(draft, /Return one draft only/u);
+  const recap = await text("recap");
+  assert.match(recap, /analyze_communication/u);
+  assert.match(recap, /do not quote message text/u);
 }
 
 async function exerciseAggregate(client: Client, conversationRef: string): Promise<void> {
@@ -360,6 +360,44 @@ export async function runStdio(command: string, args: string[], fixture: Fixture
   } finally {
     await client.close();
   }
+}
+
+// The first successful non-search call starts the search index build in the
+// background, so the first search is fast; IMESSAGE_WARM_SEARCH=0 turns that off.
+async function indexStateAfterOneCall(command: string, args: string[], fixture: Fixture, extraEnv: Record<string, string>, waitMs: number): Promise<string> {
+  const transport = new StdioClientTransport({
+    command,
+    args: [...args, "--database", fixture.databasePath, "--contacts", "none"],
+    cwd: process.cwd(),
+    env: testEnvironment(extraEnv),
+    stderr: "pipe",
+  });
+  const client = new Client({ name: "imessage-mcp-warm-search-test", version: "1.0.0" });
+  try {
+    await client.connect(transport);
+    const indexState = async () => {
+      const status = await client.callTool({ name: "server_status", arguments: { privacy_mode: "aggregate" } });
+      return ((structured(status).data as { index_state: { state: string } }).index_state).state;
+    };
+    const listed = await client.callTool({ name: "list_conversations", arguments: { limit: 5, privacy_mode: "aggregate" } });
+    assert.equal(listed.isError, undefined);
+    const deadline = Date.now() + waitMs;
+    let state = await indexState();
+    while (state !== "ready" && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      state = await indexState();
+    }
+    return state;
+  } finally {
+    await client.close();
+  }
+}
+
+export async function runWarmSearch(command: string, args: string[], fixture: Fixture): Promise<void> {
+  assert.equal(await indexStateAfterOneCall(command, args, fixture, {}, 30_000), "ready",
+    "the search index must finish building in the background without any search call");
+  assert.equal(await indexStateAfterOneCall(command, args, fixture, { IMESSAGE_WARM_SEARCH: "0" }, 2_000), "cold",
+    "IMESSAGE_WARM_SEARCH=0 must leave the index unbuilt until the first search");
 }
 
 async function freePort(): Promise<number> {
@@ -685,6 +723,7 @@ async function main(): Promise<void> {
     const stdioCommand = commandArg ? commandArg.slice("--stdio-command=".length) : process.execPath;
     const stdioArgs = commandArg ? [] : ["bin/imessage-mcp.js"];
     await runStdio(stdioCommand, stdioArgs, fixture);
+    await runWarmSearch(stdioCommand, stdioArgs, fixture);
     if (!process.argv.includes("--skip-http")) await runHttp(fixture);
     process.stdout.write("protocol verification passed: seven tools, three prompts, over stdio and authenticated stateless HTTP\n");
   } finally {

@@ -15,6 +15,24 @@ export function columnSql(
   return hasColumn(request, table, column) ? `${alias}.${column}` : fallback;
 }
 
+// Apple records a chat's shape in chat.style: 45 for a one-to-one chat, 43 for a
+// group. Current macOS also fills group_id on one-to-one chats, so group_id and a
+// display name only count as group evidence when style is missing or carries a
+// value Apple does not document.
+export function chatShapeSql(request: DatabaseRequest, alias: string): { group: string; direct: string } {
+  const legacy = [
+    hasColumn(request, "chat", "group_id") ? `COALESCE(${alias}.group_id, '') <> ''` : null,
+    hasColumn(request, "chat", "display_name") ? `COALESCE(${alias}.display_name, '') <> ''` : null,
+  ].filter((clause): clause is string => clause !== null);
+  const legacyGroup = legacy.length ? `(${legacy.join(" OR ")})` : "0";
+  if (!hasColumn(request, "chat", "style")) return { group: legacyGroup, direct: "0" };
+  const style = `COALESCE(${alias}.style, 0)`;
+  return {
+    group: `(${style} = 43 OR (${style} NOT IN (43, 45) AND ${legacyGroup}))`,
+    direct: `${style} = 45`,
+  };
+}
+
 export function serviceSql(request: DatabaseRequest, messageAlias = "m", chatAlias = "c"): string {
   const sources: string[] = [];
   if (hasColumn(request, "message", "service")) sources.push(`${messageAlias}.service`);
