@@ -74,9 +74,12 @@ describe.skipIf(!existsSync(bundle))("packed desktop bundle", () => {
     expect(entries).toContain("native/message-text-decoder.js");
   });
 
-  it("ships the prebuilt sqlite binary for Apple Silicon and Intel", () => {
-    expect(entries).toContain("node_modules/better-sqlite3/prebuilds/darwin-arm64.node");
-    expect(entries).toContain("node_modules/better-sqlite3/prebuilds/darwin-x64.node");
+  it("ships the prebuilt sqlite binary for Apple Silicon and Intel, and no other platform", () => {
+    const prebuilds = entries.filter((entry) => entry.startsWith("node_modules/better-sqlite3/prebuilds/")).sort();
+    expect(prebuilds).toEqual([
+      "node_modules/better-sqlite3/prebuilds/darwin-arm64.node",
+      "node_modules/better-sqlite3/prebuilds/darwin-x64.node",
+    ]);
   });
 
   it("omits development dependencies and sources", () => {

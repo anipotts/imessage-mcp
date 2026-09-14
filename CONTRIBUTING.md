@@ -6,7 +6,7 @@ Use synthetic data only. Do not attach or commit Messages databases, WAL files, 
 
 1. Start from `main` and keep one focused change per commit.
 2. Extend the generated fixtures in `tests/fixture.ts`; never use a live database in an automated test.
-3. Run `npm ci`, `npm run verify`, and the relevant performance or protocol suite.
+3. Run `npm ci`, `npm run verify`, and the relevant performance or protocol suite. Before a release the maintainer runs `npm run preflight`, which adds the performance gate, the desktop bundle launch, and the bounded live parity check against a real archive (aggregate output only).
 4. Describe the public behavior, supported macOS and Node versions, privacy ceiling, Contacts mode, and synthetic coverage in the pull request.
 
 2.x remains read-only. Sending, modifying Messages or Contacts, persistent body indexes, public HTTP exposure, and live private-data fixtures are outside contribution scope.

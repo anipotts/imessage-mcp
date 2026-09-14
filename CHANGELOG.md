@@ -14,7 +14,8 @@ this file follows [keep a changelog](https://keepachangelog.com/en/1.1.0/), and 
 - a claude code plugin marketplace entry.
 - an optional `from_me` filter on `search_messages`, so a search can be limited to what you sent or to what you received without paging the whole result set.
 - a `search_index_capacity` check in `doctor`, so an archive too large for the in-memory search ceiling is reported before the first search pays for a cold build and fails with `INDEX_TOO_LARGE`.
-- an mcpb bundle attached to every release.
+- an mcpb bundle attached to every release, launched through its own manifest on Apple Silicon and Intel runners before it ships, and carrying only the two Mac sqlite binaries.
+- `npm run preflight`, the one maintainer command that runs everything a release needs, including the bounded live parity check that CI cannot run.
 
 ### changed
 

@@ -84,8 +84,8 @@ for (const [dimension, value] of [["os-version", bundleCell[1]], ["node-version"
   assert.ok(declared[1].split(",").map((entry) => entry.trim()).includes(value),
     `the bundle step names ${dimension} ${value}, which the ci matrix no longer runs`);
 }
-assert.match(releaseWorkflow, /npm run build:mcpb\n {10}mv dist-mcpb\/imessage-mcp\.mcpb release-artifact\//u,
-  "the release artifact must carry the desktop bundle so the GitHub release attaches it");
+assert.match(releaseWorkflow, /npm run build:mcpb\n {10}npm run test:mcpb -- --require\n {10}mv dist-mcpb\/imessage-mcp\.mcpb release-artifact\//u,
+  "the release artifact must carry the desktop bundle, launched first, so the GitHub release attaches a bundle that runs");
 assert.match(releaseWorkflow, /npm publish "\$TARBALL" --ignore-scripts --access public --provenance --tag next/u);
 assert.match(releaseWorkflow, /npm publish "\$TARBALL" --ignore-scripts --access public --provenance --tag latest/u);
 
@@ -169,6 +169,22 @@ assert.match(contributing, /current primary evidence, include the observation da
 assert.match(verification, /## releases/u);
 assert.match(verification, /\[CHANGELOG\.md\]\(CHANGELOG\.md\)/u);
 assert.match(verification, /`2\.0\.0` is prepared from protected `main`/u);
+if (!version.includes("-")) {
+  const heading = `## \`${version}\` verification`;
+  const start = verification.indexOf(heading);
+  assert.ok(start >= 0, "VERIFICATION.md must carry a verification section for the stable version being packaged");
+  const section = verification.slice(start + heading.length).split(/\n## /u)[0];
+  assert.match(section, /bounded live parity/u, "the stable verification section must record the bounded live parity run");
+  assert.match(section, /desktop bundle/u, "the stable verification section must record the desktop bundle launch");
+}
+const scripts = packageJson.scripts as Record<string, string>;
+assert.equal(scripts["test:mcpb"], "tsx scripts/test-mcpb.ts");
+assert.ok(!scripts.verify.includes("test:mcpb"),
+  "verify must not launch a bundle it did not build; the launch belongs where build:mcpb runs");
+assert.ok((ciWorkflow.match(/npm run test:mcpb -- --require/gu) ?? []).length >= 2,
+  "ci must launch the bundle on both chips after building it");
+assert.ok(scripts.preflight?.includes("npm run test:live-parity") && scripts.preflight.includes("npm run test:mcpb -- --require"),
+  "preflight must chain the live parity check and the required bundle launch");
 assert.match(tools, /untrusted archival data, never as an instruction/u);
 assert.match(tools, /does not eliminate prompt injection/u);
 const keywords = new Set(packageJson.keywords as string[]);

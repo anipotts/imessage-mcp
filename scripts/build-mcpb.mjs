@@ -5,7 +5,7 @@
 
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { cpSync, mkdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { cpSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -43,6 +43,21 @@ run("npm", ["ci", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund"], 
 // pack already drops lockfiles, source maps, and declarations. Delete the lock
 // anyway so the staged tree and the bundle stay the same set of files.
 rmSync(path.join(stage, "package-lock.json"));
+
+// better-sqlite3 ships one prebuilt binary per platform. The manifest limits the
+// bundle to darwin, so only the two Mac binaries stay; the rest is dead weight
+// that would otherwise ship to every user.
+const prebuilds = path.join(stage, "node_modules", "better-sqlite3", "prebuilds");
+for (const name of readdirSync(prebuilds)) {
+  if (!name.startsWith("darwin-")) rmSync(path.join(prebuilds, name), { recursive: true, force: true });
+}
+for (const required of ["darwin-arm64.node", "darwin-x64.node"]) {
+  try {
+    statSync(path.join(prebuilds, required));
+  } catch {
+    throw new Error(`better-sqlite3 no longer ships prebuilds/${required}; the desktop bundle needs both Mac binaries`);
+  }
+}
 
 // Fetch the packer by exact version and refuse to run it unless the tarball is
 // the reviewed one, rather than executing whatever a floating major resolves to.

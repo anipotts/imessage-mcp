@@ -40,6 +40,7 @@
     "test:watch": "vitest",
     "test:installed": "tsx scripts/test-installed.ts",
     "test:live-parity": "tsx scripts/test-live-parity.ts",
+    "test:mcpb": "tsx scripts/test-mcpb.ts",
     "test:performance": "npm run build && tsx scripts/test-performance.ts",
     "test:protocol": "tsx scripts/test-protocol.ts",
     "test:privacy": "vitest run tests/privacy.test.ts tests/security.test.ts",
@@ -47,7 +48,8 @@
     "demo:installed": "npm run build && tsx scripts/demo-installed.ts",
     "check:metadata": "tsx scripts/check-metadata.ts",
     "verify": "npm run build && npm run typecheck && npm test && npm run test:protocol && npm run test:installed && npm run check:metadata && npm audit --audit-level=high && npm pack --dry-run",
-    "prepublishOnly": "npm run verify"
+    "prepublishOnly": "npm run verify",
+    "preflight": "npm run verify && npm run test:performance && npm run build:mcpb && npm run test:mcpb -- --require && npm run test:live-parity"
   },
   "dependencies": {
     "@modelcontextprotocol/server": "2.0.0",

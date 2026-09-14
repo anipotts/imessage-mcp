@@ -2,11 +2,25 @@
 
 This report contains only synthetic, aggregate, or redacted evidence. It retains no live message text, contact values, database paths, tokens, or screenshots.
 
-Last updated: 2026-09-08 (local); new benchmark and demo timestamps are recorded in UTC.
+Last updated: 2026-09-14 (local); new benchmark and demo timestamps are recorded in UTC.
 
 ## releases
 
 Every published version, its assets, and its generated notes live in [GitHub releases](https://github.com/anipotts/imessage-mcp/releases); [CHANGELOG.md](CHANGELOG.md) records what changed in each one. `2.0.0` is prepared from protected `main`.
+
+## `2.0.0` verification
+
+Run on the release branch on 2026-09-14 with `npm run preflight`, which chains `npm run verify`, the million-message performance gate, the desktop bundle build and launch, and the bounded live parity check. Only aggregate values left the process.
+
+| evidence | result |
+| --- | --- |
+| fixture suite | 150 tests passed across 9 files; seven tools and three prompts over stdio and authenticated HTTP |
+| package | 144 allowlisted files, 213.2 kB packed; installed dependency graph unchanged at nine nodes |
+| desktop bundle | 6.7 MB `imessage-mcp.mcpb` after dropping the six non-Mac sqlite binaries; unpacked and launched through the manifest's own `mcp_config` at each privacy ceiling (full, redacted, aggregate) with handles; each launch reported version 2.0.0, listed seven titled tools with output schemas and three prompts, opened a synthetic database through the bundled `darwin-arm64` sqlite binary, and refused to raise the ceiling above the dialog setting; a fourth launch confirmed that live Contacts against a copied database exits 1 with `INVALID_INPUT` and no path in the message; the Intel launch runs on the `macos 26 intel package smoke` job |
+| million-message fixture | 15.416 s cold index, 4 ms warm search, 15.546 s after a database update |
+| bounded live parity | 375 of 375 stratified attributed bodies matched the populated text column across iMessage, SMS/MMS, and RCS; seven tools passed in aggregate mode with zero leaked probe values; cold search 42.3 s on a 174,534-message archive; no private values emitted |
+
+The bundle launch test replaces the earlier claim that the bundle had only been schema-validated. What it does not cover is the Claude Desktop install dialog itself, which is a manual double-click on each release.
 
 ## RC.2 verification
 

@@ -54,6 +54,7 @@ jobs:
           TARBALL=$(npm pack --json --pack-destination release-artifact | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>process.stdout.write(JSON.parse(s)[0].filename))")
           test -f "release-artifact/${TARBALL}"
           npm run build:mcpb
+          npm run test:mcpb -- --require
           mv dist-mcpb/imessage-mcp.mcpb release-artifact/
           test -f release-artifact/imessage-mcp.mcpb
           echo "tarball=${TARBALL}" >> "$GITHUB_OUTPUT"

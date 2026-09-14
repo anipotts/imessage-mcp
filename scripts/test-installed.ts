@@ -12,6 +12,7 @@ import { runtimeConfig } from "../src/config.js";
 import { createFixture } from "../tests/fixture.js";
 import { runStdio } from "./test-protocol.js";
 import { assertPackedPackage } from "./package-manifest.js";
+import { cleanEnvironment } from "./launch-env.js";
 
 interface PackResult {
   filename: string;
@@ -45,23 +46,6 @@ function dependencyNodes(value: { dependencies?: Record<string, unknown> }): num
   );
 }
 
-function cleanEnvironment(extra: Record<string, string>): Record<string, string> {
-  const blocked = new Set([
-    "IMESSAGE_REFERENCE_KEY",
-    "IMESSAGE_REFERENCE_KEY_FILE",
-    "IMESSAGE_DATABASE_ID",
-    "IMESSAGE_DATABASE_ID_FILE",
-    "IMESSAGE_STATE_DIR",
-  ]);
-  return {
-    ...Object.fromEntries(
-      Object.entries(process.env).filter(
-        (entry): entry is [string, string] => entry[1] !== undefined && !blocked.has(entry[0]),
-      ),
-    ),
-    ...extra,
-  };
-}
 
 async function runCleanRoomFirstRequest(binary: string, fixture: ReturnType<typeof createFixture>, scratch: string): Promise<void> {
   const referenceKeyFile = path.join(scratch, "reference-key");

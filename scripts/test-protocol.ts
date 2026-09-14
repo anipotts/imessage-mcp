@@ -21,7 +21,7 @@ const TOOL_TITLES: Record<string, string> = {
   sync_messages: "Sync messages",
 };
 
-const TOOL_NAMES = Object.keys(TOOL_TITLES).sort();
+export const TOOL_NAMES = Object.keys(TOOL_TITLES).sort();
 
 const ANALYTICS_METRICS = ["message_count", "response_time", "streaks", "initiation"] as const;
 
@@ -240,7 +240,7 @@ async function exercise(client: Client, privacy: "full" | "redacted"): Promise<s
   return conversationRef;
 }
 
-const PROMPT_ARGUMENTS: Record<string, string[]> = {
+export const PROMPT_ARGUMENTS: Record<string, string[]> = {
   catch_up: ["contact", "days"],
   draft_reply: ["contact", "intent"],
   who_said: ["query"],

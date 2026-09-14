@@ -70,7 +70,7 @@ codex mcp add imessage -- npx -y imessage-mcp@2
 
 ### Claude Desktop bundle
 
-Claude Desktop also installs from a bundle, which leaves `claude_desktop_config.json` untouched. Download `imessage-mcp.mcpb` from the [latest release](https://github.com/anipotts/imessage-mcp/releases/latest) and double-click it. The bundle carries `dist`, `bin`, `native`, and the production `node_modules`, so nothing resolves from npm at launch, and it runs on the Node.js that ships with Claude Desktop.
+Claude Desktop also installs from a bundle, which leaves `claude_desktop_config.json` untouched. Download `imessage-mcp.mcpb` from the [latest release](https://github.com/anipotts/imessage-mcp/releases/latest) and double-click it. The bundle carries `dist`, `bin`, `native`, and the production `node_modules` with the two Mac sqlite binaries, so nothing resolves from npm at launch, and it runs on the Node.js that ships with Claude Desktop. `npm run test:mcpb` unpacks the bundle and starts it exactly as the app would, resolving `${__dirname}` and each `user_config` value, then checks the handshake, the tools and prompts, a database read, and that a caller cannot raise the ceiling above the dialog setting. CI runs it on both chips and the release job runs it before attaching the file.
 
 The install dialog exposes two settings, both mapped into the launch arguments:
 

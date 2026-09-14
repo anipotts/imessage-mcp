@@ -37,6 +37,9 @@ jobs:
       - if: matrix.os-version == 26 && matrix.node-version == 24
         run: npm run build:mcpb
       - run: npm run verify
+      # verify never launches the bundle; this cell built one, so launch it here.
+      - if: matrix.os-version == 26 && matrix.node-version == 24
+        run: npm run test:mcpb -- --require
 
   intel-package-smoke:
     name: macos 26 intel package smoke
@@ -52,6 +55,9 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npm run test:installed
+      # the desktop bundle carries one sqlite binary per chip; this is the Intel launch.
+      - run: npm run build:mcpb
+      - run: npm run test:mcpb -- --require
 
   performance:
     name: million-message performance (macos 14, node 24)

@@ -106,7 +106,7 @@ To remove it:
 
 ## desktop bundle
 
-Claude Desktop installs without a configuration file. Download `imessage-mcp.mcpb` from the [latest release](https://github.com/anipotts/imessage-mcp/releases/latest), double-click it, and confirm. Then grant Full Disk Access to Claude Desktop and restart it.
+Claude Desktop installs without a configuration file. Download `imessage-mcp.mcpb` from the [latest release](https://github.com/anipotts/imessage-mcp/releases/latest), double-click it, and confirm. Then grant Full Disk Access to Claude Desktop and restart it. Every release launches the bundle through its own manifest on Apple Silicon and Intel runners before it is attached.
 
 The install dialog carries the two startup settings, the privacy ceiling and contact names. Leave them alone to get the same defaults the `npx` command starts with. [Details](docs/GUIDE.md#claude-desktop-bundle).
 
