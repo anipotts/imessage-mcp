@@ -41,6 +41,24 @@ assert.equal(server.version, version);
 assert.equal(desktopManifest.name, "imessage-mcp");
 assert.equal(desktopManifest.version, version, "manifest.json version must match package.json version");
 assert.equal((desktopManifest.server as Record<string, unknown>).type, "node");
+const pngSize = (file: string) => {
+  const bytes = readFileSync(file);
+  assert.equal(bytes.subarray(0, 8).toString("hex"), "89504e470d0a1a0a", `${file} must be a PNG`);
+  return `${bytes.readUInt32BE(16)}x${bytes.readUInt32BE(20)}`;
+};
+const desktopIcons = desktopManifest.icons as Array<{ src: string; size: string }>;
+assert.deepEqual(desktopIcons.map((icon) => icon.size), ["16x16", "32x32", "64x64", "128x128", "256x256", "512x512"]);
+for (const icon of desktopIcons) assert.equal(pngSize(icon.src), icon.size, `${icon.src} must be ${icon.size}`);
+assert.equal(desktopManifest.icon, "assets/icon-512.png");
+const registryIcons = server.icons as Array<{ src: string; mimeType: string; sizes: string[] }>;
+const rawBase = `https://raw.githubusercontent.com/anipotts/imessage-mcp/v${version}/`;
+assert.deepEqual(registryIcons.map((icon) => icon.src),
+  [`${rawBase}assets/icon.svg`, `${rawBase}assets/icon-512.png`],
+  "server.json icons must point at this version's tag so the registry image never changes under a published version");
+for (const icon of registryIcons) {
+  assert.ok(icon.src.length <= 255, "registry icon URLs are limited to 255 characters");
+  assert.ok(existsSync(icon.src.slice(rawBase.length)), `${icon.src} has no committed file`);
+}
 assert.ok(!(packageJson.files as string[]).includes("manifest.json"),
   "the npm tarball must not carry the desktop bundle manifest");
 assert.equal(packageJson.mcpName, server.name);

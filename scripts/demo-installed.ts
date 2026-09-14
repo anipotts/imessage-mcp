@@ -87,7 +87,11 @@ try {
   const digest = createHash("sha256").update(readFileSync("assets/demo.gif")).digest("hex");
   writeFileSync("assets/manifest.json", JSON.stringify({
     schema_version: 2, subject_version: version, channel: version.includes("-") ? "next" : "latest",
-    assets: [{ path: "assets/demo.gif", sha256: digest, width: 1080, height: 480 }],
+    assets: [
+      { path: "assets/demo.gif", sha256: digest, width: 1080, height: 480 },
+      ...(JSON.parse(readFileSync("assets/manifest.json", "utf8")) as { assets: Array<{ path: string }> })
+        .assets.filter((asset) => asset.path !== "assets/demo.gif"),
+    ],
   }, null, 2) + "\n");
   writeFileSync("docs/DEMO.md", `# Installed demo\n\n![Installed imessage-mcp demo with synthetic data](../assets/demo.gif)\n\n` +
     `Recorded on ${new Date().toISOString().slice(0, 10)} using Node ${process.version}. The script packs the checkout, installs that tarball into an empty project, runs doctor through npx, and calls the installed server through the MCP SDK. All Messages data is synthetic. The GIF renders the captured responses; it does not show a named client app or a clean Mac installation. Paths are abbreviated.\n\n` +

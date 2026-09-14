@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "imessage-mcp",
   "display_name": "iMessage",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Read-only MCP for iMessage, SMS, MMS, and RCS history in Apple Messages on Mac",
   "author": {
     "name": "Ani Potts",
@@ -15,6 +15,33 @@
   "homepage": "https://github.com/anipotts/imessage-mcp",
   "documentation": "https://github.com/anipotts/imessage-mcp/blob/main/docs/GUIDE.md",
   "support": "https://github.com/anipotts/imessage-mcp/issues",
+  "icon": "assets/icon-512.png",
+  "icons": [
+    {
+      "src": "assets/icon-16.png",
+      "size": "16x16"
+    },
+    {
+      "src": "assets/icon-32.png",
+      "size": "32x32"
+    },
+    {
+      "src": "assets/icon-64.png",
+      "size": "64x64"
+    },
+    {
+      "src": "assets/icon-128.png",
+      "size": "128x128"
+    },
+    {
+      "src": "assets/icon-256.png",
+      "size": "256x256"
+    },
+    {
+      "src": "assets/icon-512.png",
+      "size": "512x512"
+    }
+  ],
   "license": "MIT",
   "server": {
     "type": "node",

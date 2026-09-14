@@ -8,6 +8,18 @@ Last updated: 2026-09-14 (local); new benchmark and demo timestamps are recorded
 
 Every published version, its assets, and its generated notes live in [GitHub releases](https://github.com/anipotts/imessage-mcp/releases); [CHANGELOG.md](CHANGELOG.md) records what changed in each one. `2.0.0` is prepared from protected `main`.
 
+## `2.0.1` verification
+
+Run on the release branch on 2026-09-14. 2.0.1 adds the icon and the ci concurrency fix; runtime behavior is unchanged, so every 2.0.0 gate was repeated rather than replaced.
+
+| evidence | result |
+| --- | --- |
+| fixture suite | 150 tests passed, including the six desktop bundle content checks against a freshly built bundle; seven tools and three prompts over stdio and authenticated HTTP, and both transports announce the title, website, and the SVG and 64 px PNG icons byte for byte |
+| package | installed tarball passed with nine dependency nodes; the packed asset manifest now records `assets/icon.svg` (1024 by 1024, static drawing) and `assets/icon-64.png` with their hashes |
+| desktop bundle | 6.8 MB `imessage-mcp.mcpb`; the manifest validator passed its icon check; launched through its own `mcp_config` at each privacy ceiling, each launch announced the icons, and every manifest icon file in the bundle matched its declared size |
+| million-message fixture | 22.253 s cold index, 7 ms warm search, 23.051 s after a database update |
+| bounded live parity | 375 of 375 stratified attributed bodies matched across iMessage, SMS/MMS, and RCS; seven tools passed in aggregate mode with zero leaked probe values; cold search 60.7 s, inside the 90 s ceiling; no private values emitted |
+
 ## `2.0.0` verification
 
 Run on the release branch on 2026-09-14 with `npm run preflight`, which chains `npm run verify`, the million-message performance gate, the desktop bundle build and launch, and the bounded live parity check. Only aggregate values left the process.
