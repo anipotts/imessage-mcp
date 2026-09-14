@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
-import { lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -51,6 +51,7 @@ function cleanEnvironment(extra: Record<string, string>): Record<string, string>
     "IMESSAGE_REFERENCE_KEY_FILE",
     "IMESSAGE_DATABASE_ID",
     "IMESSAGE_DATABASE_ID_FILE",
+    "IMESSAGE_STATE_DIR",
   ]);
   return {
     ...Object.fromEntries(
@@ -104,6 +105,39 @@ async function runCleanRoomFirstRequest(binary: string, fixture: ReturnType<type
   } finally {
     await client.close();
   }
+}
+
+async function runCleanRoomGeneratedKeys(binary: string, fixture: ReturnType<typeof createFixture>, scratch: string): Promise<void> {
+  const stateDirectory = path.join(scratch, "generated-state");
+  assert.equal(existsSync(stateDirectory), false);
+
+  const transport = new StdioClientTransport({
+    command: binary,
+    args: ["--database", fixture.databasePath, "--contacts", "none", "--privacy", "redacted"],
+    cwd: scratch,
+    env: cleanEnvironment({ IMESSAGE_STATE_DIR: stateDirectory }),
+    stderr: "pipe",
+  });
+  const client = new Client({ name: "clean-room-generated-keys", version: "1.0.0" });
+  try {
+    await client.connect(transport);
+    const status = await client.callTool({
+      name: "server_status",
+      arguments: { privacy_mode: "redacted" },
+    });
+    assert.equal(status.isError, undefined);
+  } finally {
+    await client.close();
+  }
+
+  const generated = readdirSync(stateDirectory).sort();
+  assert.equal(generated.length, 2);
+  assert.equal(generated[1], "reference-key");
+  assert.match(generated[0], /^database-id-[0-9a-f]{16}$/u);
+  for (const name of generated) {
+    assert.equal(lstatSync(path.join(stateDirectory, name)).mode & 0o777, 0o600);
+  }
+  assert.equal(lstatSync(stateDirectory).mode & 0o777, 0o700);
 }
 
 async function runInstalledRuntimePrivacy(installedRoot: string, fixture: ReturnType<typeof createFixture>): Promise<void> {
@@ -237,6 +271,7 @@ async function main(): Promise<void> {
       detail: "disabled by --contacts none; using handles only",
     });
     await runCleanRoomFirstRequest(binary, fixture, scratch);
+    await runCleanRoomGeneratedKeys(binary, fixture, scratch);
     await runStdio(binary, [], fixture);
     await runInstalledRuntimePrivacy(installedRoot, fixture);
 
@@ -262,7 +297,8 @@ async function main(): Promise<void> {
     process.stdout.write(
       `installed tarball verification passed: ${installedNodes} dependency nodes, ` +
       `${(installedBytes / (1024 * 1024)).toFixed(1)} MiB, package contents, help, doctor, ` +
-      `clean-room redacted first run, stdio MCP handshake, exported runtime privacy, and JSON config-shape check (no client apps launched)\n`,
+      `clean-room redacted first run, zero-config generated 0600 state files, stdio MCP handshake, ` +
+      `exported runtime privacy, and JSON config-shape check (no client apps launched)\n`,
     );
   } finally {
     fixture.cleanup();

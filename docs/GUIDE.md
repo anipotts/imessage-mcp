@@ -15,7 +15,15 @@ This guide contains the operational detail intentionally kept out of the main RE
 npx -y imessage-mcp@2.0.0-rc.2 doctor --contacts none --privacy redacted
 ```
 
-Keep the two setup files: one protects conversation references, and the other identifies the Messages database. Reuse both after a restart so saved references still work. Prefer operator-owned, non-symlink regular files with mode `0600` through `IMESSAGE_REFERENCE_KEY_FILE` and `IMESSAGE_DATABASE_ID_FILE`. Protected supervisors may instead use `IMESSAGE_REFERENCE_KEY` and `IMESSAGE_DATABASE_ID`. Set exactly one source for each value.
+## state directory
+
+Two private values keep opaque references stable: one protects conversation references, and the other identifies the Messages database lineage. Both are generated on first run as `0600` files in `~/Library/Application Support/imessage-mcp`, a `0700` directory. `IMESSAGE_STATE_DIR` moves that directory, which is how the test suites keep generated values out of a real home.
+
+Keep those files private and back them up with the rest of your home directory. Losing them invalidates saved references without touching Messages data.
+
+The live database uses `reference-key` and `database-id`. A database opened with `--database` is treated as a copy and gets its own `database-id-<lineage>` file, named from the copy's path, so unrelated archives never share an identity. To pin a faithful copy that moved to a new path back onto the original lineage, pass the original value explicitly.
+
+Explicit configuration still wins over the generated defaults. Use operator-owned, non-symlink regular files with mode `0600` through `IMESSAGE_REFERENCE_KEY_FILE` and `IMESSAGE_DATABASE_ID_FILE`. Protected supervisors may instead use `IMESSAGE_REFERENCE_KEY` and `IMESSAGE_DATABASE_ID`. Set at most one source for each value.
 
 ## client setup
 
@@ -24,19 +32,13 @@ All examples use the collision-resistant namespace `imessage-history`, disable C
 ### Claude Code
 
 ```sh
-claude mcp add imessage-history \
-  -e IMESSAGE_REFERENCE_KEY_FILE="$IMESSAGE_REFERENCE_KEY_FILE" \
-  -e IMESSAGE_DATABASE_ID_FILE="$IMESSAGE_DATABASE_ID_FILE" \
-  -- npx -y imessage-mcp@2.0.0-rc.2 --contacts none --privacy redacted
+claude mcp add imessage-history -- npx -y imessage-mcp@2.0.0-rc.2 --contacts none --privacy redacted
 ```
 
 ### Codex
 
 ```sh
-codex mcp add \
-  --env IMESSAGE_REFERENCE_KEY_FILE="$IMESSAGE_REFERENCE_KEY_FILE" \
-  --env IMESSAGE_DATABASE_ID_FILE="$IMESSAGE_DATABASE_ID_FILE" \
-  imessage-history -- npx -y imessage-mcp@2.0.0-rc.2 --contacts none --privacy redacted
+codex mcp add imessage-history -- npx -y imessage-mcp@2.0.0-rc.2 --contacts none --privacy redacted
 ```
 
 ### Claude Desktop and Cursor
@@ -46,11 +48,7 @@ codex mcp add \
   "mcpServers": {
     "imessage-history": {
       "command": "npx",
-      "args": ["-y", "imessage-mcp@2.0.0-rc.2", "--contacts", "none", "--privacy", "redacted"],
-      "env": {
-        "IMESSAGE_REFERENCE_KEY_FILE": "/Users/you/.imessage-mcp-reference-key",
-        "IMESSAGE_DATABASE_ID_FILE": "/Users/you/.imessage-mcp-database-id"
-      }
+      "args": ["-y", "imessage-mcp@2.0.0-rc.2", "--contacts", "none", "--privacy", "redacted"]
     }
   }
 }

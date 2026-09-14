@@ -2,7 +2,7 @@ import { release, userInfo } from "node:os";
 import path from "node:path";
 import type { PrivacyMode } from "./contracts.js";
 import { ImessageMcpError } from "./errors.js";
-import { loadDatabaseId, loadReferenceKey } from "./secrets.js";
+import { resolveDatabaseId, resolveReferenceKey, type ResolvedSecret, type SecretSource } from "./keys.js";
 
 export type TransportKind = "stdio" | "http";
 
@@ -16,6 +16,8 @@ export interface RuntimeConfig {
   attachment_paths_enabled: boolean;
   reference_key: string | null;
   database_id: string | null;
+  reference_key_source?: SecretSource;
+  database_id_source?: SecretSource;
 }
 
 export function resolveDefaultDatabasePath(): string {
@@ -84,9 +86,13 @@ export function runtimeConfig(input: {
   if (attachmentEnvironment !== undefined && attachmentEnvironment !== "0" && attachmentEnvironment !== "1") {
     throw new ImessageMcpError("INVALID_INPUT", "IMESSAGE_ATTACHMENT_PATHS must be 0 or 1");
   }
-  const referenceKey = input.referenceKey ?? loadReferenceKey(false);
-  const databaseId = input.databaseId ?? loadDatabaseId(false);
-  if (referenceKey && databaseId && referenceKey.equals(databaseId)) {
+  const referenceKey: ResolvedSecret = input.referenceKey
+    ? { value: input.referenceKey, source: "caller" }
+    : resolveReferenceKey();
+  const databaseId: ResolvedSecret = input.databaseId
+    ? { value: input.databaseId, source: "caller" }
+    : resolveDatabaseId(databasePath, sourceMode);
+  if (referenceKey.value.equals(databaseId.value)) {
     throw new ImessageMcpError(
       "INVALID_INPUT",
       "opaque-reference key and database-lineage identity must be generated independently",
@@ -101,7 +107,9 @@ export function runtimeConfig(input: {
     transport: input.transport,
     port,
     attachment_paths_enabled: input.attachmentPaths ?? attachmentEnvironment === "1",
-    reference_key: referenceKey?.toString("base64") ?? null,
-    database_id: databaseId?.toString("base64") ?? null,
+    reference_key: referenceKey.value.toString("base64"),
+    database_id: databaseId.value.toString("base64"),
+    reference_key_source: referenceKey.source,
+    database_id_source: databaseId.source,
   };
 }

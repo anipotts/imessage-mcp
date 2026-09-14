@@ -1,7 +1,8 @@
-import { accessSync, constants, existsSync, readFileSync } from "node:fs";
+import { accessSync, constants, existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { RuntimeConfig } from "../config.js";
+import { stateDirectory, type SecretSource } from "../keys.js";
 import { DatabaseContext } from "../database.js";
 import { MessageTextDecoder } from "../decoder.js";
 import { UnifiedContactResolver } from "../contacts.js";
@@ -92,20 +93,45 @@ export async function doctor(config: RuntimeConfig, json: boolean): Promise<numb
   }
   const decoder = new MessageTextDecoder();
   checks.push({ name: "decoder", status: await decoder.selfTest() ? "pass" : "fail", detail: decoder.healthState() === "healthy" ? "Foundation decoder self-test passed" : "Foundation decoder self-test failed" });
+  const stateDirectoryPath = stateDirectory();
+  const describeSource = (source: SecretSource | undefined): string => {
+    if (source === "default file") return `default file in ${stateDirectoryPath}`;
+    if (source === "environment" || source === "environment file") return source;
+    return "the calling process";
+  };
   checks.push({
     name: "reference_key",
     status: config.reference_key ? "pass" : "fail",
     detail: config.reference_key
-      ? "stable opaque-reference authentication is configured"
+      ? `stable opaque-reference authentication is configured from ${describeSource(config.reference_key_source)}`
       : "configure IMESSAGE_REFERENCE_KEY or an operator-owned 0600 IMESSAGE_REFERENCE_KEY_FILE",
   });
   checks.push({
     name: "database_id",
     status: config.database_id ? "pass" : "fail",
     detail: config.database_id
-      ? "operator-controlled database lineage is configured"
+      ? `database lineage identity is configured from ${describeSource(config.database_id_source)}`
       : "configure IMESSAGE_DATABASE_ID or an operator-owned 0600 IMESSAGE_DATABASE_ID_FILE",
   });
+  try {
+    const stateStat = statSync(stateDirectoryPath);
+    const mode = stateStat.mode & 0o777;
+    const owned = !process.getuid || stateStat.uid === process.getuid();
+    const secure = stateStat.isDirectory() && mode === 0o700 && owned;
+    checks.push({
+      name: "state_dir",
+      status: secure ? "pass" : "warn",
+      detail: secure
+        ? `${stateDirectoryPath} is owner-only with mode 0700`
+        : `${stateDirectoryPath} has mode 0${mode.toString(8).padStart(3, "0")}; restrict it to the owner with chmod 700`,
+    });
+  } catch {
+    checks.push({
+      name: "state_dir",
+      status: "warn",
+      detail: `${stateDirectoryPath} is not present; generated keys go there on first run`,
+    });
+  }
   if (config.transport === "http") {
     try {
       validateHttpConfiguration();

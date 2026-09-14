@@ -76,8 +76,18 @@ assert.match(guide, /different identity for every unrelated archive/u);
 assert.match(guide, /They do not launch Codex, Claude Desktop, Claude Code, or Cursor/u);
 assert.ok(!readme.includes("`mcpServers.imessage`"), "generic imessage client namespace must not be documented");
 assert.ok((setupDocs.match(/imessage-history/gu) ?? []).length >= 5, "all named client examples must use imessage-history");
-assert.match(readme, /IMESSAGE_REFERENCE_KEY_FILE/u);
-assert.match(readme, /IMESSAGE_DATABASE_ID_FILE/u);
+assert.match(guide, /IMESSAGE_REFERENCE_KEY_FILE/u);
+assert.match(guide, /IMESSAGE_DATABASE_ID_FILE/u);
+assert.match(guide, /## state directory/u);
+assert.match(guide, /IMESSAGE_STATE_DIR/u);
+assert.doesNotMatch(readme, /openssl rand/u, "the README setup must not ask for hand-made key files");
+const serverEnvironment = (packages[0].environmentVariables as Array<Record<string, unknown>>) ?? [];
+for (const name of ["IMESSAGE_REFERENCE_KEY_FILE", "IMESSAGE_DATABASE_ID_FILE"]) {
+  const variable = serverEnvironment.find((entry) => entry.name === name);
+  assert.ok(variable, `server.json must document ${name}`);
+  assert.equal(variable.isRequired, false, `${name} is generated on first run and must not be required`);
+  assert.match(String(variable.description), /generated on first run/u);
+}
 const documentedVersions = [...setupDocs.matchAll(/imessage-mcp@([0-9][0-9A-Za-z.-]*)/gu)].map((match) => match[1]);
 assert.ok(documentedVersions.length >= 5, "every install and persistent client example must use an exact package version");
 assert.deepEqual([...new Set(documentedVersions)], [version]);

@@ -17,24 +17,20 @@ Try questions like:
 
 You need macOS 14+, Node.js 22 or newer, and Messages history on this Mac.
 
-Create the two private setup files once, then run the diagnostic:
-
-```sh
-umask 077
-test -e "$HOME/.imessage-mcp-reference-key" || openssl rand -base64 32 > "$HOME/.imessage-mcp-reference-key"
-test -e "$HOME/.imessage-mcp-database-id" || openssl rand -base64 32 > "$HOME/.imessage-mcp-database-id"
-export IMESSAGE_REFERENCE_KEY_FILE="$HOME/.imessage-mcp-reference-key"
-export IMESSAGE_DATABASE_ID_FILE="$HOME/.imessage-mcp-database-id"
-npx -y imessage-mcp@2.0.0-rc.2 doctor --contacts none --privacy redacted
-```
-
 Add it to Claude Code:
 
 ```sh
-claude mcp add imessage-history \
-  -e IMESSAGE_REFERENCE_KEY_FILE="$IMESSAGE_REFERENCE_KEY_FILE" \
-  -e IMESSAGE_DATABASE_ID_FILE="$IMESSAGE_DATABASE_ID_FILE" \
-  -- npx -y imessage-mcp@2.0.0-rc.2 --contacts none --privacy redacted
+claude mcp add imessage-history -- npx -y imessage-mcp@2.0.0-rc.2 --contacts none --privacy redacted
+```
+
+There is nothing else to create. The server generates its two private values on
+first run under `~/Library/Application Support/imessage-mcp`, and reuses them
+after a restart so saved conversation references keep working.
+
+To check the setup without a client, run the read-only diagnostic:
+
+```sh
+npx -y imessage-mcp@2.0.0-rc.2 doctor --contacts none --privacy redacted
 ```
 
 Restart the client and ask it to list your five most recent conversations. See the [setup guide](docs/GUIDE.md#client-setup) for Codex, Claude Desktop, and Cursor.
@@ -43,7 +39,7 @@ This setup returns names, masked handles, and calendar days, with no message bod
 
 If `doctor` reports a database permission problem, grant Full Disk Access to the application launching the server, restart it, and run the diagnostic again. macOS grants that access to the whole application or shell, not narrowly to `imessage-mcp`. The diagnostic explains failed checks without changing settings.
 
-Keep the two setup files private. They let saved conversation references survive restarts. A faithful database copy uses the same files; an unrelated archive needs a new database identity. [Details](docs/GUIDE.md#live-and-copied-databases).
+A faithful database copy keeps its references only on the identity it was created with; an unrelated archive gets its own. [Details](docs/GUIDE.md#live-and-copied-databases).
 
 ## seven tools
 

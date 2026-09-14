@@ -30,9 +30,9 @@ Options:
       --attachment-paths      Permit absolute attachment paths at a full ceiling
       --json                  JSON output for doctor
 
-Before normal use, set operator-owned 0600 files with at least 32 random bytes:
-  IMESSAGE_REFERENCE_KEY_FILE=/secure/path/reference-key
-  IMESSAGE_DATABASE_ID_FILE=/secure/path/database-id
+The reference key and database identity are generated on first run under
+~/Library/Application Support/imessage-mcp, and IMESSAGE_REFERENCE_KEY_FILE or
+IMESSAGE_DATABASE_ID_FILE pin either value to a file you control.
 
 HTTP additionally requires IMESSAGE_API_TOKEN or IMESSAGE_API_TOKEN_FILE.
 Full Disk Access belongs to the launching MCP client. Start with redacted and

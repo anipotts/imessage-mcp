@@ -39,13 +39,13 @@
         },
         {
           "name": "IMESSAGE_REFERENCE_KEY_FILE",
-          "description": "Operator-owned 0600 regular file containing at least 32 random bytes for stable authenticated opaque references.",
-          "isRequired": true
+          "description": "Optional. The opaque-reference key is generated on first run in the state directory; set this to pin it to an operator-owned 0600 regular file of at least 32 random bytes.",
+          "isRequired": false
         },
         {
           "name": "IMESSAGE_DATABASE_ID_FILE",
-          "description": "Operator-owned 0600 regular file containing a unique random identity for this database lineage and its faithful copies.",
-          "isRequired": true
+          "description": "Optional. The database-lineage identity is generated on first run in the state directory; set this to pin a copy to the original lineage through an operator-owned 0600 regular file.",
+          "isRequired": false
         }
       ],
       "runtimeHint": "node"
