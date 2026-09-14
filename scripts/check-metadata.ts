@@ -65,6 +65,11 @@ assert.deepEqual(registered.sort(), [
   "sync_messages",
 ]);
 
+const registeredPrompts = [...tools.matchAll(/server\.registerPrompt\(\s*\n\s*"([a-z_]+)"/gu)].map((match) => match[1]);
+assert.deepEqual(registeredPrompts.sort(), ["catch_up", "draft_reply", "who_said"]);
+assert.match(readme, /## prompts/u);
+for (const prompt of registeredPrompts) assert.ok(readme.includes(`\`${prompt}\``), `README must document prompt ${prompt}`);
+
 assert.match(readme, /seven read-only tools/u);
 assert.match(readme, /Local execution does not control how your MCP client or model provider processes or retains returned results\./u);
 assert.match(readme, /Every 2\.x tool reads data only\./u);

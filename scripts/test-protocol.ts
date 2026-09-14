@@ -215,6 +215,35 @@ async function exercise(client: Client, privacy: "full" | "redacted"): Promise<s
   return conversationRef;
 }
 
+const PROMPT_ARGUMENTS: Record<string, string[]> = {
+  catch_up: ["contact", "days"],
+  draft_reply: ["contact", "intent"],
+  who_said: ["query"],
+};
+
+async function exercisePrompts(client: Client): Promise<void> {
+  const listed = await client.listPrompts();
+  assert.deepEqual(listed.prompts.map((prompt) => prompt.name).sort(), Object.keys(PROMPT_ARGUMENTS).sort());
+  for (const prompt of listed.prompts) {
+    const expectedArgs = PROMPT_ARGUMENTS[prompt.name];
+    assert.deepEqual((prompt.arguments ?? []).map((argument) => argument.name).sort(), [...expectedArgs].sort());
+  }
+
+  const contactName = "Synthetic Test Contact";
+  const catchUp = await client.getPrompt({ name: "catch_up", arguments: { contact: contactName, days: "3" } });
+  const catchUpText = catchUp.messages.map((message) => (message.content as { text?: string }).text ?? "").join("\n");
+  assert.match(catchUpText, new RegExp(contactName.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
+  assert.match(catchUpText, /read-only/u);
+
+  const draft = await client.getPrompt({ name: "draft_reply", arguments: { contact: contactName } });
+  const draftText = draft.messages.map((message) => (message.content as { text?: string }).text ?? "").join("\n");
+  assert.match(draftText, /cannot send/u);
+
+  const whoSaid = await client.getPrompt({ name: "who_said", arguments: { query: "synthetic phrase" } });
+  const whoSaidText = whoSaid.messages.map((message) => (message.content as { text?: string }).text ?? "").join("\n");
+  assert.match(whoSaidText, /synthetic phrase/u);
+}
+
 async function exerciseAggregate(client: Client, conversationRef: string): Promise<void> {
   const status = await client.callTool({ name: "server_status", arguments: { privacy_mode: "aggregate" } });
   const listed = await client.listTools();
@@ -279,6 +308,7 @@ export async function runStdio(command: string, args: string[], fixture: Fixture
     const conversationRef = await exercise(client, "full");
     await exercise(client, "redacted");
     await exerciseAggregate(client, conversationRef);
+    await exercisePrompts(client);
   } finally {
     await client.close();
   }
@@ -608,7 +638,7 @@ async function main(): Promise<void> {
     const stdioArgs = commandArg ? [] : ["bin/imessage-mcp.js"];
     await runStdio(stdioCommand, stdioArgs, fixture);
     if (!process.argv.includes("--skip-http")) await runHttp(fixture);
-    process.stdout.write("protocol verification passed: seven tools over stdio and authenticated stateless HTTP\n");
+    process.stdout.write("protocol verification passed: seven tools, three prompts, over stdio and authenticated stateless HTTP\n");
   } finally {
     fixture.cleanup();
   }

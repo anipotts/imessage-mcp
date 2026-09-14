@@ -59,6 +59,18 @@ Keep the two setup files private. They let saved conversation references survive
 
 Every 2.x tool reads data only. The server cannot send or modify messages, and it does not recover unsent text or old edited versions. Each tool advertises a display title and an output schema for its success envelope, so a client can label it and check the structured result.
 
+## prompts
+
+The server also advertises three prompts, which a compatible client (Claude Code included) surfaces as slash commands.
+
+| prompt | arguments | what it asks the assistant to do |
+| --- | --- | --- |
+| `catch_up` | `contact`, `days` (default 7) | resolve the contact, read the recent conversation, and summarize what needs a reply |
+| `draft_reply` | `contact`, `intent` (optional) | read the latest messages and draft a reply in the user's own style, for the user to send |
+| `who_said` | `query` | search messages and list who said it, when, and in which conversation |
+
+Prompts are text templates the client sends back to the assistant; none of them can send a message, since the server has no send tool.
+
 ## privacy
 
 The startup setting is the most a caller can see. A request can choose the same mode or a stricter one:
