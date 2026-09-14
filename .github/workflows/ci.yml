@@ -32,6 +32,10 @@ jobs:
           cache: npm
           package-manager-cache: true
       - run: npm ci
+      # tests/mcpb.test.ts skips its content checks unless the bundle is on
+      # disk, so one cell packs it first and gates the shipped artifact.
+      - if: matrix.os-version == 26 && matrix.node-version == 24
+        run: npm run build:mcpb
       - run: npm run verify
 
   intel-package-smoke:

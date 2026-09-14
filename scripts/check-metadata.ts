@@ -72,6 +72,18 @@ assert.ok(changelog.split(/\r?\n/u).includes(`## ${version}`),
   `CHANGELOG.md must carry a "## ${version}" heading for the packaged version`);
 assert.match(releaseWorkflow, /\n {2}push:\n {4}tags:\n {6}- "v\[0-9\]\*"\n/u,
   "the release workflow must be driven by a version tag push");
+// tests/mcpb.test.ts checks the bundle's contents only when the bundle is on
+// disk, so one ci cell has to pack it before vitest runs. Hold that cell to a
+// matrix combination that actually exists.
+const ciWorkflow = readFileSync(".github/workflows/ci.yml", "utf8");
+const bundleCell = /if: matrix\.os-version == (\d+) && matrix\.node-version == (\d+)\n\s+run: npm run build:mcpb\n/u.exec(ciWorkflow);
+assert.ok(bundleCell, "ci.yml must pack the desktop bundle before a test run, or tests/mcpb.test.ts silently skips");
+for (const [dimension, value] of [["os-version", bundleCell[1]], ["node-version", bundleCell[2]]]) {
+  const declared = new RegExp(`${dimension}: \\[([^\\]]+)\\]`, "u").exec(ciWorkflow);
+  assert.ok(declared, `ci.yml must declare a ${dimension} matrix`);
+  assert.ok(declared[1].split(",").map((entry) => entry.trim()).includes(value),
+    `the bundle step names ${dimension} ${value}, which the ci matrix no longer runs`);
+}
 assert.match(releaseWorkflow, /npm run build:mcpb\n {10}mv dist-mcpb\/imessage-mcp\.mcpb release-artifact\//u,
   "the release artifact must carry the desktop bundle so the GitHub release attaches it");
 assert.match(releaseWorkflow, /npm publish "\$TARBALL" --ignore-scripts --access public --provenance --tag next/u);
