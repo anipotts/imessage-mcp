@@ -10,7 +10,7 @@ Every published version, its assets, and its generated notes live in [GitHub rel
 
 ## `2.1.1` verification
 
-Run on 2026-09-14. On a real archive, 2.1.0's default search still failed: three archived empty attributed strings (app and edited messages without text) were treated as malformed, and one long pasted body sat above the 1 MiB bound. Only lengths, archive signatures, and message-type flags were inspected; no content was read.
+Run on 2026-09-14. On a real archive, 2.1.0's default search still failed: archived empty attributed strings (app and edited messages without text) were treated as malformed, and a long pasted body sat above the 1 MiB bound. Only lengths, archive signatures, and message-type flags were inspected; no content was read.
 
 | evidence | result |
 | --- | --- |
