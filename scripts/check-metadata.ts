@@ -54,6 +54,15 @@ const majorVersion = version.split(".")[0];
 const configuredServers = mcp.mcpServers as Record<string, { args: string[] }>;
 assert.deepEqual(Object.keys(configuredServers), ["imessage"]);
 assert.equal(configuredServers["imessage"].args[1], `imessage-mcp@${majorVersion}`);
+// The repo-root file is what a coding agent working in this checkout loads, so
+// it stays redacted. The plugin declares its own server at runtime defaults.
+assert.deepEqual(configuredServers["imessage"].args.slice(2), ["--contacts", "none", "--privacy", "redacted"],
+  ".mcp.json must keep development sessions off live contacts and unredacted bodies");
+const pluginServers = plugin.mcpServers as Record<string, { command: string; args: string[] }> | undefined;
+assert.ok(pluginServers, "plugin.json must declare its own server rather than inheriting the repo .mcp.json");
+assert.deepEqual(Object.keys(pluginServers), ["imessage"]);
+assert.equal(pluginServers["imessage"].command, "npx");
+assert.deepEqual(pluginServers["imessage"].args, ["-y", `imessage-mcp@${majorVersion}`]);
 for (const manifest of [assetManifest, packageFiles]) {
   assert.equal(manifest.schema_version, 2);
   assert.equal(manifest.subject_version, version);

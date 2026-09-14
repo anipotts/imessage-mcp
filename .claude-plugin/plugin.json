@@ -9,6 +9,12 @@
   "homepage": "https://github.com/anipotts/imessage-mcp",
   "repository": "https://github.com/anipotts/imessage-mcp",
   "license": "MIT",
+  "mcpServers": {
+    "imessage": {
+      "command": "npx",
+      "args": ["-y", "imessage-mcp@2"]
+    }
+  },
   "keywords": [
     "imessage",
     "sms",

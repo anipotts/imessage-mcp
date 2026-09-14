@@ -58,6 +58,8 @@ As an alternative, install it as a plugin instead:
 /plugin install imessage-mcp@anipotts
 ```
 
+The plugin carries its own server definition in `.claude-plugin/plugin.json` and starts at the runtime defaults. The `.mcp.json` at the repository root is for people developing this project, so it starts `--contacts none --privacy redacted` and never hands a coding agent a maintainer's real message bodies.
+
 ### Codex
 
 `setup --client codex` runs this command for you:
