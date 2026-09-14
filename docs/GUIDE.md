@@ -124,3 +124,5 @@ Diagnostics go to stderr and contain tool name, duration, status, counts, and er
 
 Stable MCP reasons include `INVALID_INPUT`, `AMBIGUOUS_CONTACT`, `PRIVACY_RESTRICTED`, `DATABASE_UNAVAILABLE`, `DATABASE_CHANGED`, `UNSUPPORTED_SCHEMA`, `DECODE_FAILED`, `INDEX_TOO_LARGE`, and `QUERY_BUDGET_EXCEEDED`.
 
+A success returns `api_version`, `effective_scope`, `completeness`, `data`, and optional `page` and `warnings`. Each tool publishes that envelope as its `outputSchema`. Fields a privacy mode removes are optional there, and aggregate mode replaces row arrays with counts. A failure sets `isError` and returns `api_version` plus `error` instead, which the output schema does not describe.
+

@@ -11,15 +11,87 @@ import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/cli
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { createFixture, type Fixture } from "../tests/fixture.js";
 
-const TOOL_NAMES = [
-  "analyze_communication",
-  "get_conversation",
-  "list_conversations",
-  "resolve_contact",
-  "search_messages",
-  "server_status",
-  "sync_messages",
-];
+const TOOL_TITLES: Record<string, string> = {
+  analyze_communication: "Analyze communication",
+  get_conversation: "Get conversation",
+  list_conversations: "List conversations",
+  resolve_contact: "Resolve contact",
+  search_messages: "Search messages",
+  server_status: "Server status",
+  sync_messages: "Sync messages",
+};
+
+const TOOL_NAMES = Object.keys(TOOL_TITLES).sort();
+
+type JsonSchema = Record<string, unknown>;
+
+function resolveRef(root: JsonSchema, ref: string): JsonSchema {
+  assert.ok(ref.startsWith("#/"), `unsupported $ref ${ref}`);
+  let node: unknown = root;
+  for (const segment of ref.slice(2).split("/")) {
+    node = (node as Record<string, unknown>)[segment.replace(/~1/gu, "/").replace(/~0/gu, "~")];
+  }
+  assert.ok(node && typeof node === "object", `unresolvable $ref ${ref}`);
+  return node as JsonSchema;
+}
+
+function matchesType(type: string, value: unknown): boolean {
+  if (type === "null") return value === null;
+  if (type === "array") return Array.isArray(value);
+  if (type === "object") return typeof value === "object" && value !== null && !Array.isArray(value);
+  if (type === "integer") return typeof value === "number" && Number.isInteger(value);
+  return typeof value === type;
+}
+
+// A small JSON Schema check over the subset the tools advertise: it walks the
+// schema a client actually receives from tools/list rather than the zod source.
+function schemaErrors(schema: JsonSchema, value: unknown, root: JsonSchema, path = "$"): string[] {
+  if (typeof schema.$ref === "string") return schemaErrors(resolveRef(root, schema.$ref), value, root, path);
+  const errors: string[] = [];
+  if ("const" in schema && value !== schema.const) {
+    errors.push(`${path}: expected const ${JSON.stringify(schema.const)}`);
+  }
+  if (Array.isArray(schema.enum) && !schema.enum.includes(value as never)) {
+    errors.push(`${path}: ${JSON.stringify(value)} is not one of ${JSON.stringify(schema.enum)}`);
+  }
+  const types = typeof schema.type === "string" ? [schema.type] : Array.isArray(schema.type) ? schema.type as string[] : [];
+  if (types.length && !types.some((type) => matchesType(type, value))) {
+    errors.push(`${path}: expected ${types.join("|")}`);
+  }
+  for (const key of ["anyOf", "oneOf"] as const) {
+    const branches = schema[key] as JsonSchema[] | undefined;
+    if (!Array.isArray(branches)) continue;
+    if (!branches.some((branch) => schemaErrors(branch, value, root, path).length === 0)) {
+      errors.push(`${path}: no ${key} branch matched`);
+    }
+  }
+  if (Array.isArray(schema.allOf)) {
+    for (const branch of schema.allOf as JsonSchema[]) errors.push(...schemaErrors(branch, value, root, path));
+  }
+  if (Array.isArray(value) && schema.items && typeof schema.items === "object") {
+    value.forEach((item, index) => {
+      errors.push(...schemaErrors(schema.items as JsonSchema, item, root, `${path}[${String(index)}]`));
+    });
+  }
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const entries = value as Record<string, unknown>;
+    const properties = (schema.properties ?? {}) as Record<string, JsonSchema>;
+    for (const name of (schema.required ?? []) as string[]) {
+      if (!(name in entries)) errors.push(`${path}.${name}: required property is missing`);
+    }
+    for (const [name, child] of Object.entries(entries)) {
+      if (properties[name]) {
+        errors.push(...schemaErrors(properties[name], child, root, `${path}.${name}`));
+        continue;
+      }
+      if (schema.additionalProperties === false) errors.push(`${path}.${name}: additional property is not allowed`);
+      if (schema.additionalProperties && typeof schema.additionalProperties === "object") {
+        errors.push(...schemaErrors(schema.additionalProperties as JsonSchema, child, root, `${path}.${name}`));
+      }
+    }
+  }
+  return errors;
+}
 
 const TEST_REFERENCE_KEY = "synthetic-reference-key-".padEnd(48, "x");
 const TEST_DATABASE_ID = "synthetic-database-lineage-".padEnd(48, "x");
@@ -44,6 +116,18 @@ async function exercise(client: Client, privacy: "full" | "redacted"): Promise<s
   const listedTools = await client.listTools();
   assert.deepEqual(listedTools.tools.map((tool) => tool.name).sort(), TOOL_NAMES);
   const listedByName = new Map(listedTools.tools.map((tool) => [tool.name, tool]));
+  for (const [name, tool] of listedByName) {
+    assert.equal(tool.title, TOOL_TITLES[name], `${name} must advertise its human title`);
+    const outputSchema = tool.outputSchema as JsonSchema | undefined;
+    assert.ok(outputSchema, `${name} must advertise an output schema`);
+    assert.equal(outputSchema.type, "object", `${name} output schema must have an object root`);
+    const properties = outputSchema.properties as Record<string, unknown> | undefined;
+    assert.ok(properties && "data" in properties, `${name} output schema must describe data`);
+    assert.deepEqual(
+      [...(outputSchema.required as string[])].sort(),
+      ["api_version", "completeness", "data", "effective_scope"],
+    );
+  }
   const statusSchema = listedByName.get("server_status")?.inputSchema as Record<string, unknown> | undefined;
   assert.equal(statusSchema?.type, "object");
   assert.equal(statusSchema?.additionalProperties, false);
@@ -57,16 +141,24 @@ async function exercise(client: Client, privacy: "full" | "redacted"): Promise<s
   assert.ok("conversation_ref" in (conversationSchema?.properties as Record<string, unknown>));
   assert.ok("query" in (conversationSchema?.properties as Record<string, unknown>));
 
+  // Error results carry the error envelope, not the advertised success shape.
+  // The SDK skips output validation for isError results, so they survive the
+  // same tools that now advertise an output schema.
   const unknownArgument = await client.callTool({ name: "server_status", arguments: { legacy: true } });
   assert.equal(unknownArgument.isError, true);
   assert.equal((structured(unknownArgument).error as { reason?: string }).reason, "INVALID_INPUT");
+  assert.equal("data" in structured(unknownArgument), false);
+  assert.doesNotMatch(JSON.stringify(unknownArgument.content), /validation error/iu);
   const missingConversation = await client.callTool({ name: "get_conversation", arguments: {} });
   assert.equal(missingConversation.isError, true);
   assert.equal((structured(missingConversation).error as { reason?: string }).reason, "INVALID_INPUT");
+  assert.equal("data" in structured(missingConversation), false);
 
   const status = await client.callTool({ name: "server_status", arguments: { privacy_mode: privacy } });
   assert.equal(status.isError, undefined);
   assert.equal(structured(status).api_version, "2.0");
+  const statusOutputSchema = listedByName.get("server_status")?.outputSchema as JsonSchema;
+  assert.deepEqual(schemaErrors(statusOutputSchema, structured(status), statusOutputSchema), []);
 
   const contact = await client.callTool({
     name: "resolve_contact",
@@ -125,6 +217,9 @@ async function exercise(client: Client, privacy: "full" | "redacted"): Promise<s
 
 async function exerciseAggregate(client: Client, conversationRef: string): Promise<void> {
   const status = await client.callTool({ name: "server_status", arguments: { privacy_mode: "aggregate" } });
+  const listed = await client.listTools();
+  const statusOutputSchema = listed.tools.find((tool) => tool.name === "server_status")?.outputSchema as JsonSchema;
+  assert.deepEqual(schemaErrors(statusOutputSchema, structured(status), statusOutputSchema), []);
   const contact = await client.callTool({
     name: "resolve_contact",
     arguments: { query: "+15550000001", privacy_mode: "aggregate" },

@@ -57,7 +57,7 @@ Keep the two setup files private. They let saved conversation references survive
 | `resolve_contact` | Match a name or handle and report ambiguity rather than guess. |
 | `server_status` | Check versions, privacy settings, services, decoder health, and index state. |
 
-Every 2.x tool reads data only. The server cannot send or modify messages, and it does not recover unsent text or old edited versions.
+Every 2.x tool reads data only. The server cannot send or modify messages, and it does not recover unsent text or old edited versions. Each tool advertises a display title and an output schema for its success envelope, so a client can label it and check the structured result.
 
 ## privacy
 
