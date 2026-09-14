@@ -2,6 +2,7 @@ import { lstatSync, readdirSync, rmdirSync, unlinkSync } from "node:fs";
 import path from "node:path";
 import { canonicalPath, environmentSecretFiles, stateDirectory } from "../keys.js";
 import {
+  configBackups,
   defaultConfigPath,
   formatCommand,
   isRunning,
@@ -107,6 +108,11 @@ async function uninstallThroughFile(client: "desktop" | "cursor", options: Unins
   const written = writeClientConfig(file, config);
   write(`removed imessage from ${written.file}`);
   if (written.backup) write(`  previous file copied to ${written.backup}`);
+  const backups = configBackups(written.file);
+  if (backups.length > 0) {
+    write(`  ${String(backups.length)} backup file(s) stay behind; --purge never removes them:`);
+    for (const backup of backups) write(`    ${backup}`);
+  }
   write(`  restart ${application} to drop the running server`);
   return 0;
 }

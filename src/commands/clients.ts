@@ -3,11 +3,12 @@ import { randomBytes } from "node:crypto";
 import {
   closeSync,
   constants,
-  copyFileSync,
   existsSync,
+  fchmodSync,
   mkdirSync,
   openSync,
   readFileSync,
+  readdirSync,
   renameSync,
   unlinkSync,
   writeSync,
@@ -116,6 +117,18 @@ export function defaultConfigPath(client: "desktop" | "cursor"): string {
   return path.join(home, ".cursor", "mcp.json");
 }
 
+/** Timestamped copies this command has left next to a client configuration. */
+export function configBackups(file: string): string[] {
+  const prefix = `${path.basename(file)}.bak-`;
+  let entries: string[];
+  try {
+    entries = readdirSync(path.dirname(file));
+  } catch {
+    return [];
+  }
+  return entries.filter((entry) => entry.startsWith(prefix)).sort().map((entry) => path.join(path.dirname(file), entry));
+}
+
 export interface ClientConfig {
   mcpServers?: Record<string, unknown>;
   [key: string]: unknown;
@@ -156,16 +169,27 @@ export function writeClientConfig(file: string, value: ClientConfig): WriteResul
   }
   let backup: string | null = null;
   if (existsSync(file)) {
+    // Client configurations routinely carry other servers' tokens, so the copy
+    // is created at 0600 rather than inheriting a loose mode from the original.
+    const original = readFileSync(file);
     const stamp = `${file}.bak-${Math.floor(Date.now() / 1000)}`;
     for (let attempt = 0; backup === null && attempt < 100; attempt += 1) {
       const candidate = attempt === 0 ? stamp : `${stamp}-${attempt}`;
+      let copy: number;
       try {
-        copyFileSync(file, candidate, constants.COPYFILE_EXCL);
-        backup = candidate;
+        copy = openSync(candidate, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600);
       } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
-          throw new ImessageMcpError("INVALID_INPUT", `${file} could not be backed up; nothing was changed`);
-        }
+        if ((error as NodeJS.ErrnoException).code === "EEXIST") continue;
+        throw new ImessageMcpError("INVALID_INPUT", `${file} could not be backed up; nothing was changed`);
+      }
+      try {
+        fchmodSync(copy, 0o600);
+        writeSync(copy, original);
+        backup = candidate;
+      } catch {
+        throw new ImessageMcpError("INVALID_INPUT", `${file} could not be backed up; nothing was changed`);
+      } finally {
+        closeSync(copy);
       }
     }
     if (backup === null) {

@@ -170,6 +170,25 @@ describe("setup and uninstall through a client configuration file", () => {
     expect(readdirSync(path.dirname(file))).toEqual(["mcp.json"]);
   });
 
+  it("keeps every backup at 0600 and names the ones uninstall leaves behind", async () => {
+    const target = clientConfig({ unrelated: { command: "node", args: ["other-server.js"] } });
+    chmodSync(target.file, 0o644);
+    const output = capture();
+    try {
+      expect(await runSetup({ client: "cursor", config: target.file, majorVersion: "2", runDoctor: false })).toBe(0);
+      expect(await runUninstall({ client: "cursor", config: target.file })).toBe(0);
+    } finally {
+      output.restore();
+    }
+    const backups = readdirSync(target.directory).filter((entry) => entry.startsWith("config.json.bak-")).sort();
+    expect(backups.length).toBe(2);
+    expect(lstatSync(target.file).mode & 0o777).toBe(0o600);
+    for (const backup of backups) {
+      expect(lstatSync(path.join(target.directory, backup)).mode & 0o777).toBe(0o600);
+      expect(output.lines()).toContain(`    ${path.join(target.directory, backup)}`);
+    }
+  });
+
   it("uninstall removes only the imessage entry and keeps the rest of the file", async () => {
     const target = clientConfig({ unrelated: { command: "node", args: ["other-server.js"] } });
     const output = capture();

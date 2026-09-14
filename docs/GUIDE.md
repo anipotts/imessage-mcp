@@ -83,7 +83,7 @@ To remove it, open Settings, then Extensions, and uninstall iMessage. `uninstall
 
 ### Claude Desktop and Cursor
 
-`setup --client desktop` edits `~/Library/Application Support/Claude/claude_desktop_config.json` and `setup --client cursor` edits `~/.cursor/mcp.json`. Both applications rewrite those files while they run, so setup refuses while the application is open. Quit it first, or install the `.mcpb` bundle for Claude Desktop. The original file is copied to `<file>.bak-<unix-time>` and the replacement is written to a temporary file in the same directory and renamed into place, so an interrupted run leaves the old file intact.
+`setup --client desktop` edits `~/Library/Application Support/Claude/claude_desktop_config.json` and `setup --client cursor` edits `~/.cursor/mcp.json`. Both applications rewrite those files while they run, so setup refuses while the application is open. Quit it first, or install the `.mcpb` bundle for Claude Desktop. The original file is copied to `<file>.bak-<unix-time>` and the replacement is written to a temporary file in the same directory and renamed into place, so an interrupted run leaves the old file intact. Both the copy and the replacement are mode `0600`, since these files often hold other servers' tokens. Backups accumulate and nothing prunes them; `uninstall` lists the ones it left so you can delete them.
 
 The merged entry is the same shape you would write by hand:
 
