@@ -12,7 +12,7 @@ import {
   unlinkSync,
   writeSync,
 } from "node:fs";
-import { userInfo } from "node:os";
+import { homedir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { ImessageMcpError } from "../errors.js";
@@ -103,8 +103,13 @@ export async function isRunning(name: string): Promise<boolean> {
   return result.outcome === "ran";
 }
 
+/**
+ * `homedir()` honors `$HOME`, so a test or a sandboxed run can redirect these
+ * writes. `userInfo().homedir` reads the passwd database and would point at
+ * the real account no matter what the environment says.
+ */
 export function defaultConfigPath(client: "desktop" | "cursor"): string {
-  const home = userInfo().homedir;
+  const home = homedir();
   if (client === "desktop") {
     return path.join(home, "Library", "Application Support", "Claude", "claude_desktop_config.json");
   }

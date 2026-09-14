@@ -13,11 +13,12 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { defaultConfigPath } from "../src/commands/clients.js";
 import { repairDefaultState } from "../src/keys.js";
 import { runSetup } from "../src/commands/setup.js";
 import { runUninstall } from "../src/commands/uninstall.js";
 
-const TRACKED = ["PATH", "IMESSAGE_STATE_DIR", "IMESSAGE_REFERENCE_KEY", "IMESSAGE_REFERENCE_KEY_FILE", "IMESSAGE_DATABASE_ID", "IMESSAGE_DATABASE_ID_FILE"] as const;
+const TRACKED = ["HOME", "PATH", "IMESSAGE_STATE_DIR", "IMESSAGE_REFERENCE_KEY", "IMESSAGE_REFERENCE_KEY_FILE", "IMESSAGE_DATABASE_ID", "IMESSAGE_DATABASE_ID_FILE"] as const;
 const original = new Map(TRACKED.map((name) => [name, process.env[name]]));
 const directories: string[] = [];
 
@@ -182,6 +183,34 @@ describe("setup and uninstall through a client configuration file", () => {
     expect(Object.keys(servers)).toEqual(["unrelated"]);
     expect(servers.unrelated).toEqual({ command: "node", args: ["other-server.js"] });
     expect(readdirSync(target.directory).filter((entry) => /^config\.json\.bak-\d+(?:-\d+)?$/u.test(entry)).length).toBe(2);
+  });
+});
+
+describe("setup and uninstall without an explicit --config", () => {
+  it("resolves the default file under $HOME for desktop and cursor", async () => {
+    const home = scratch();
+    process.env.HOME = home;
+    // pgrep has to report the client as closed whatever is open on this Mac.
+    const stubs = scratch();
+    writeFileSync(path.join(stubs, "pgrep"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+    process.env.PATH = `${stubs}:${process.env.PATH ?? ""}`;
+
+    for (const client of ["desktop", "cursor"] as const) {
+      const file = defaultConfigPath(client);
+      expect(file.startsWith(`${home}${path.sep}`)).toBe(true);
+
+      const output = capture();
+      try {
+        expect(await runSetup({ client, majorVersion: "2", runDoctor: false })).toBe(0);
+        expect(readServers(file).imessage).toEqual({ command: "npx", args: ["-y", "imessage-mcp@2"] });
+        expect(await runUninstall({ client })).toBe(0);
+      } finally {
+        output.restore();
+      }
+      expect(readServers(file).imessage).toBeUndefined();
+      expect(output.lines()).toContain(`registered imessage in ${file}`);
+      expect(output.lines()).toContain(`removed imessage from ${file}`);
+    }
   });
 });
 

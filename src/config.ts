@@ -1,4 +1,4 @@
-import { release, userInfo } from "node:os";
+import { homedir, release } from "node:os";
 import path from "node:path";
 import type { PrivacyMode } from "./contracts.js";
 import { ImessageMcpError } from "./errors.js";
@@ -21,7 +21,7 @@ export interface RuntimeConfig {
 }
 
 export function resolveDefaultDatabasePath(): string {
-  return path.join(userInfo().homedir, "Library", "Messages", "chat.db");
+  return path.join(homedir(), "Library", "Messages", "chat.db");
 }
 
 export const DEFAULT_DATABASE_PATH = resolveDefaultDatabasePath();

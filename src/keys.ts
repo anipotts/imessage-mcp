@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { chmodSync, closeSync, constants, existsSync, fchmodSync, lstatSync, mkdirSync, openSync, realpathSync, writeSync, type Stats } from "node:fs";
-import { userInfo } from "node:os";
+import { homedir } from "node:os";
 import path from "node:path";
 import { ImessageMcpError } from "./errors.js";
 import { loadDatabaseId, loadReferenceKey, readSecretFile, validateSecretValue } from "./secrets.js";
@@ -16,7 +16,7 @@ const REFERENCE_KEY_LABEL = "opaque-reference key";
 const DATABASE_ID_LABEL = "database-lineage identity";
 
 export function defaultStateDirectory(): string {
-  return path.join(userInfo().homedir, "Library", "Application Support", "imessage-mcp");
+  return path.join(homedir(), "Library", "Application Support", "imessage-mcp");
 }
 
 export function stateDirectory(): string {
