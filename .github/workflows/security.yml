@@ -12,9 +12,12 @@ on:
 permissions:
   contents: read
 
+# Only a newer push to the same pull request supersedes a run. Push, schedule, and
+# manual runs on main each keep their own group and always finish, so a late
+# scheduled run can never cancel the check a merge commit is waiting on.
 concurrency:
-  group: security-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: security-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   package-audit:
