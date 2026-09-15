@@ -210,9 +210,21 @@ jobs:
           SCRATCH=$(mktemp -d)
           npm install --prefix "$SCRATCH" --omit=dev --no-audit --no-fund "imessage-mcp@${VERSION}"
           "$SCRATCH/node_modules/.bin/imessage-mcp" --version
+          # 3.x ships no native code: the installed graph must hold no .node
+          # binaries, and its runtime dependencies must match the lockfile.
+          test -z "$(find "$SCRATCH/node_modules" -name '*.node' -print -quit)"
           npm ls --prefix "$SCRATCH" --omit=dev --all --json > public-runtime-graph.json
-          node "$SCRATCH/node_modules/imessage-mcp/dist/verify-installed-graph.js" \
-            "$SCRATCH" package-lock.json
+          node -e '
+            const fs = require("fs");
+            const installed = JSON.parse(fs.readFileSync("public-runtime-graph.json", "utf8")).dependencies["imessage-mcp"].dependencies ?? {};
+            const lock = JSON.parse(fs.readFileSync("package-lock.json", "utf8")).packages;
+            for (const [name, info] of Object.entries(installed)) {
+              const locked = lock[`node_modules/${name}`]?.version;
+              if (locked !== info.version) throw new Error(`${name} installed ${info.version}, locked ${locked}`);
+            }
+            const expected = Object.keys(lock[""].dependencies).sort().join(",");
+            if (Object.keys(installed).sort().join(",") !== expected) throw new Error("runtime dependencies differ from package.json");
+          '
 
   publish-registry:
     name: publish mcp registry metadata
