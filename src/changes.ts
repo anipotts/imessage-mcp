@@ -214,6 +214,27 @@ export function recordChanges(index: Database, changes: ChangeRow[]): void {
   index.prepare("DELETE FROM changes WHERE seq <= ?").run(latest - MAX_RETAINED_CHANGES);
 }
 
+// The archive's identity for cursors and checkpoints: the guids of the lowest
+// ROWIDs present when the log was created. Those rows are recorded, so the
+// identity stays stable as history grows and changes for any other archive.
+const IDENTITY_ROWS = 32;
+
+export function identityRows(source: Database): number[] {
+  return (source.prepare(`SELECT ROWID AS rowid FROM message ORDER BY ROWID LIMIT ${IDENTITY_ROWS}`).all() as Array<{ rowid: number }>)
+    .map((row) => Number(row.rowid));
+}
+
+export function archiveIdentity(source: Database, rowids: number[]): string | null {
+  const guid = source.prepare("SELECT guid FROM message WHERE ROWID = ?");
+  const hash = createHash("sha256").update("imessage-mcp archive v1\0");
+  for (const rowid of rowids) {
+    const row = guid.get(rowid) as { guid: unknown } | undefined;
+    if (!row || typeof row.guid !== "string") return null;
+    hash.update(`${rowid}:${Buffer.byteLength(row.guid, "utf8")}:`).update(row.guid);
+  }
+  return hash.digest("base64url");
+}
+
 export function metaValue(index: Database, key: string): string | null {
   const row = index.prepare("SELECT value FROM meta WHERE key = ?").get(key) as { value: string } | undefined;
   return row?.value ?? null;

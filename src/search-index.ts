@@ -16,8 +16,10 @@ import { columnSql, serviceFamilyCase, serviceFamilyPredicate, serviceSql } from
 import { validateSender } from "./sender.js";
 import type { DateBounds } from "./time.js";
 import { MAX_ATTRIBUTED_BODY_BYTES, MAX_ATTRIBUTED_BODY_LABEL } from "./limits.js";
-import { databaseIdentity } from "./cache.js";
+import { readCacheFile, sourceHash, writeCacheFile } from "./cache.js";
 import {
+  archiveIdentity,
+  identityRows,
   CHANGE_LOG_SQL,
   diffRowStates,
   metaValue,
@@ -95,6 +97,9 @@ interface IndexEstimate {
 
 const MIB = 1024 * 1024;
 const SOURCE_BATCH_SIZE = 200;
+// Bump when the index tables change shape; older checkpoints are then ignored.
+const INDEX_SCHEMA_VERSION = 1;
+const CHECKPOINT_INTERVAL_MS = 5 * 60 * 1000;
 const ROW_STATE_CHUNK = 2_000;
 const BUILD_STEP_MS = 40;
 const SOURCE_BATCH_BYTES = 8 * MIB;
@@ -448,12 +453,95 @@ export class MemorySearchIndex {
   private progressTotal = 0;
   private signatures: SourceSignatures | null = null;
 
+  private cacheTried = false;
+  private lastCheckpoint = 0;
+
   constructor(
     private readonly context: DatabaseContext,
     private readonly decoder: MessageTextDecoder,
     private readonly contacts: UnifiedContactResolver,
     private readonly onBuild?: () => void,
+    // Where encrypted checkpoints live; undefined keeps the index in memory only.
+    private readonly cacheDirectory?: string,
   ) {}
+
+  private cachePath(): string | null {
+    return this.cacheDirectory ? path.join(this.cacheDirectory, `${sourceHash(this.context.canonicalPath)}.index`) : null;
+  }
+
+  // Writes the index to its encrypted cache file. Failures only cost a rebuild
+  // on the next start, so they are swallowed.
+  private checkpoint(request: DatabaseRequest): void {
+    const file = this.cachePath();
+    if (!file || !this.index || !this.signatures || !this.indexedWatermark) return;
+    try {
+      const index = this.index;
+      const signatures = this.signatures;
+      index.transaction(() => {
+        index.exec("DELETE FROM signature_bucket; DELETE FROM signature_conversation;");
+        const bucket = index.prepare("INSERT INTO signature_bucket(bucket, hash) VALUES (?, ?)");
+        for (const [key, hash] of signatures.buckets) bucket.run(key, hash);
+        const conversation = index.prepare("INSERT INTO signature_conversation(chat_ids, hash) VALUES (?, ?)");
+        for (const [key, hash] of signatures.conversations) conversation.run(key, hash);
+        setMetaValue(index, "watermark", JSON.stringify(this.indexedWatermark));
+      })();
+      writeCacheFile({
+        path: file,
+        plaintext: index.serialize(),
+        source: request.db,
+        schemaVersion: INDEX_SCHEMA_VERSION,
+        sourceHash: sourceHash(this.context.canonicalPath),
+      });
+      this.lastCheckpoint = Date.now();
+    } catch {
+      // keep serving from memory
+    }
+  }
+
+  // Loads the last checkpoint when its key still derives from this archive.
+  // The restored index is then refreshed against the live fingerprints, so a
+  // stale or replayed checkpoint never serves rows that no longer exist.
+  private restore(request: DatabaseRequest): boolean {
+    const file = this.cachePath();
+    if (!file) return false;
+    let db: Database.Database | null = null;
+    try {
+      const plaintext = readCacheFile({
+        path: file,
+        source: request.db,
+        schemaVersion: INDEX_SCHEMA_VERSION,
+        sourceHash: sourceHash(this.context.canonicalPath),
+      });
+      if (!plaintext) return false;
+      db = this.openIndex(plaintext);
+      const idRows = JSON.parse(metaValue(db, "db_id_rows") ?? "null") as unknown;
+      if (!Array.isArray(idRows) || !idRows.every((row) => Number.isSafeInteger(row))) return false;
+      if (metaValue(db, "db_id") !== archiveIdentity(request.db, idRows as number[])) return false;
+      const watermark = metaValue(db, "watermark");
+      if (!watermark) return false;
+      const buckets = new Map<number, string>();
+      for (const row of db.prepare("SELECT bucket, hash FROM signature_bucket").all() as Array<{ bucket: number; hash: string }>) {
+        buckets.set(Number(row.bucket), row.hash);
+      }
+      const conversations = new Map<string, string>();
+      for (const row of db.prepare("SELECT chat_ids, hash FROM signature_conversation").all() as Array<{ chat_ids: string; hash: string }>) {
+        conversations.set(row.chat_ids, row.hash);
+      }
+      this.trigram = Boolean(db.prepare("SELECT 1 AS present FROM sqlite_master WHERE name = 'message_trigram'").get());
+      this.index = db;
+      db = null;
+      this.signatures = { buckets, conversations };
+      // data_version belongs to the process that wrote the checkpoint; -1 forces
+      // the first ensure() to compare fingerprints with the live archive.
+      this.indexedWatermark = { ...(JSON.parse(watermark) as Watermark), data_version: -1 };
+      this.recountPartialRows(this.index);
+      return true;
+    } catch {
+      return false;
+    } finally {
+      db?.close();
+    }
+  }
 
   state(): {
     state: "cold" | "ready" | "partial" | "building";
@@ -480,12 +568,38 @@ export class MemorySearchIndex {
     return searchIndexMemoryLimit();
   }
 
-  private createIndex(): Database.Database {
+  // An in-memory index database, empty or restored from a cache checkpoint.
+  private openIndex(serialized?: Buffer): Database.Database {
     const db = new Database(":memory:");
+    if (serialized) db.deserialize(serialized);
     db.pragma("temp_store = MEMORY");
     const pageSize = Number(db.pragma("page_size", { simple: true })) || 4096;
     db.pragma(`max_page_count = ${Math.max(1, Math.floor(this.memoryLimit() / pageSize))}`);
+    db.function("mcp_text_matches", { deterministic: true }, (value: unknown, query: unknown, mode: unknown) =>
+      typeof value === "string" && typeof query === "string" &&
+      (mode === "token" || mode === "phrase") && normalizedScopeMatches(value, query, mode) ? 1 : 0
+    );
+    db.function("mcp_values_match", { deterministic: true }, (encoded: unknown, query: unknown, mode: unknown) => {
+      if (typeof encoded !== "string" || typeof query !== "string" || (mode !== "token" && mode !== "phrase")) return 0;
+      try {
+        const values = JSON.parse(encoded) as unknown;
+        return Array.isArray(values) && values.some((value) =>
+          typeof value === "string" && normalizedScopeMatches(value, query, mode)
+        ) ? 1 : 0;
+      } catch {
+        return 0;
+      }
+    });
+    return db;
+  }
+
+  private createIndex(): Database.Database {
+    const db = this.openIndex();
     db.exec(CHANGE_LOG_SQL);
+    db.exec(`
+      CREATE TABLE signature_bucket (bucket INTEGER PRIMARY KEY, hash TEXT NOT NULL);
+      CREATE TABLE signature_conversation (chat_ids TEXT PRIMARY KEY, hash TEXT NOT NULL);
+    `);
     db.exec(`
       CREATE TABLE message_text (
         rowid INTEGER PRIMARY KEY,
@@ -510,21 +624,6 @@ export class MemorySearchIndex {
         sender_partial INTEGER NOT NULL
       );
     `);
-    db.function("mcp_text_matches", { deterministic: true }, (value: unknown, query: unknown, mode: unknown) =>
-      typeof value === "string" && typeof query === "string" &&
-      (mode === "token" || mode === "phrase") && normalizedScopeMatches(value, query, mode) ? 1 : 0
-    );
-    db.function("mcp_values_match", { deterministic: true }, (encoded: unknown, query: unknown, mode: unknown) => {
-      if (typeof encoded !== "string" || typeof query !== "string" || (mode !== "token" && mode !== "phrase")) return 0;
-      try {
-        const values = JSON.parse(encoded) as unknown;
-        return Array.isArray(values) && values.some((value) =>
-          typeof value === "string" && normalizedScopeMatches(value, query, mode)
-        ) ? 1 : 0;
-      } catch {
-        return 0;
-      }
-    });
     return db;
   }
 
@@ -1062,7 +1161,9 @@ export class MemorySearchIndex {
       await this.populate(request, db, [[0, request.asOf.max_message_id]], allowPartial, false);
       await this.recordAllRowStates(request, db);
       setMetaValue(db, "log_id", newLogId());
-      setMetaValue(db, "db_id", databaseIdentity(request.db));
+      const rows = identityRows(request.db);
+      setMetaValue(db, "db_id_rows", JSON.stringify(rows));
+      setMetaValue(db, "db_id", archiveIdentity(request.db, rows) ?? "");
       this.finalizeIndex(db);
       this.enforceMemoryLimit(db);
       const previous = this.index;
@@ -1072,6 +1173,7 @@ export class MemorySearchIndex {
       this.signatures = signatures;
       this.recountPartialRows(this.index);
       previous?.close();
+      this.checkpoint(request);
     } catch (error) {
       throw this.indexTooLarge(error);
     } finally {
@@ -1168,6 +1270,9 @@ export class MemorySearchIndex {
     this.indexedWatermark = request.asOf;
     this.signatures = next;
     this.recountPartialRows(index);
+    if (changed.size > REFRESH_NOTICE_BUCKETS || Date.now() - this.lastCheckpoint > CHECKPOINT_INTERVAL_MS) {
+      this.checkpoint(request);
+    }
   }
 
   private async recordAllRowStates(request: DatabaseRequest, db: Database.Database): Promise<void> {
@@ -1215,6 +1320,15 @@ export class MemorySearchIndex {
   }
 
   private async ensureOnce(allowPartial: boolean): Promise<void> {
+    if (!this.index && !this.cacheTried) {
+      this.cacheTried = true;
+      const request = this.context.request({ connection: "index" });
+      try {
+        this.restore(request);
+      } finally {
+        request.close();
+      }
+    }
     if (!this.index || !this.signatures) {
       await this.track(this.build(allowPartial));
       return;

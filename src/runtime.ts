@@ -26,6 +26,7 @@ import { checkForUpdate } from "./update-check.js";
 import { readAttachmentContent } from "./attachments.js";
 import { decodeCursor, encodeCursor, MAX_SYNC_CURSOR_LENGTH, positiveId } from "./references.js";
 import { assertCursorLog, materializeChanges } from "./changes.js";
+import { cacheDirectory } from "./cache.js";
 import { compileDateBounds } from "./time.js";
 
 const dirnameHere = dirname(fileURLToPath(import.meta.url));
@@ -67,7 +68,9 @@ export class LocalToolRuntime {
     this.contacts = new UnifiedContactResolver(config.contacts_mode === "live");
     this.decoder = new MessageTextDecoder();
     this.conversationCatalog = new ConversationCatalog(this.database);
-    this.search = new MemorySearchIndex(this.database, this.decoder, this.contacts, onSearchBuild);
+    // The live archive gets an encrypted on-disk checkpoint; copies stay in memory.
+    const cache = config.source_mode === "live" && process.env.IMESSAGE_CACHE !== "0" ? cacheDirectory() : undefined;
+    this.search = new MemorySearchIndex(this.database, this.decoder, this.contacts, onSearchBuild, cache);
   }
 
   // Builds the in-memory search index ahead of the first search. Searches default
