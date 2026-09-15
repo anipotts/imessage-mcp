@@ -2,185 +2,233 @@
 
 # imessage-mcp
 
-Ask your assistant to find a message, read a conversation, or count your texts.
-imessage-mcp connects it to the Apple Messages history on your Mac through seven read-only tools.
+[![npm](https://img.shields.io/npm/v/imessage-mcp?style=flat-square)](https://www.npmjs.com/package/imessage-mcp) [![MCP Registry](https://img.shields.io/badge/MCP_Registry-io.github.anipotts%2Fimessage--mcp-4ade80?style=flat-square)](https://registry.modelcontextprotocol.io/v0/servers?search=imessage-mcp) [![CI](https://img.shields.io/github/actions/workflow/status/anipotts/imessage-mcp/ci.yml?branch=main&style=flat-square&label=ci)](https://github.com/anipotts/imessage-mcp/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
 
-Search and analyze iMessage, SMS, MMS, and RCS history. The server runs locally, keeps its search index in memory, and collects no telemetry. Your MCP client or model provider can still receive and retain the results you ask for.
+Search and read your Messages history from Claude, Codex, Cursor, VS Code, and any other MCP client.
 
-Try questions like:
+Read-only. Runs on your Mac. No accounts, no cloud service, nothing to compile.
 
-- “Find the message about the restaurant reservation.”
-- “Show my five most recent conversations.”
-- “How many messages did I send last month?”
+- Finds messages by words, exact text, or phrase across iMessage, SMS, MMS, and RCS
+- Reads whole conversations with edits, unsent messages, reactions, replies, and read receipts
+- Shows photos people sent you, with location data removed
+- Keeps up with new messages through a change feed, and answers counts and response-time questions
 
-![Installed imessage-mcp searching synthetic Messages data](assets/demo.gif)
+![imessage-mcp answering questions about synthetic Messages history](assets/demo.gif)
 
-## setup
+## Install
 
-You need macOS 14 or newer and Messages history on this Mac.
+**Requirements:** macOS 14 or newer. Node.js 24.16 or newer for `npx` installs (Claude Desktop brings its own).
 
-### Claude Desktop
-
-1. Download [imessage-mcp.mcpb](https://github.com/anipotts/imessage-mcp/releases/latest/download/imessage-mcp.mcpb) and double-click it. Claude Desktop shows an install dialog; click Install. It turns on by itself and brings its own runtime, so there is nothing else to install.
-2. Give Claude access to Messages: System Settings, Privacy & Security, Full Disk Access, turn on Claude, then quit Claude Desktop (cmd+Q) and reopen it. If you skip this, the first answer tells you exactly where the switch is.
-
-Then just ask, for example "who have I been texting most this week". To update later, download and install the newest bundle the same way; asking "is imessage-mcp up to date?" checks for you. To remove it, open Claude Desktop Settings, Extensions, iMessage, and uninstall.
-
-### Claude Code, Codex, and Cursor
-
-These need Node.js 22 or newer.
-
-1. Add it to Claude Code:
-
-```sh
-claude mcp add imessage -- npx -y imessage-mcp@2
-```
-
-Codex:
-
-```sh
-codex mcp add imessage -- npx -y imessage-mcp@2
-```
-
-Cursor, or Claude Desktop without the bundle:
+Standard config, for any client that reads `mcpServers` JSON:
 
 ```json
 {
   "mcpServers": {
     "imessage": {
       "command": "npx",
-      "args": ["-y", "imessage-mcp@2"]
+      "args": ["-y", "imessage-mcp@latest"]
     }
   }
 }
 ```
 
-2. Restart the client and grant Full Disk Access to it when macOS asks.
+Then give the app that runs it **Full Disk Access**: System Settings > Privacy & Security > Full Disk Access, turn on the app (Claude, your terminal, Cursor, VS Code, ...), then quit it fully and reopen it. Not sure which app? Run `npx -y imessage-mcp@latest doctor` from that app's terminal and it tells you. Until access is granted, every tool answers with these same steps.
 
-One command does the same thing for any of the four clients, then prints the diagnostic summary:
+<details>
+<summary>Amp</summary>
 
-```sh
-npx -y imessage-mcp@2 setup --client claude
+```bash
+amp mcp add imessage -- npx -y imessage-mcp@latest
 ```
 
-`--client` takes `claude`, `codex`, `desktop`, or `cursor`. Claude Desktop and Cursor rewrite their configuration files while they run, so quit the application first; setup backs the file up before it edits anything.
+</details>
 
-There is nothing else to create. The server generates its two private values on
-first run under `~/Library/Application Support/imessage-mcp`, and reuses them
-after a restart so saved conversation references keep working.
+<details>
+<summary>Claude Code</summary>
 
-To check the setup without a client, run the read-only diagnostic:
-
-```sh
-npx -y imessage-mcp@2 doctor --contacts none --privacy redacted
+```bash
+claude mcp add --scope user imessage -- npx -y imessage-mcp@latest
 ```
 
-Ask the client to list your five most recent conversations. See the [setup guide](docs/GUIDE.md#client-setup) for more on each client.
+Or install the plugin: `/plugin marketplace add anipotts/imessage-mcp`, then `/plugin install imessage-mcp@anipotts`.
 
-stdio starts at `--privacy full` and `--contacts live`, matching what Messages and Contacts already authorize on this Mac. To start redacted (names, masked handles, and calendar days, with no message bodies) or without Contacts, add `--contacts none --privacy redacted` to the setup command above. Search works in redacted mode too; its results omit the text.
+</details>
 
-If `doctor` reports a database permission problem, grant Full Disk Access to the application launching the server, restart it, and run the diagnostic again. macOS grants that access to the whole application or shell, not narrowly to `imessage-mcp`. The diagnostic explains failed checks without changing settings.
+<details>
+<summary>Claude Desktop</summary>
 
-A faithful database copy keeps its references only on the identity it was created with; an unrelated archive gets its own. [Details](docs/GUIDE.md#live-and-copied-databases).
+Download [imessage-mcp.mcpb](https://github.com/anipotts/imessage-mcp/releases/latest/download/imessage-mcp.mcpb) and double-click it, or install **iMessage History** from Settings > Extensions if it is listed there. To update a bundle you installed yourself, download the newest one and double-click it again.
 
-If the generated key files ever lose their owner-only modes, repair them without touching any other setting:
+Then turn on Claude in Full Disk Access and quit and reopen Claude.
 
-```sh
-npx -y imessage-mcp@2 doctor --fix
+</details>
+
+<details>
+<summary>Cline</summary>
+
+Add the standard config to `cline_mcp_settings.json` ([docs](https://docs.cline.bot/mcp/configuring-mcp-servers)).
+
+</details>
+
+<details>
+<summary>Codex</summary>
+
+```bash
+codex mcp add imessage -- npx -y imessage-mcp@latest
 ```
 
-## remove
+Or in `~/.codex/config.toml`:
 
-```sh
-npx -y imessage-mcp@2 uninstall --client claude
+```toml
+[mcp_servers.imessage]
+command = "npx"
+args = ["-y", "imessage-mcp@latest"]
 ```
 
-Other servers in a Claude Desktop or Cursor configuration are left alone. Add `--purge --yes` to also delete the generated key files, which permanently invalidates saved conversation references.
+</details>
 
-## plugin
+<details>
+<summary>Copilot CLI</summary>
 
-Claude Code can also install it by name, as an alternative to `claude mcp add`:
+Run `/mcp add`, or add the standard config to `~/.copilot/mcp-config.json` with `"type": "local"`.
 
-```sh
-/plugin marketplace add anipotts/imessage-mcp
-/plugin install imessage-mcp@anipotts
+</details>
+
+<details>
+<summary>Cursor</summary>
+
+[<img src="https://cursor.com/deeplink/mcp-install-dark.svg" alt="Install in Cursor">](https://cursor.com/en/install-mcp?name=imessage&config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsImltZXNzYWdlLW1jcEBsYXRlc3QiXX0%3D)
+
+Or add the standard config to `~/.cursor/mcp.json`.
+
+</details>
+
+<details>
+<summary>Gemini CLI</summary>
+
+Add the standard config to `~/.gemini/settings.json`.
+
+</details>
+
+<details>
+<summary>Goose</summary>
+
+[![Install in Goose](https://block.github.io/goose/img/extension-install-dark.svg)](https://block.github.io/goose/extension?cmd=npx&arg=-y&arg=imessage-mcp%40latest&id=imessage&name=iMessage&description=Search%20and%20read%20your%20Apple%20Messages%20history)
+
+</details>
+
+<details>
+<summary>JetBrains (Junie)</summary>
+
+Add the standard config to `.junie/mcp/mcp.json`, or type `/mcp` in Junie CLI.
+
+</details>
+
+<details>
+<summary>Kiro</summary>
+
+[![Add to Kiro](https://kiro.dev/images/add-to-kiro.svg)](https://kiro.dev/launch/mcp/add?name=imessage&config=%7B%22command%22%3A%22npx%22%2C%22args%22%3A%5B%22-y%22%2C%22imessage-mcp%40latest%22%5D%7D)
+
+</details>
+
+<details>
+<summary>opencode</summary>
+
+In `~/.config/opencode/opencode.json`:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "imessage": { "type": "local", "command": ["npx", "-y", "imessage-mcp@latest"], "enabled": true }
+  }
+}
 ```
 
-To remove it:
+</details>
 
-```sh
-/plugin uninstall imessage-mcp@anipotts
-/plugin marketplace remove anipotts
+<details>
+<summary>VS Code</summary>
+
+[<img src="https://img.shields.io/badge/VS_Code-VS_Code?style=flat-square&label=Install%20Server&color=0098FF" alt="Install in VS Code">](https://insiders.vscode.dev/redirect?url=vscode%3Amcp%2Finstall%3F%257B%2522name%2522%253A%2522imessage%2522%252C%2522command%2522%253A%2522npx%2522%252C%2522args%2522%253A%255B%2522-y%2522%252C%2522imessage-mcp%2540latest%2522%255D%257D) [<img alt="Install in VS Code Insiders" src="https://img.shields.io/badge/VS_Code_Insiders-VS_Code_Insiders?style=flat-square&label=Install%20Server&color=24bfa5">](https://insiders.vscode.dev/redirect?url=vscode-insiders%3Amcp%2Finstall%3F%257B%2522name%2522%253A%2522imessage%2522%252C%2522command%2522%253A%2522npx%2522%252C%2522args%2522%253A%255B%2522-y%2522%252C%2522imessage-mcp%2540latest%2522%255D%257D)
+
+```bash
+code --add-mcp '{"name":"imessage","command":"npx","args":["-y","imessage-mcp@latest"]}'
 ```
 
-## desktop bundle
+</details>
 
-Claude Desktop installs without a configuration file. Download `imessage-mcp.mcpb` from the [latest release](https://github.com/anipotts/imessage-mcp/releases/latest), double-click it, and confirm. Then grant Full Disk Access to Claude Desktop and restart it. Every release launches the bundle through its own manifest on Apple Silicon and Intel runners before it is attached.
+<details>
+<summary>Warp, Windsurf, Zed, and others</summary>
 
-The install dialog carries the two startup settings, the privacy ceiling and contact names. Leave them alone to get the same defaults the `npx` command starts with. [Details](docs/GUIDE.md#claude-desktop-bundle).
+Add the standard config in the client's MCP settings. Zed uses `context_servers` with `"source": "custom"`.
 
-To remove it, open Claude Desktop Settings, then Extensions, and uninstall iMessage. Your configuration file is untouched either way, because a bundle install never writes to it.
+</details>
 
-## seven tools
+If a GUI app reports that `npx` was not found, it cannot see your Node installation: use the full path from `which npx` as the `command`.
 
-| tool | what it does |
-| --- | --- |
-| `search_messages` | Find messages by literal substring, exact text, token, or phrase. |
-| `get_conversation` | Read a timeline with current edits, reactions, receipts, replies, and group events. |
-| `list_conversations` | Find direct and group chats by contact, service, reply state, or date. |
-| `analyze_communication` | Count messages and calculate activity, response-time, and initiation metrics. |
-| `sync_messages` | Pull new messages and lifecycle changes from a saved cursor. |
-| `resolve_contact` | Match a name or handle and report ambiguity rather than guess. |
-| `server_status` | Check versions, privacy settings, services, decoder health, and index state. |
+## Use it
 
-Every 2.x tool reads data only. The server cannot send or modify messages, and it does not recover unsent text or old edited versions. Each tool advertises a display title and an output schema for its success envelope, so a client can label it and check the structured result.
-
-## prompts
-
-You never need these: ask in plain words ("catch me up with Kapil", "who texted me about dinner") and the assistant calls the tools itself. The three prompts are one-click starters in the client's prompt menu (slash commands in Claude Code). None takes an input, so choosing one starts right away; add a name or detail in your own words if you want to steer it.
+Ask in plain words: "catch me up on my texts", "find the message about the dinner reservation", "how fast does Sam usually reply?". Three prompts are also in your client's prompt menu:
 
 | prompt | what it does |
 | --- | --- |
-| `catch_up` | finds who is waiting on you across the last three days of one-to-one chats, and what they need |
-| `draft_reply` | drafts a reply in your own texting style to whoever is waiting, or to the person you name |
-| `recap` | sums up your last seven days: messages sent and received, busiest conversations, anyone still waiting |
+| `catch_up` | Who is waiting on a reply from you, and what they need |
+| `draft_reply` | A reply in your own texting style. You send it; this server cannot. |
+| `recap` | Your week in messages: volume, busiest conversations, anyone still waiting |
 
-Prompts only tell the assistant which tools to call. None of them can send a message, since the server has no send tool.
+Clients that attach resources can use `imessage://conversations` and `imessage://conversations/{chat_id}`.
 
-## privacy
+## Tools
 
-The startup setting is the most a caller can see. A request can choose the same mode or a stricter one:
-
-| mode | what leaves the server |
+| tool | what it does |
 | --- | --- |
-| `full` | Current message text, names, handles, timestamps, and attachment metadata. |
-| `redacted` | Names, masked handles, calendar days, and references; no bodies or filenames. |
-| `aggregate` | Counts and metrics; no names, handles, text, or record references. |
+| `search_messages` | Search by substring, exact text, token, or phrase, in message text, conversation names, or attachment names |
+| `get_conversation` | Read a conversation by `chat_id` or by a contact or group name, with edits, reactions, receipts, replies, and attachments |
+| `list_conversations` | Find conversations by contact, service, kind, reply state, or date |
+| `get_attachment` | Show one attachment: images as a JPEG with metadata removed, text files as text |
+| `sync_messages` | Pull every change since a cursor: new, edited, unsent, and deleted messages, reactions, and receipts |
+| `analyze_communication` | Message counts, activity, response times, and who starts conversations |
+| `resolve_contact` | Match a name, phone number, or email to a contact, and report ambiguity rather than guess |
+| `server_status` | Version, update availability, access, index state, and schema support |
 
-Decoded search data stays in memory. Local execution does not control how your MCP client or model provider processes or retains returned results. Aggregate mode is redaction, not a formal anonymity guarantee.
+Every tool is read-only and marked `readOnlyHint`. Results use plain ids (`message_id`, `chat_id`, `attachment_id`) you can pass between tools.
 
-Every message body, contact value, group title, URL, attachment filename, and database-derived string is untrusted archival data. Archived messages can contain instructions planted by someone else. Keep tool results separate from trusted instructions, and confirm external actions influenced by them. This boundary reduces risk but does not eliminate prompt injection.
+## Configuration
 
-See the [security policy](SECURITY.md) and [full privacy contract](docs/GUIDE.md#privacy-and-untrusted-history).
+Add options to `args`, for example `["-y", "imessage-mcp@latest", "--privacy", "redacted"]`.
 
-## privacy policy
+| option | description |
+| --- | --- |
+| `--privacy <mode>` | The most any caller can see. `full` (default), `redacted` (names and masked handles, calendar days, no message text or filenames), or `aggregate` (counts only). A call can ask for a stricter mode, never a looser one. *env* `IMESSAGE_PRIVACY` |
+| `--contacts <mode>` | `live` (default) names handles from your Contacts; `none` shows handles only. *env* `IMESSAGE_CONTACTS` |
+| `--database <path>` | Read a copy of `chat.db` instead of this Mac's Messages. *env* `IMESSAGE_DB` |
+| `--transport http --port <n>` | Serve MCP over HTTP on 127.0.0.1 instead of stdio. Requires `IMESSAGE_API_TOKEN` or `IMESSAGE_API_TOKEN_FILE`. `IMESSAGE_ALLOWED_HOSTS` and `IMESSAGE_ALLOWED_ORIGINS` take comma-separated lists; both default to localhost. |
+| `IMESSAGE_CACHE=0` | Keep the search index in memory only |
+| `IMESSAGE_WARM_SEARCH=0` | Build the search index on the first search instead of at startup |
+| `IMESSAGE_UPDATE_CHECK=0` | Turn off the version check |
 
-imessage-mcp runs on your Mac and collects nothing: no accounts, telemetry, or analytics, and the author receives none of your data. It reads Messages history (and Contacts names when enabled) only to answer tool calls, keeps its search index in memory, and stores just two key files under `~/Library/Application Support/imessage-mcp/`. Results go to the MCP client you run and its model provider, under their policies. The only other network request is an optional, anonymous version lookup to the public npm registry when `server_status` or `doctor` runs; `IMESSAGE_UPDATE_CHECK=0` turns it off. The full policy covers collection, use, storage, sharing, retention, and contact: [PRIVACY.md](PRIVACY.md).
+## Privacy and security
 
-## compatibility and evidence
+- **Read-only.** The server opens the Messages database read-only and has no tool that sends, edits, reacts, or marks anything read.
+- **Local.** No accounts, telemetry, or analytics. The only network request is an optional version check to the npm registry.
+- **Your client sees what you ask for.** Results go to the MCP client you use and its model provider, under their policies. `--privacy redacted` or `aggregate` limits what leaves the server.
+- **Search index.** Built on your Mac and cached encrypted in `~/Library/Caches/imessage-mcp`, with a key derived from your Messages database, so it opens only for an app that can already read your messages. Deleting it is always safe.
+- **Untrusted content.** Messages can contain text written to manipulate an AI. The server tells clients to treat all message content as data, never as instructions.
 
-iMessage, SMS, MMS, and RCS are supported when they already appear in Messages on this Mac. The server reads a live Mac database or a faithful copy. Linux, Docker, iPhone backup manifests, and public HTTP hosting are unsupported. Optional authenticated HTTP is loopback-only; see the [guide](docs/GUIDE.md#http-and-tailscale-serve).
+Details: [SECURITY.md](SECURITY.md) and [PRIVACY.md](PRIVACY.md).
 
-[Verification](VERIFICATION.md) separates automated tests from previous live checks; [the changelog](CHANGELOG.md) and [GitHub releases](https://github.com/anipotts/imessage-mcp/releases) record what shipped. [Benchmarks](docs/BENCHMARK.md) include a reproducible synthetic fixture and cold, warm, and refresh timings. The [installed demo](docs/DEMO.md) uses synthetic Messages data.
+## Development
 
-## development
-
-```sh
+```bash
 npm ci
-npm run verify
-npm run test:performance
+npm test      # unit tests on synthetic Messages databases
+npm run e2e   # launches the built server over stdio and HTTP
+npm run perf  # one-million-message performance gates
 ```
 
-Use synthetic data only. See [contributing](CONTRIBUTING.md), the [complete guide](docs/GUIDE.md), and the [3.0 roadmap](docs/ROADMAP-3.0.md). Sending would be a separate product boundary, not a 2.x feature.
+Tests use synthetic data only. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-[MIT](LICENSE)
+## License
+
+MIT

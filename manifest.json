@@ -1,9 +1,9 @@
 {
   "manifest_version": "0.3",
   "name": "imessage-mcp",
-  "display_name": "iMessage",
-  "version": "2.2.0",
-  "description": "Read-only MCP for iMessage, SMS, MMS, and RCS history in Apple Messages on Mac",
+  "display_name": "iMessage History",
+  "version": "3.0.0",
+  "description": "Search and read your Apple Messages history. Read-only, runs on your Mac.",
   "author": {
     "name": "Ani Potts",
     "url": "https://github.com/anipotts"
@@ -13,7 +13,7 @@
     "url": "https://github.com/anipotts/imessage-mcp"
   },
   "homepage": "https://github.com/anipotts/imessage-mcp",
-  "documentation": "https://github.com/anipotts/imessage-mcp/blob/main/docs/GUIDE.md",
+  "documentation": "https://github.com/anipotts/imessage-mcp#readme",
   "support": "https://github.com/anipotts/imessage-mcp/issues",
   "icon": "assets/icon-512.png",
   "icons": [
@@ -66,44 +66,48 @@
   "tools": [
     {
       "name": "search_messages",
-      "description": "Find messages by literal substring, exact text, token, or phrase."
+      "description": "Search messages by substring, exact text, token, or phrase."
     },
     {
       "name": "get_conversation",
-      "description": "Read a timeline with current edits, reactions, receipts, replies, and group events."
+      "description": "Read a conversation with edits, reactions, receipts, replies, and attachments."
     },
     {
       "name": "list_conversations",
-      "description": "Find direct and group chats by contact, service, reply state, or date."
+      "description": "Find conversations by contact, service, kind, reply state, or date."
     },
     {
-      "name": "analyze_communication",
-      "description": "Count messages and calculate activity, response-time, and initiation metrics."
+      "name": "get_attachment",
+      "description": "Show one attachment: images with metadata removed, text files as text."
     },
     {
       "name": "sync_messages",
-      "description": "Pull new messages and lifecycle changes from a saved cursor."
+      "description": "Pull new, edited, unsent, and deleted messages, reactions, and receipts since a cursor."
+    },
+    {
+      "name": "analyze_communication",
+      "description": "Message counts, activity, response times, and initiation."
     },
     {
       "name": "resolve_contact",
-      "description": "Match a name or handle and report ambiguity rather than guess."
+      "description": "Match a name or handle to a contact without guessing."
     },
     {
       "name": "server_status",
-      "description": "Check versions, updates, privacy settings, services, decoder health, and index state."
+      "description": "Version, update availability, access, and index state."
     }
   ],
   "compatibility": {
     "platforms": ["darwin"],
     "runtimes": {
-      "node": ">=22"
+      "node": ">=24.16"
     }
   },
   "user_config": {
     "privacy": {
       "type": "string",
-      "title": "Privacy ceiling",
-      "description": "full, redacted, or aggregate. redacted returns names, masked handles, and calendar days with no message bodies. aggregate returns counts only.",
+      "title": "Privacy mode",
+      "description": "full, redacted, or aggregate. redacted shows names and masked handles with no message text; aggregate shows counts only.",
       "default": "full",
       "required": false
     },
@@ -121,5 +125,6 @@
       "default": true,
       "required": false
     }
-  }
+  },
+  "long_description": "Lets Claude search and read the iMessage, SMS, MMS, and RCS history already stored in Messages on your Mac: find messages, read conversations with edits and reactions, see photos with location data removed, follow new messages, and answer counts and response-time questions. It cannot send, edit, or delete messages. Everything runs locally; there are no accounts or telemetry. Claude needs Full Disk Access to read Messages."
 }

@@ -9,7 +9,7 @@
     {
       "name": "imessage-mcp",
       "source": "./",
-      "description": "Read-only MCP for iMessage, SMS, MMS, and RCS history already present in Apple Messages on Mac."
+      "description": "Search and read your Apple Messages history. Read-only, runs on your Mac."
     }
   ]
 }

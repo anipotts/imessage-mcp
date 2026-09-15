@@ -1,7 +1,7 @@
 {
   "name": "imessage-mcp",
-  "version": "2.2.0",
-  "description": "Read-only MCP for iMessage, SMS, MMS, and RCS history already present in Apple Messages on Mac.",
+  "version": "3.0.0",
+  "description": "Search and read your Apple Messages history. Read-only, runs on your Mac.",
   "author": {
     "name": "Ani Potts",
     "url": "https://github.com/anipotts"
@@ -12,7 +12,10 @@
   "mcpServers": {
     "imessage": {
       "command": "npx",
-      "args": ["-y", "imessage-mcp@2"]
+      "args": [
+        "-y",
+        "imessage-mcp@latest"
+      ]
     }
   },
   "keywords": [

@@ -92,7 +92,7 @@ export async function checkForUpdate(
     current_version: currentVersion,
     latest_version: latest,
     download_url: LATEST_BUNDLE_URL,
-    how_to_update: "Claude Desktop: open download_url and install the bundle. npx installs (imessage-mcp@2): restart the client.",
+    how_to_update: "npx installs: restart the client (change a pinned imessage-mcp@2 to imessage-mcp@latest). Claude Desktop: open download_url and install the bundle over the old one.",
   };
 }
 

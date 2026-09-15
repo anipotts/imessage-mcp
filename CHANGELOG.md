@@ -2,6 +2,34 @@
 
 this file follows [keep a changelog](https://keepachangelog.com/en/1.1.0/), and this project follows semantic versioning.
 
+## 3.0.0
+
+The first search of a session no longer rebuilds the index, nothing native is installed, and every MCP client installs the server the same way. Read-only remains a hard boundary.
+
+### changed (breaking)
+
+- tools take and return plain ids. `message_id`, `chat_id`, and `attachment_id` replace the encrypted `message_ref` and `conversation_ref` values, cutting several hundred characters per search hit. `get_conversation` takes `chat_id` and `around_message_id`, and `analyze_communication` takes `chat_id`.
+- `sync_messages` is rebuilt on a change log kept by the search index. Changes now include `message_deleted` and carry a `seq`. Cursors from 2.x are rejected: call once without a cursor to start again.
+- Node 24.16 or newer is required for `npx` installs. Claude Desktop brings its own Node.
+- the `setup` and `uninstall` commands are removed, because each client has its own add command, shown in the README. `doctor` stays.
+- the reference key and database identity files under `~/Library/Application Support/imessage-mcp` are no longer used, and `doctor` points out that the folder can be deleted. `--attachment-paths` is removed; use `get_attachment`.
+- configurations written for 2.x say `imessage-mcp@2`; change them to `imessage-mcp@latest` to receive 3.x.
+- contact names are read from the database Contacts.app keeps instead of through an AppleScript bridge, under the same Full Disk Access and without a separate Contacts prompt.
+
+### added
+
+- `get_attachment` returns one attachment. Images come back as a JPEG at most 1600 px on the long edge, with EXIF, GPS, and other metadata removed; text files as text; anything else as metadata. It works only in the `full` privacy mode.
+- resources `imessage://conversations` and `imessage://conversations/{chat_id}` for clients that attach context.
+- the search index is cached, encrypted, in `~/Library/Caches/imessage-mcp` with a key derived from the Messages database. On a 174,859-message archive the first search of a session dropped from 70 s to about 1.5 s. `IMESSAGE_CACHE=0` keeps it in memory.
+- a search that arrives while the first index is still building returns `INDEX_BUILDING` with its progress, instead of waiting out the client's timeout. Every other tool keeps answering during the build.
+- when Messages is blocked, errors and `doctor` name the app to grant Full Disk Access to when it is a recognized client.
+
+### removed
+
+- the native `better-sqlite3` module and its prebuilt binaries. Queries run through Node's built-in `node:sqlite`, and the desktop bundle carries no native code.
+- the Foundation decoder process. Message bodies and edit histories are decoded in TypeScript; on a real archive it matched Foundation on every one of 179,788 bodies and every edit history that holds edits, about 300 times faster.
+- `docs/`, `VERIFICATION.md`, and the per-release evidence files. Release evidence now lives in the GitHub release notes and CI.
+
 ## 2.2.0
 
 ### added
