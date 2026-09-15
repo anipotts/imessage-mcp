@@ -145,8 +145,12 @@ describe("native and release hardening", () => {
   });
 
   it("pins the desktop bundle packer to one version and one digest", () => {
-    const script = readFileSync(new URL("../scripts/build-mcpb.mjs", import.meta.url), "utf8");
-    expect(script).not.toContain("npx");
+    for (const user of ["build-mcpb.mjs", "sign-mcpb.mjs"]) {
+      const source = readFileSync(new URL(`../scripts/${user}`, import.meta.url), "utf8");
+      expect(source).not.toContain("npx");
+      expect(source).toContain("installPinnedPacker(");
+    }
+    const script = readFileSync(new URL("../scripts/mcpb-packer.mjs", import.meta.url), "utf8");
     expect(script).toMatch(/const PACKER_VERSION = "\d+\.\d+\.\d+";/u);
     expect(script).toMatch(/const PACKER_SHA256 = "[a-f0-9]{64}";/u);
     expect(script).toContain("does not match the pinned");
@@ -172,6 +176,11 @@ describe("native and release hardening", () => {
     expect(verify.indexOf("npm run verify")).toBeLessThan(verify.indexOf("npm run test:performance"));
     expect(verify.indexOf("npm run test:performance")).toBeLessThan(verify.indexOf("npm pack"));
     expect(verify).toContain("build:mcpb");
+    const signing = verify.slice(verify.indexOf("name: sign the desktop bundle"), verify.indexOf("id: pack"));
+    expect(signing).toContain("node scripts/sign-mcpb.mjs");
+    expect(signing).toContain("umask 077");
+    expect(signing).toContain('trap \'rm -rf "$SIGNING"\' EXIT');
+    expect(release.replace(signing, "")).not.toContain("MCPB_SIGNING");
     expect(verify).toContain("name: release-${{ steps.version.outputs.version }}");
 
     const npmJob = release.slice(release.indexOf("  publish-npm:"), release.indexOf("  verify-public-npm:"));

@@ -23,9 +23,9 @@ interface Manifest {
   version: string;
   icon: string;
   icons: Array<{ src: string; size: string }>;
-  server: { type: string; entry_point: string; mcp_config: { command: string; args: string[] } };
+  server: { type: string; entry_point: string; mcp_config: { command: string; args: string[]; env?: Record<string, string> } };
   compatibility: { platforms: string[] };
-  user_config: Record<string, { default?: string }>;
+  user_config: Record<string, { type: string; default?: string | boolean }>;
 }
 
 const PROMPT_NAMES = Object.keys(PROMPT_ARGUMENTS).sort();
@@ -137,14 +137,21 @@ try {
 
   const defaults = Object.fromEntries(
     Object.entries(manifest.user_config).map(([key, setting]) => {
-      assert.equal(typeof setting.default, "string", `user_config.${key} needs a default so the dialog can start with it`);
-      return [key, setting.default as string];
+      assert.equal(typeof setting.default, setting.type, `user_config.${key} needs a default so the dialog can start with it`);
+      // Claude Desktop substitutes every setting into mcp_config as a string.
+      return [key, String(setting.default)];
     }),
   );
   // The dialog defaults to live Contacts, which the runtime only pairs with this
   // Mac's own Messages database. A synthetic database is a copy, so every launch
   // here uses handles; the dialog's privacy default still flows through untouched.
   assert.equal(defaults.contacts, "live");
+  // The update toggle reaches the server as IMESSAGE_UPDATE_CHECK; launches below
+  // still run offline through cleanEnvironment.
+  assert.deepEqual(
+    Object.fromEntries(Object.entries(manifest.server.mcp_config.env ?? {}).map(([name, value]) => [name, resolvePlaceholders(value, root, defaults)])),
+    { IMESSAGE_UPDATE_CHECK: "true" },
+  );
   // Each launch owns its state directory, so the three ceilings run side by side.
   const launches = await Promise.all([
     { ...defaults, contacts: "none" },

@@ -130,8 +130,10 @@ for (const [dimension, value] of [["os-version", bundleCell[1]], ["node-version"
   assert.ok(declared[1].split(",").map((entry) => entry.trim()).includes(value),
     `the bundle step names ${dimension} ${value}, which the ci matrix no longer runs`);
 }
-assert.match(releaseWorkflow, /npm run build:mcpb\n {10}npm run test:mcpb -- --require\n {10}mv dist-mcpb\/imessage-mcp\.mcpb release-artifact\//u,
-  "the release artifact must carry the desktop bundle, launched first, so the GitHub release attaches a bundle that runs");
+assert.match(releaseWorkflow, /run: npm run build:mcpb\n[\s\S]*?name: sign the desktop bundle[\s\S]*?node scripts\/sign-mcpb\.mjs\n[\s\S]*?npm run test:mcpb -- --require\n {10}mv dist-mcpb\/imessage-mcp\.mcpb release-artifact\//u,
+  "the release artifact must carry the desktop bundle, signed when a certificate is configured and launched after signing, so the GitHub release attaches a bundle that runs");
+assert.equal((releaseWorkflow.match(/secrets\.MCPB_SIGNING_/gu) ?? []).length, 3,
+  "only the signing step may read the bundle signing secrets");
 assert.match(releaseWorkflow, /npm publish "\$TARBALL" --ignore-scripts --access public --provenance --tag next/u);
 assert.match(releaseWorkflow, /npm publish "\$TARBALL" --ignore-scripts --access public --provenance --tag latest/u);
 
