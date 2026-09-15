@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "subject_version": "2.1.2",
+  "subject_version": "2.2.0",
   "channel": "latest",
   "expected_paths": [
     ".claude-plugin/marketplace.json",
@@ -8,6 +8,7 @@
     ".mcp.json",
     "CONTRIBUTING.md",
     "LICENSE",
+    "PRIVACY.md",
     "README.md",
     "SECURITY.md",
     "VERIFICATION.md",
@@ -144,6 +145,10 @@
     "dist/transport.d.ts.map",
     "dist/transport.js",
     "dist/transport.js.map",
+    "dist/update-check.d.ts",
+    "dist/update-check.d.ts.map",
+    "dist/update-check.js",
+    "dist/update-check.js.map",
     "dist/verify-installed-graph.d.ts",
     "dist/verify-installed-graph.d.ts.map",
     "dist/verify-installed-graph.js",

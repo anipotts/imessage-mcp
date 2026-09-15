@@ -1,6 +1,6 @@
 {
   "name": "imessage-mcp",
-  "version": "2.1.2",
+  "version": "2.2.0",
   "mcpName": "io.github.anipotts/imessage-mcp",
   "description": "Read-only MCP for iMessage, SMS, MMS, and RCS history in Apple Messages on Mac",
   "author": "Ani Potts",
@@ -27,6 +27,7 @@
     "CONTRIBUTING.md",
     "README.md",
     "LICENSE",
+    "PRIVACY.md",
     "SECURITY.md",
     "VERIFICATION.md",
     "package-files.json",
@@ -35,6 +36,7 @@
   "scripts": {
     "build": "node scripts/clean-dist.mjs && tsc",
     "build:mcpb": "npm run build && node scripts/build-mcpb.mjs",
+    "sign:mcpb": "node scripts/sign-mcpb.mjs",
     "dev": "tsx src/cli.ts",
     "doctor": "tsx src/cli.ts doctor",
     "typecheck": "tsc --noEmit",

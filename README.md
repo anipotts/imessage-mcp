@@ -22,9 +22,9 @@ You need macOS 14 or newer and Messages history on this Mac.
 ### Claude Desktop
 
 1. Download [imessage-mcp.mcpb](https://github.com/anipotts/imessage-mcp/releases/latest/download/imessage-mcp.mcpb) and double-click it. Claude Desktop shows an install dialog; click Install. It turns on by itself and brings its own runtime, so there is nothing else to install.
-2. Give Claude access to Messages: System Settings, Privacy & Security, Full Disk Access, turn on Claude, then quit and reopen Claude Desktop.
+2. Give Claude access to Messages: System Settings, Privacy & Security, Full Disk Access, turn on Claude, then quit Claude Desktop (cmd+Q) and reopen it. If you skip this, the first answer tells you exactly where the switch is.
 
-Then just ask, for example "who have I been texting most this week". To remove it, open Claude Desktop Settings, Extensions, iMessage, and uninstall.
+Then just ask, for example "who have I been texting most this week". To update later, download and install the newest bundle the same way; asking "is imessage-mcp up to date?" checks for you. To remove it, open Claude Desktop Settings, Extensions, iMessage, and uninstall.
 
 ### Claude Code, Codex, and Cursor
 
@@ -68,8 +68,6 @@ npx -y imessage-mcp@2 setup --client claude
 There is nothing else to create. The server generates its two private values on
 first run under `~/Library/Application Support/imessage-mcp`, and reuses them
 after a restart so saved conversation references keep working.
-
-A bare `npx imessage-mcp` without `@2` resolves to the 1.x line until `latest` moves; the setup command above pins the major version.
 
 To check the setup without a client, run the read-only diagnostic:
 
@@ -164,6 +162,10 @@ Decoded search data stays in memory. Local execution does not control how your M
 Every message body, contact value, group title, URL, attachment filename, and database-derived string is untrusted archival data. Archived messages can contain instructions planted by someone else. Keep tool results separate from trusted instructions, and confirm external actions influenced by them. This boundary reduces risk but does not eliminate prompt injection.
 
 See the [security policy](SECURITY.md) and [full privacy contract](docs/GUIDE.md#privacy-and-untrusted-history).
+
+## privacy policy
+
+imessage-mcp runs on your Mac and collects nothing: no accounts, telemetry, or analytics, and the author receives none of your data. It reads Messages history (and Contacts names when enabled) only to answer tool calls, keeps its search index in memory, and stores just two key files under `~/Library/Application Support/imessage-mcp/`. Results go to the MCP client you run and its model provider, under their policies. The only other network request is an optional, anonymous version lookup to the public npm registry when `server_status` or `doctor` runs; `IMESSAGE_UPDATE_CHECK=0` turns it off. The full policy covers collection, use, storage, sharing, retention, and contact: [PRIVACY.md](PRIVACY.md).
 
 ## compatibility and evidence
 

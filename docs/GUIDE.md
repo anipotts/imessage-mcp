@@ -158,7 +158,7 @@ Stdio is the default. HTTP binds to loopback only and requires a token from `IME
 
 HTTP authenticates before parsing, validates Host and Origin, limits bodies to 256 KiB and responses to 4 MiB, permits two active tool calls, and rate-limits authenticated clients. Tailscale Serve is the documented TLS terminator for private remote access. Direct public-internet exposure and built-in TLS are unsupported.
 
-Diagnostics go to stderr and contain tool name, duration, status, counts, and error reason without queries, identities, paths, references, or message values. The server collects no telemetry and writes no persistent audit log.
+Diagnostics go to stderr and contain tool name, duration, status, counts, and error reason without queries, identities, paths, references, or message values. The server collects no telemetry and writes no persistent audit log. Its one outbound request is an anonymous version lookup to the public npm registry when `server_status` or `doctor` runs, cached for twelve hours; set `IMESSAGE_UPDATE_CHECK=0` (or turn off "Check for updates" in the Claude Desktop extension settings) to disable it. See [PRIVACY.md](../PRIVACY.md).
 
 ## 1.x migration
 
