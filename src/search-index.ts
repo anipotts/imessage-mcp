@@ -164,7 +164,7 @@ function hashValue(hash: ReturnType<typeof createHash>, value: unknown): void {
 // attachment joins of those messages, and each conversation's names,
 // services, and participants keyed by the chat_ids value the index stores.
 // Contacts are loaded once per process, so resolved names cannot drift.
-function sourceSignatures(request: DatabaseRequest): SourceSignatures {
+async function sourceSignatures(request: DatabaseRequest): Promise<SourceSignatures> {
   const target = request.asOf.max_message_id;
   const size = SIGNATURE_BUCKET_ROWS;
   // quote() serializes in SQLite without per-value JavaScript work; casting to
@@ -191,14 +191,22 @@ function sourceSignatures(request: DatabaseRequest): SourceSignatures {
     ...["associated_message_type", "item_type", "is_system_message", "date_retracted", "date_edited", "is_read", "date_read", "is_delivered", "date_delivered"]
       .map((name) => `QUOTE(${columnSql(request, "message", "m", name, "NULL")})`),
   ];
-  const messages = request.db.prepare(
-    `SELECT m.ROWID, ${messageFields.join(" || ',' || ")}
+  // One rowid-range query per bucket concatenates its rows inside SQLite, so a
+  // million-message archive costs a few thousand hash updates instead of a
+  // million, and the pass yields between buckets so other tools keep answering.
+  const bucketRows = request.db.prepare(
+    `SELECT GROUP_CONCAT('m' || m.ROWID || ',' || ${messageFields.join(" || ',' || ")}, ';' ORDER BY m.ROWID)
      FROM message m LEFT JOIN handle h ON h.ROWID = m.handle_id
-     WHERE m.ROWID <= @target
-     ORDER BY m.ROWID`,
-  ).raw().iterate({ target }) as Iterable<[number, string]>;
-  for (const [rowid, fields] of messages) {
-    hashFor(Math.floor(Number(rowid) / size)).update(`m${rowid},${fields};`);
+     WHERE m.ROWID BETWEEN @first AND @last`,
+  ).pluck();
+  let lastYield = performance.now();
+  for (let bucket = 0; bucket * size <= target; bucket += 1) {
+    const rows = bucketRows.get({ first: bucket * size, last: Math.min(target, (bucket + 1) * size - 1) }) as string | null;
+    if (rows !== null) hashFor(bucket).update(rows);
+    if (performance.now() - lastYield > BUILD_STEP_MS) {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      lastYield = performance.now();
+    }
   }
   // Join rows are small, so each bucket's rows are concatenated in SQLite.
   const relations: string[] = [
@@ -1156,7 +1164,7 @@ export class MemorySearchIndex {
           limit_bytes: this.memoryLimit(),
         });
       }
-      const signatures = sourceSignatures(request);
+      const signatures = await sourceSignatures(request);
       db = this.createIndex();
       await this.populate(request, db, [[0, request.asOf.max_message_id]], allowPartial, false);
       await this.recordAllRowStates(request, db);
@@ -1193,7 +1201,7 @@ export class MemorySearchIndex {
     const index = this.index as Database.Database;
     const previous = this.signatures as SourceSignatures;
     assertMessageConversationIntegrity(request);
-    const next = sourceSignatures(request);
+    const next = await sourceSignatures(request);
     const changed = new Set<number>();
     for (const [bucket, signature] of next.buckets) {
       if (previous.buckets.get(bucket) !== signature) changed.add(bucket);

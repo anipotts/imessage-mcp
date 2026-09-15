@@ -20,7 +20,9 @@ import { compileDateBounds } from "../src/time.js";
 
 process.env.IMESSAGE_UPDATE_CHECK = "0";
 const REFERENCE_MESSAGES = 1_000_000;
-const GATES_MS = { first_build: 60_000, cached_start: 5_000, warm_search: 2_000, refresh: 30_000 };
+// Ceilings for the million-message fixture on a GitHub macOS runner. A cached
+// start must also beat a quarter of the first build, whatever the hardware.
+const GATES_MS = { first_build: 90_000, cached_start: 20_000, warm_search: 2_000, refresh: 30_000, list_conversations: 20_000 };
 
 function selectedMessageCount(): number {
   const argument = process.argv.find((value) => value.startsWith("--messages="));
@@ -216,7 +218,8 @@ async function main(): Promise<void> {
 
     if (messageCount === REFERENCE_MESSAGES) {
       assert.ok(firstBuild.ms < GATES_MS.first_build, `first build took ${firstBuild.ms} ms`);
-      assert.ok(cachedStart.ms < GATES_MS.cached_start, `cached start took ${cachedStart.ms} ms`);
+      assert.ok(cachedStart.ms < GATES_MS.cached_start && cachedStart.ms * 4 < firstBuild.ms, `cached start took ${cachedStart.ms} ms after a ${firstBuild.ms} ms build`);
+      assert.ok(conversations.ms < GATES_MS.list_conversations, `list_conversations took ${conversations.ms} ms`);
       assert.ok(warm.ms < GATES_MS.warm_search, `warm search took ${warm.ms} ms`);
       assert.ok(unreadWrite.ms < GATES_MS.refresh && edit.ms < GATES_MS.refresh, `refreshes took ${unreadWrite.ms} and ${edit.ms} ms`);
     }
