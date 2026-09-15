@@ -22,6 +22,7 @@ import { getConversationEvents, type TimelineEventType } from "./repositories/me
 import { prepareCopiedDatabaseSync, syncMessages } from "./repositories/sync.js";
 import { serviceFamilyCase } from "./schema-sql.js";
 import { MemorySearchIndex } from "./search-index.js";
+import { checkForUpdate } from "./update-check.js";
 import { compileDateBounds } from "./time.js";
 
 const dirnameHere = dirname(fileURLToPath(import.meta.url));
@@ -140,7 +141,7 @@ export class LocalToolRuntime {
     let privacy = this.config.privacy_ceiling;
     try {
       privacy = requestedPrivacy(this.config, params);
-      if (tool === "server_status") return this.serverStatus(privacy, context.searchBuilding === true);
+      if (tool === "server_status") return await this.serverStatus(privacy, context.searchBuilding === true);
       if (tool === "resolve_contact") return this.resolveContact(params, privacy);
       if (tool === "list_conversations") return this.listConversations(params, privacy);
       if (tool === "get_conversation") return await this.getConversation(params, privacy);
@@ -314,7 +315,8 @@ export class LocalToolRuntime {
 
   // searchBuilding: the search index lives in the other worker, which is building
   // it right now, so this worker's own idle index would misreport the server.
-  private serverStatus(privacy: PrivacyMode, searchBuilding = false): CallToolResult {
+  private async serverStatus(privacy: PrivacyMode, searchBuilding = false): Promise<CallToolResult> {
+    const update = await checkForUpdate(packageJson.version);
     const request = this.database.request();
     try {
       const detectedServices = this.detectedServices(request);
@@ -333,6 +335,7 @@ export class LocalToolRuntime {
           decoder_health: this.decoder.healthState(),
           index_state: searchBuilding ? { ...this.search.state(), state: "building" as const } : this.search.state(),
           as_of: watermarkToken(request.asOf),
+          update,
         },
       });
     } finally {

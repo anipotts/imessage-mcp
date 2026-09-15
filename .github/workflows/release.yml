@@ -51,6 +51,34 @@ jobs:
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
       - run: npm run verify
       - run: npm run test:performance
+      - name: build the desktop bundle
+        run: npm run build:mcpb
+      # Only this step sees the signing secrets, and it runs only the pinned,
+      # digest-checked mcpb packer. Without a configured certificate the bundle
+      # ships unsigned, as before; with one, an untrusted signature fails the release.
+      - name: sign the desktop bundle
+        shell: bash
+        env:
+          MCPB_SIGNING_CERT: ${{ secrets.MCPB_SIGNING_CERT }}
+          MCPB_SIGNING_KEY: ${{ secrets.MCPB_SIGNING_KEY }}
+          MCPB_SIGNING_INTERMEDIATE: ${{ secrets.MCPB_SIGNING_INTERMEDIATE }}
+        run: |
+          if [[ -z "$MCPB_SIGNING_CERT" && -z "$MCPB_SIGNING_KEY" ]]; then
+            npm run sign:mcpb
+            exit 0
+          fi
+          umask 077
+          SIGNING=$(mktemp -d "$RUNNER_TEMP/mcpb-signing.XXXXXX")
+          trap 'rm -rf "$SIGNING"' EXIT
+          printf '%s\n' "$MCPB_SIGNING_CERT" > "$SIGNING/cert.pem"
+          printf '%s\n' "$MCPB_SIGNING_KEY" > "$SIGNING/key.pem"
+          export MCPB_SIGNING_CERT_FILE="$SIGNING/cert.pem" MCPB_SIGNING_KEY_FILE="$SIGNING/key.pem"
+          if [[ -n "$MCPB_SIGNING_INTERMEDIATE" ]]; then
+            printf '%s\n' "$MCPB_SIGNING_INTERMEDIATE" > "$SIGNING/intermediate.pem"
+            export MCPB_SIGNING_INTERMEDIATE_FILE="$SIGNING/intermediate.pem"
+          fi
+          unset MCPB_SIGNING_CERT MCPB_SIGNING_KEY MCPB_SIGNING_INTERMEDIATE
+          node scripts/sign-mcpb.mjs
       - id: pack
         name: build the release artifact
         shell: bash
@@ -58,7 +86,6 @@ jobs:
           mkdir release-artifact
           TARBALL=$(npm pack --json --pack-destination release-artifact | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>process.stdout.write(JSON.parse(s)[0].filename))")
           test -f "release-artifact/${TARBALL}"
-          npm run build:mcpb
           npm run test:mcpb -- --require
           mv dist-mcpb/imessage-mcp.mcpb release-artifact/
           test -f release-artifact/imessage-mcp.mcpb

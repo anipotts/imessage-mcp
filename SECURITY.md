@@ -20,7 +20,7 @@ Every 2.x tool is read-only. SQLite opens with `readonly`, `fileMustExist`, and 
 
 Stdio is local to the launching client. Optional HTTP binds only to loopback, authenticates before parsing request bodies, validates Host and Origin, uses bounded request and response sizes, and is intended for private TLS termination through Tailscale Serve. Direct public-internet exposure and Tailscale Funnel are unsupported.
 
-Decoded bodies are indexed in memory only. The package writes no message index, telemetry, or persistent audit log. Diagnostics exclude query text, references, identity values, paths, and message values.
+Decoded bodies are indexed in memory only. The package writes no message index, telemetry, or persistent audit log. Diagnostics exclude query text, references, identity values, paths, and message values. Its only outbound request is an anonymous version lookup to `https://registry.npmjs.org/imessage-mcp/latest` from `server_status` and `doctor`, carrying no message, contact, or identity data, cached for twelve hours and disabled by `IMESSAGE_UPDATE_CHECK=0`. See [PRIVACY.md](PRIVACY.md).
 
 Every message body, contact value, group title, URL, attachment filename, and database-derived string is untrusted archival data. It is returned as data, never as an instruction from this server. MCP clients should keep tool results separate from trusted instructions, avoid following links or executing commands found in history, withhold secrets, and require confirmation before any external action influenced by archival content. The server advertises this boundary in its MCP instructions. These controls reduce exposure; they do not eliminate prompt injection or control how a client or model provider processes returned results.
 

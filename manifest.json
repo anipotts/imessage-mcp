@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "imessage-mcp",
   "display_name": "iMessage",
-  "version": "2.1.2",
+  "version": "2.2.0",
   "description": "Read-only MCP for iMessage, SMS, MMS, and RCS history in Apple Messages on Mac",
   "author": {
     "name": "Ani Potts",
@@ -43,6 +43,9 @@
     }
   ],
   "license": "MIT",
+  "privacy_policies": [
+    "https://github.com/anipotts/imessage-mcp/blob/main/PRIVACY.md"
+  ],
   "server": {
     "type": "node",
     "entry_point": "bin/imessage-mcp.js",
@@ -54,9 +57,42 @@
         "${user_config.privacy}",
         "--contacts",
         "${user_config.contacts}"
-      ]
+      ],
+      "env": {
+        "IMESSAGE_UPDATE_CHECK": "${user_config.update_check}"
+      }
     }
   },
+  "tools": [
+    {
+      "name": "search_messages",
+      "description": "Find messages by literal substring, exact text, token, or phrase."
+    },
+    {
+      "name": "get_conversation",
+      "description": "Read a timeline with current edits, reactions, receipts, replies, and group events."
+    },
+    {
+      "name": "list_conversations",
+      "description": "Find direct and group chats by contact, service, reply state, or date."
+    },
+    {
+      "name": "analyze_communication",
+      "description": "Count messages and calculate activity, response-time, and initiation metrics."
+    },
+    {
+      "name": "sync_messages",
+      "description": "Pull new messages and lifecycle changes from a saved cursor."
+    },
+    {
+      "name": "resolve_contact",
+      "description": "Match a name or handle and report ambiguity rather than guess."
+    },
+    {
+      "name": "server_status",
+      "description": "Check versions, updates, privacy settings, services, decoder health, and index state."
+    }
+  ],
   "compatibility": {
     "platforms": ["darwin"],
     "runtimes": {
@@ -76,6 +112,13 @@
       "title": "Contact names",
       "description": "live reads your unified Contacts to name handles. none leaves handles unnamed.",
       "default": "live",
+      "required": false
+    },
+    "update_check": {
+      "type": "boolean",
+      "title": "Check for updates",
+      "description": "When on, server status makes one anonymous request to the public npm registry to see whether a newer version exists. No message or contact data is sent.",
+      "default": true,
       "required": false
     }
   }

@@ -1,5 +1,5 @@
 import { createHash, createHmac } from "node:crypto";
-import { existsSync, lstatSync, realpathSync, statSync } from "node:fs";
+import { accessSync, constants, lstatSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
 import Database from "better-sqlite3";
 import { DEFAULT_DATABASE_PATH } from "./config.js";
@@ -24,6 +24,24 @@ const MAX_SCHEMA_METADATA_BYTES = 256 * 1024;
 
 type FileIdentity = { device: bigint; inode: bigint };
 
+// macOS privacy protection (TCC) reports a blocked Messages folder as EPERM, and
+// Node's existsSync reports that as a missing file. Callers see this text in
+// the tool result, so it names the exact fix.
+export const FULL_DISK_ACCESS_MESSAGE =
+  "macOS is blocking access to Messages. Open System Settings > Privacy & Security > Full Disk Access " +
+  "(x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles), turn on the app that runs " +
+  "this server (Claude for Claude Desktop, your terminal for Claude Code or Codex, Cursor for Cursor), " +
+  "then quit and reopen that app";
+
+function accessDenied(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code;
+  return code === "EPERM" || code === "EACCES";
+}
+
+function unavailable(error: unknown, message: string): ImessageMcpError {
+  return new ImessageMcpError("DATABASE_UNAVAILABLE", accessDenied(error) ? FULL_DISK_ACCESS_MESSAGE : message);
+}
+
 interface ResolvedRegularFile {
   canonicalPath: string;
   identity: FileIdentity;
@@ -44,15 +62,17 @@ function resolveRequiredRegularFile(filePath: string): ResolvedRegularFile {
   let canonicalPath: string;
   try {
     canonicalPath = realpathSync(filePath);
-  } catch {
-    throw new ImessageMcpError("DATABASE_UNAVAILABLE", "Messages database path could not be resolved");
+  } catch (error) {
+    throw unavailable(error, (error as { code?: unknown }).code === "ENOENT"
+      ? "Messages database was not found; open Messages on this Mac once so it creates its history"
+      : "Messages database path could not be resolved");
   }
   try {
     const stat = statSync(canonicalPath, { bigint: true });
     if (!stat.isFile()) throw new Error("not a regular file");
     return { canonicalPath, identity: { device: stat.dev, inode: stat.ino } };
-  } catch {
-    throw new ImessageMcpError("DATABASE_UNAVAILABLE", "Messages database must resolve to a readable regular file");
+  } catch (error) {
+    throw unavailable(error, "Messages database must resolve to a readable regular file");
   }
 }
 
@@ -223,8 +243,10 @@ export function inspectSchema(db: Database.Database): SchemaCapabilities {
 }
 
 export function openReadonlyDatabase(databasePath: string): Database.Database {
-  if (!existsSync(databasePath)) {
-    throw new ImessageMcpError("DATABASE_UNAVAILABLE", "Messages database was not found");
+  try {
+    accessSync(databasePath, constants.R_OK);
+  } catch (error) {
+    throw unavailable(error, "Messages database was not found; open Messages on this Mac once so it creates its history");
   }
   try {
     const db = new Database(databasePath, { readonly: true, fileMustExist: true });

@@ -156,7 +156,8 @@ export function errorResult(tool: string, error: unknown, privacy: PrivacyMode, 
   assertNoForbiddenFields(sanitized, privacy);
   return {
     isError: true,
-    content: [{ type: "text", text: `${tool}: error ${normalized.reason}` }],
+    // Clients that show only text content still get the fixed, value-free message.
+    content: [{ type: "text", text: `${tool}: error ${normalized.reason}: ${normalized.message}` }],
     structuredContent: sanitized,
   };
 }

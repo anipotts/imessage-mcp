@@ -105,6 +105,13 @@ const serverStatusOutput = successSchema(z.looseObject({
     memory_limit_bytes: z.number(),
   }),
   as_of: z.string(),
+  update: z.object({
+    status: z.enum(["current", "available", "unknown", "disabled"]),
+    current_version: z.string(),
+    latest_version: z.string().optional(),
+    download_url: z.string().optional(),
+    how_to_update: z.string().optional(),
+  }).optional(),
 }));
 
 const contactCandidateSchema = z.looseObject({
@@ -713,10 +720,10 @@ export function registerTools(server: McpServer, runtime: ToolRuntime): void {
     "server_status",
     {
       title: "Server status",
-      description: "Report package/API versions, privacy ceiling, schema capabilities, detected services, source mode, decoder health, and memory-index state without paths or raw identifiers.",
+      description: "Report package/API versions, privacy ceiling, schema capabilities, detected services, source mode, decoder health, memory-index state, and whether a newer release is available, without paths or raw identifiers. The update check is one anonymous request to the public npm registry, off when IMESSAGE_UPDATE_CHECK=0.",
       inputSchema: recoverInvalidInput(z.object({ privacy_mode: privacySchema.optional() }).strict()),
       outputSchema: serverStatusOutput,
-      annotations,
+      annotations: { ...annotations, openWorldHint: true },
     },
     (params) => invokeTool(runtime, "server_status", params),
   );

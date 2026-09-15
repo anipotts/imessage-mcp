@@ -24,6 +24,30 @@ gh secret set DEPENDABOT_AUTOMERGE_TOKEN --repo anipotts/imessage-mcp --app acti
 
 Without the secret both workflows pass with a warning and change nothing. Renew the token before it expires.
 
+## desktop bundle signing
+
+Claude Desktop marks an extension as signed only when its certificate passes the operating system's code-signing trust check, so a self-signed certificate still installs as unsigned. The release workflow signs `imessage-mcp.mcpb` with an Apple Developer ID Application certificate when these repository secrets exist, and fails the release if the result does not verify as trusted. Without them, releases ship unsigned as before.
+
+1. In the Apple Developer Program, create a Developer ID Application certificate (Xcode, Settings, Accounts, Manage Certificates) and export it with its private key from Keychain Access as a `.p12`.
+2. Convert it in a private directory. `openssl` prompts for the export password, so it never lands in shell history. Add `-legacy` if OpenSSL rejects the Keychain export.
+
+```sh
+openssl pkcs12 -in developer-id.p12 -clcerts -nokeys -out cert.pem
+openssl pkcs12 -in developer-id.p12 -nocerts -nodes -out key.pem
+curl -fsSL https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer | openssl x509 -inform der -out intermediate.pem
+```
+
+3. Store the three files as secrets from stdin, then delete the local copies.
+
+```sh
+gh secret set MCPB_SIGNING_CERT --repo anipotts/imessage-mcp < cert.pem
+gh secret set MCPB_SIGNING_KEY --repo anipotts/imessage-mcp < key.pem
+gh secret set MCPB_SIGNING_INTERMEDIATE --repo anipotts/imessage-mcp < intermediate.pem
+rm -P key.pem developer-id.p12
+```
+
+The next tagged release signs the bundle. To check a signature locally, point `MCPB_SIGNING_CERT_FILE`, `MCPB_SIGNING_KEY_FILE`, and `MCPB_SIGNING_INTERMEDIATE_FILE` at the PEM files and run `npm run build:mcpb && npm run sign:mcpb`.
+
 ## compatibility reports
 
 Open a bug report with the exact package version, macOS version, Node version, Mac architecture, source mode (`live` or `copy`), service family, transport, privacy ceiling, Contacts mode, tool name, stable error reason, and sanitized timing. Include the relevant `doctor --contacts none --privacy aggregate --json` check names and pass/warn/fail states, not private values.

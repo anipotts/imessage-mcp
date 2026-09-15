@@ -13,6 +13,9 @@ const BLOCKED = new Set([
 
 export function cleanEnvironment(extra: Record<string, string> = {}): Record<string, string> {
   return {
+    // Launch checks stay offline and deterministic; tests/update-check.test.ts
+    // covers the registry lookup with a stubbed fetch.
+    IMESSAGE_UPDATE_CHECK: "0",
     ...Object.fromEntries(
       Object.entries(process.env).filter(
         (entry): entry is [string, string] => entry[1] !== undefined && !BLOCKED.has(entry[0]),
