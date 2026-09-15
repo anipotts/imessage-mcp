@@ -6,6 +6,13 @@
 // helper), read that bundle's identifier, and only ever name it in the
 // instruction we hand back if it matches a fixed list of known MCP clients
 // and terminals. An unrecognized process is never named or path-leaked.
+//
+// Two wrinkles the plain "walk to the outermost known bundle" rule misses:
+// Claude.app hands TCC responsibility for its child process to that child
+// through a small "disclaimer" helper it launches first (so the child, not
+// Claude.app itself, is the process that actually needs FDA), and a process
+// launched directly by launchd (ppid 1) has no further ancestor to blame, so
+// an unknown one there is a dead end, not a reason to keep walking.
 
 import { execFileSync } from "node:child_process";
 import path from "node:path";
@@ -13,6 +20,10 @@ import path from "node:path";
 const PS_TIMEOUT_MS = 2_000;
 const PLUTIL_TIMEOUT_MS = 2_000;
 const DEFAULT_MAX_DEPTH = 16;
+// The disclaimer sits at Contents/Helpers/disclaimer inside the app that runs
+// it, so it is matched by suffix.
+const DISCLAIMER_SUFFIX = `${path.sep}Contents${path.sep}Helpers${path.sep}disclaimer`;
+const JETBRAINS_BUNDLE_PREFIX = "com.jetbrains.";
 
 export interface ResponsibleApp {
   name: string;
@@ -25,17 +36,17 @@ export interface ProcessInfo {
   executable: string;
 }
 
-// Bundle id -> display name. Verified against a real Info.plist on this Mac
-// where noted; the rest are well-known ids for clients not installed here.
-// Never add an id without verifying it against a real plist or the plan's
-// well-known list.
+// Bundle id to display name. Add an id only after checking it against the
+// app's Info.plist or its publisher's documentation.
 export const KNOWN_CLIENTS: ReadonlyMap<string, string> = new Map([
-  // verified via plutil against an installed Info.plist on this machine
+  // verified against installed Info.plist files
   ["com.anthropic.claudefordesktop", "Claude"],
+  ["com.anthropic.claude-code", "Claude Code"],
   ["com.todesktop.230313mzl4w4u92", "Cursor"],
   ["com.apple.Terminal", "Terminal"],
   ["com.mitchellh.ghostty", "Ghostty"],
-  // well-known ids, not installed on this machine (per plan section 3.9)
+  // published bundle ids
+  ["com.openai.codex", "Codex"],
   ["com.microsoft.VSCode", "Visual Studio Code"],
   ["com.microsoft.VSCodeInsiders", "Visual Studio Code - Insiders"],
   ["com.exafunction.windsurf", "Windsurf"],
@@ -43,6 +54,16 @@ export const KNOWN_CLIENTS: ReadonlyMap<string, string> = new Map([
   ["dev.warp.Warp-Stable", "Warp"],
   ["com.googlecode.iterm2", "iTerm"],
 ]);
+
+// KNOWN_CLIENTS plus the JetBrains family, which ships one bundle id per IDE
+// (com.jetbrains.intellij, .pycharm, .webstorm, ...) under a shared prefix
+// rather than a fixed list we'd have to keep adding to.
+function resolveClientName(bundleId: string): string | null {
+  const exact = KNOWN_CLIENTS.get(bundleId);
+  if (exact) return exact;
+  if (bundleId.startsWith(JETBRAINS_BUNDLE_PREFIX)) return "your JetBrains IDE";
+  return null;
+}
 
 // Reads a process's parent pid and executable path via `ps`. Returns null on
 // any failure (process gone, ps missing, timeout) rather than throwing: a
@@ -103,6 +124,13 @@ export interface FindResponsibleAppOptions {
   maxDepth?: number;
 }
 
+// findResponsibleApp() with no options at all always resolves the same
+// answer for the life of the process (this server's own parent chain does
+// not change), so the real ps/plutil walk only ever needs to run once.
+// Populated lazily; `undefined` means "not computed yet" (distinct from a
+// computed `null`, which means "no known client found").
+let defaultResultCache: { value: ResponsibleApp | null } | undefined;
+
 // Walks the parent-process chain from `pid` (default: this server's parent)
 // looking for the nearest ancestor whose outermost app bundle has a known
 // bundle id. "Nearest" rather than "outermost known": a known client that
@@ -112,6 +140,9 @@ export interface FindResponsibleAppOptions {
 // for this specific process to work. Returns null when no ancestor within
 // maxDepth resolves to a known client.
 export function findResponsibleApp(options: FindResponsibleAppOptions = {}): ResponsibleApp | null {
+  const usingDefaults = Object.keys(options).length === 0;
+  if (usingDefaults && defaultResultCache) return defaultResultCache.value;
+
   const readProcess = options.readProcess ?? defaultReadProcess;
   const readBundleId = options.readBundleId ?? defaultReadBundleId;
   const maxDepth = options.maxDepth ?? DEFAULT_MAX_DEPTH;
@@ -119,8 +150,9 @@ export function findResponsibleApp(options: FindResponsibleAppOptions = {}): Res
 
   const seen = new Set<number>();
   let pid = startPid;
+  let result: ResponsibleApp | null = null;
   for (let depth = 0; depth < maxDepth; depth += 1) {
-    if (pid <= 1) break;
+    if (pid <= 1) break; // launchd: no further ancestor exists to blame
     if (seen.has(pid)) break; // cycle guard: ps can misreport under odd conditions
     seen.add(pid);
 
@@ -128,16 +160,36 @@ export function findResponsibleApp(options: FindResponsibleAppOptions = {}): Res
     if (!info) break;
 
     const appPath = outermostAppBundle(info.executable);
+    let known: ResponsibleApp | null = null;
     if (appPath) {
       const bundleId = readBundleId(appPath);
-      if (bundleId && KNOWN_CLIENTS.has(bundleId)) {
-        return { name: KNOWN_CLIENTS.get(bundleId)!, bundleId, appPath };
+      const name = bundleId ? resolveClientName(bundleId) : null;
+      if (bundleId && name) known = { name, bundleId, appPath };
+    }
+
+    // The disclaimer hands TCC responsibility for this process to its
+    // child, so this process (not whatever launched the disclaimer) is the
+    // one that needs FDA. Stop the walk here either way: continuing up
+    // through the disclaimer to its own launcher (Claude.app) would credit
+    // an app that explicitly declined responsibility for this child.
+    if (info.ppid > 1) {
+      const parentInfo = readProcess(info.ppid);
+      if (parentInfo && parentInfo.executable.endsWith(DISCLAIMER_SUFFIX)) {
+        result = known;
+        break;
       }
+    }
+
+    if (known) {
+      result = known;
+      break;
     }
 
     pid = info.ppid;
   }
-  return null;
+
+  if (usingDefaults) defaultResultCache = { value: result };
+  return result;
 }
 
 // Builds the user-facing instruction for granting Full Disk Access. Never

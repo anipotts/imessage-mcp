@@ -1,4 +1,7 @@
-import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, truncateSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import {
+  chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, truncateSync, writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -6,6 +9,9 @@ import {
   CACHE_FORMAT_VERSION, cacheDirectory, databaseIdentity, readCacheFile, sampleAnchors, sourceHash, writeCacheFile,
 } from "../src/cache.js";
 import Database from "../src/sqlite.js";
+
+const MKFIFO = "/usr/bin/mkfifo";
+const mkfifoAvailable = existsSync(MKFIFO);
 
 // Header layout: magic 8, format 2, schema 4, source hash 32, count 2, anchors
 // 8 each, salt 32, nonce 12, plaintext length 8.
@@ -205,6 +211,32 @@ describe("cache file", () => {
     expect(read(source, file)?.equals(plaintext)).toBe(true);
   });
 
+  // The prior test proves a MISMATCHED schema/hash is rejected, which a
+  // plain string-equality check on the plaintext header would already catch
+  // on its own; it doesn't prove the header is bound into the AEAD tag.
+  // These two rewrite the on-disk bytes to a DIFFERENT BUT ALSO VALID value
+  // and then read with that same (new) expected value, so the plaintext
+  // equality check passes; only authenticating the header as AEAD data can
+  // still catch the tamper (removing the setAAD calls makes both pass).
+  it("rejects a file whose on-disk schema-version bytes were rewritten to a different (also valid) version", () => {
+    const { source, file } = setup();
+    write(source, file);
+    const tampered = Buffer.from(readFileSync(file));
+    tampered.writeUInt32BE(SCHEMA + 1, 10); // schema-version field only
+    writeFileSync(file, tampered);
+    expect(read(source, file, { schemaVersion: SCHEMA + 1 })).toBeNull();
+  });
+
+  it("rejects a file whose on-disk source-hash bytes were rewritten to a different (also valid) hash", () => {
+    const { source, file } = setup();
+    write(source, file);
+    const otherHash = sourceHash("/elsewhere-but-still-valid/chat.db");
+    const tampered = Buffer.from(readFileSync(file));
+    tampered.write(otherHash, 14, 32, "latin1"); // source-hash field only (32 bytes)
+    writeFileSync(file, tampered);
+    expect(read(source, file, { sourceHash: otherHash })).toBeNull();
+  });
+
   it("returns null for missing, truncated, extended and foreign files", () => {
     const { source, file, directory } = setup();
     expect(read(source, file)).toBeNull();
@@ -275,6 +307,51 @@ describe("cache file", () => {
     expect(() => writeCacheFile({ path: file, plaintext, source, schemaVersion: -1, sourceHash: HASH })).toThrow(RangeError);
     expect(() => writeCacheFile({ path: file, plaintext, source, schemaVersion: SCHEMA, sourceHash: "short" })).toThrow(RangeError);
     expect(() => statSync(file)).toThrow();
+  });
+
+  it("sanitizes a raw fs error (unwritable parent directory) so the thrown message never contains a path", () => {
+    const { source } = setup();
+    // secureDirectory() auto-fixes an EXISTING cache directory back to 0700
+    // (see the "fixing an existing directory" test above), so chmodding the
+    // cache directory itself would just get silently repaired. Instead make
+    // the cache directory's PARENT unwritable, so creating the cache
+    // directory itself (mkdirSync, recursive) fails with a real fs error.
+    const parent = path.join(temporaryDirectory(), "unwritable-parent");
+    mkdirSync(parent, { mode: 0o500 });
+    chmodSync(parent, 0o500); // read + execute only: cannot create anything inside it
+    const directory = path.join(parent, "cache");
+    const file = path.join(directory, "cache.index");
+
+    let caught: unknown;
+    try {
+      write(source, file);
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(Error);
+    const message = (caught as Error).message;
+    expect(message).not.toContain("/");
+    expect(message).not.toContain(parent);
+    // The errno code is preserved (as the sanitized carrier of *why*), even
+    // though the path is not.
+    expect((caught as Error & { cause?: { code?: string } }).cause?.code).toBe("EACCES");
+
+    chmodSync(parent, 0o700); // restore so the afterEach cleanup can remove it
+  });
+
+  describe("FIFO handling", () => {
+    it.skipIf(!mkfifoAvailable)("returns null immediately for a FIFO instead of blocking on open", async () => {
+      const { source, directory } = setup();
+      mkdirSync(directory, { recursive: true });
+      const fifoPath = path.join(directory, "cache.index");
+      execFileSync(MKFIFO, [fifoPath]);
+
+      // If readCacheFile ever opened this O_RDONLY without O_NONBLOCK, this
+      // call would hang forever (no writer ever opens the other end) and the
+      // test would time out rather than fail cleanly.
+      const result = read(source, fifoPath);
+      expect(result).toBeNull();
+    });
   });
 });
 

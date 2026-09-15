@@ -4,6 +4,7 @@ import { McpServer, ResourceTemplate, type CallToolResult } from "@modelcontextp
 import { serveStdio, StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import * as z from "zod/v4";
 import type { RuntimeConfig } from "./config.js";
+import { sweepAttachmentTemp } from "./attachments.js";
 import { API_VERSION } from "./contracts.js";
 import { ImessageMcpError } from "./errors.js";
 import { MAX_CURSOR_LENGTH, MAX_SYNC_CURSOR_LENGTH } from "./references.js";
@@ -296,6 +297,7 @@ export class ToolRuntime {
   // Access this throws DATABASE_UNAVAILABLE; the server keeps serving and each
   // call retries, so access granted later works without a restart.
   async initialize(): Promise<void> {
+    void sweepAttachmentTemp().catch(() => undefined);
     const local = this.open();
     await local.prepare();
     if (process.env.IMESSAGE_WARM_SEARCH !== "0") void local.warmSearch().catch(() => undefined);

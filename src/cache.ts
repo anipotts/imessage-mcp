@@ -5,6 +5,11 @@
 // key never touches disk; the header names the anchors, a fresh salt and a
 // fresh nonce, and the whole header is authenticated. Reads never throw: any
 // mismatch, truncation, missing anchor or failed tag is simply a cache miss.
+//
+// Limitation: with few active conversations the anchors may all come from one
+// chat, so the key rests on rows the other person's devices also hold. The
+// cache guards against other local processes and stale backups, not against
+// someone who already has that thread and this file.
 
 import { createCipheriv, createDecipheriv, createHash, hkdfSync, randomBytes } from "node:crypto";
 import {
@@ -175,10 +180,10 @@ export function writeCacheFile(input: { path: string; plaintext: Buffer; source:
   const header = encodeHeader(input.schemaVersion, input.sourceHash, anchors, salt, nonce, plaintext.length);
 
   const directory = path.dirname(input.path);
-  secureDirectory(directory);
   const temporary = `${input.path}.${process.pid}.${randomBytes(8).toString("hex")}.tmp`;
   let fd: number | null = null;
   try {
+    secureDirectory(directory);
     fd = openSync(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
     const cipher = createCipheriv("aes-256-gcm", key, nonce, { authTagLength: TAG_BYTES });
     cipher.setAAD(header);
@@ -205,7 +210,11 @@ export function writeCacheFile(input: { path: string; plaintext: Buffer; source:
     } catch {
       // never created
     }
-    throw error;
+    // Node's fs errors carry the full path in both .message and .path (e.g.
+    // "EACCES: permission denied, open '/Users/.../cache/x.tmp'"); only the
+    // errno code is safe to surface, never the message or path.
+    const code = error && typeof error === "object" && "code" in error ? String((error as { code?: unknown }).code) : "UNKNOWN";
+    throw new Error("cache write failed", { cause: { code } });
   } finally {
     key.fill(0);
   }
@@ -287,11 +296,17 @@ function openCache(fd: number, input: { source: Database; schemaVersion: number;
 export function readCacheFile(input: { path: string; source: Database; schemaVersion: number; sourceHash: string }): Buffer | null {
   let fd: number;
   try {
-    fd = openSync(input.path, constants.O_RDONLY | constants.O_NOFOLLOW);
+    // O_NONBLOCK matters for a FIFO: opening one O_RDONLY blocks until a
+    // writer opens the other end, which would otherwise hang the server
+    // indefinitely on a maliciously (or accidentally) planted pipe at the
+    // cache path. With O_NONBLOCK the open returns immediately regardless,
+    // and the isFile() check below rejects it either way.
+    fd = openSync(input.path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   } catch {
     return null;
   }
   try {
+    if (!fstatSync(fd).isFile()) return null;
     return openCache(fd, input);
   } catch {
     return null;
