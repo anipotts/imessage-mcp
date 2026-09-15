@@ -3,11 +3,12 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { RuntimeConfig } from "../config.js";
 import { stateDirectory, type SecretSource, type StateRepair } from "../keys.js";
-import { DatabaseContext } from "../database.js";
+import { DatabaseContext, FULL_DISK_ACCESS_MESSAGE } from "../database.js";
 import { MessageTextDecoder } from "../decoder.js";
 import { UnifiedContactResolver } from "../contacts.js";
 import { estimateSearchIndexFloor, searchIndexMemoryLimit } from "../search-index.js";
 import { validateHttpConfiguration } from "../transport.js";
+import { checkForUpdate } from "../update-check.js";
 
 interface DoctorCheck {
   name: string;
@@ -76,6 +77,20 @@ export async function doctor(
       status: valid ? "pass" : "fail",
       detail: valid ? `package metadata is consistent at ${packageJson.version}` : "installed package metadata is incomplete or inconsistent",
     });
+    if (packageJson.version) {
+      const update = await checkForUpdate(packageJson.version);
+      checks.push({
+        name: "update",
+        status: update.status === "available" ? "warn" : "pass",
+        detail: update.status === "available"
+          ? `${update.latest_version} is available (running ${update.current_version}). ${update.how_to_update} Bundle: ${update.download_url}`
+          : update.status === "current"
+            ? `running the latest release, ${update.current_version}`
+            : update.status === "disabled"
+              ? "update check is off (IMESSAGE_UPDATE_CHECK=0)"
+              : "could not reach the npm registry to check for a newer release",
+      });
+    }
   } catch {
     checks.push({ name: "package", status: "fail", detail: "installed package metadata could not be verified" });
   }
@@ -90,8 +105,15 @@ export async function doctor(
   try {
     accessSync(config.database_path, constants.R_OK);
     checks.push({ name: "database_read", status: "pass", detail: "database is readable" });
-  } catch {
-    checks.push({ name: "database_read", status: "fail", detail: "grant Full Disk Access to the MCP client and confirm Messages has created chat.db" });
+  } catch (error) {
+    const code = (error as { code?: unknown }).code;
+    checks.push({
+      name: "database_read",
+      status: "fail",
+      detail: code === "ENOENT"
+        ? "Messages database was not found; open Messages on this Mac once so it creates its history"
+        : FULL_DISK_ACCESS_MESSAGE,
+    });
   }
   let canonicalDatabasePath = config.database_path;
   let schemaCheck: DoctorCheck;

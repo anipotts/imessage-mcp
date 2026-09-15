@@ -1,5 +1,6 @@
 import { serveStdio, StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import type { RuntimeConfig } from "./config.js";
+import { ImessageMcpError } from "./errors.js";
 import { ToolRuntime, createMcpServer } from "./tools.js";
 
 export { ToolRuntime, createMcpServer } from "./tools.js";
@@ -11,7 +12,16 @@ export function createServer(config: RuntimeConfig) {
 
 export async function startStdio(config: RuntimeConfig): Promise<void> {
   const runtime = new ToolRuntime(config);
-  await runtime.initialize();
+  try {
+    await runtime.initialize();
+  } catch (error) {
+    // Without Full Disk Access, or before Messages has created its database, an
+    // exiting server surfaces in the client as a bare disconnect. Serving anyway
+    // lets every tool call retry its worker and return the fix as its error, and
+    // the next call after access is granted succeeds without a restart.
+    if (!(error instanceof ImessageMcpError) || error.reason !== "DATABASE_UNAVAILABLE") throw error;
+    process.stderr.write(`${JSON.stringify({ transport: "stdio", status: "degraded", reason: error.reason })}\n`);
+  }
   const handle = serveStdio(() => createMcpServer(runtime), {
     legacy: "serve",
     maxSubscriptions: 0,

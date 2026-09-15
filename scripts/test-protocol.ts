@@ -5,7 +5,8 @@ import { once } from "node:events";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createServer as createHttpProxy, request as httpRequest } from "node:http";
 import { createConnection, createServer as createNetServer, type Socket } from "node:net";
-import { readFileSync } from "node:fs";
+import { copyFileSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
@@ -106,6 +107,7 @@ function testEnvironment(extra: Record<string, string> = {}): Record<string, str
     ),
     IMESSAGE_REFERENCE_KEY: TEST_REFERENCE_KEY,
     IMESSAGE_DATABASE_ID: TEST_DATABASE_ID,
+    IMESSAGE_UPDATE_CHECK: "0",
     ...extra,
   };
 }
@@ -390,6 +392,36 @@ async function indexStateAfterOneCall(command: string, args: string[], fixture: 
     return state;
   } finally {
     await client.close();
+  }
+}
+
+// A server that cannot read Messages yet (no Full Disk Access, or no database)
+// must stay connected and answer every call with the fix, then recover in place
+// once the database becomes readable.
+export async function runUnreadableDatabase(command: string, args: string[], fixture: Fixture): Promise<void> {
+  const directory = mkdtempSync(path.join(tmpdir(), "imessage-mcp-unreadable-"));
+  const databasePath = path.join(directory, "chat.db");
+  const transport = new StdioClientTransport({
+    command,
+    args: [...args, "--database", databasePath, "--contacts", "none"],
+    cwd: process.cwd(),
+    env: testEnvironment(),
+    stderr: "pipe",
+  });
+  const client = new Client({ name: "imessage-mcp-unreadable-test", version: "1.0.0" });
+  try {
+    await client.connect(transport);
+    assert.equal((await client.listTools()).tools.length, 7);
+    const failed = await client.callTool({ name: "list_conversations", arguments: { limit: 5, privacy_mode: "aggregate" } });
+    assert.equal(failed.isError, true);
+    assert.match(JSON.stringify(failed.content), /DATABASE_UNAVAILABLE: Messages database was not found/u,
+      "the text content must carry the fix, not only the error code");
+    copyFileSync(fixture.databasePath, databasePath);
+    const recovered = await client.callTool({ name: "list_conversations", arguments: { limit: 5, privacy_mode: "aggregate" } });
+    assert.equal(recovered.isError, undefined, "the next call after the database becomes readable must succeed without a restart");
+  } finally {
+    await client.close();
+    rmSync(directory, { recursive: true, force: true });
   }
 }
 
@@ -724,8 +756,9 @@ async function main(): Promise<void> {
     const stdioArgs = commandArg ? [] : ["bin/imessage-mcp.js"];
     await runStdio(stdioCommand, stdioArgs, fixture);
     await runWarmSearch(stdioCommand, stdioArgs, fixture);
+    await runUnreadableDatabase(stdioCommand, stdioArgs, fixture);
     if (!process.argv.includes("--skip-http")) await runHttp(fixture);
-    process.stdout.write("protocol verification passed: seven tools, three prompts, over stdio and authenticated stateless HTTP\n");
+    process.stdout.write("protocol verification passed: seven tools, three prompts, an unreadable database served with its fix, over stdio and authenticated stateless HTTP\n");
   } finally {
     fixture.cleanup();
   }
