@@ -23,6 +23,7 @@ The first search of a session no longer rebuilds the index, nothing native is in
 - the search index is cached, encrypted, in `~/Library/Caches/imessage-mcp` with a key derived from the Messages database. On a 174,859-message archive the first search of a session dropped from 70 s to about 1.5 s. `IMESSAGE_CACHE=0` keeps it in memory.
 - a search that arrives while the first index is still building returns `INDEX_BUILDING` with its progress, instead of waiting out the client's timeout. Every other tool keeps answering during the build.
 - when Messages is blocked, errors and `doctor` name the app to grant Full Disk Access to when it is a recognized client.
+- an ambiguous contact or conversation error names the call that resolves it, so an assistant asks `resolve_contact` or `list_conversations` next instead of guessing.
 
 ### removed
 

@@ -701,6 +701,24 @@ describe("2.0 data and query core", () => {
     }
   });
 
+  it("tells the caller which tool resolves an ambiguous conversation query", async () => {
+    const isolated = createFixture();
+    const db = new Database(isolated.databasePath);
+    const chats = db.prepare("SELECT ROWID FROM chat ORDER BY ROWID").pluck().all() as number[];
+    db.prepare(`UPDATE chat SET display_name='Twin' WHERE ROWID IN (${chats[0]}, ${chats.at(-1)})`).run();
+    db.close();
+    const runtime = new LocalToolRuntime(runtimeConfig({ transport: "stdio", databasePath: isolated.databasePath, contacts: "none" }));
+    try {
+      const result = await runtime.call("get_conversation", { query: "Twin", limit: 20, privacy_mode: "full" });
+      expect(result.isError).toBe(true);
+      expect((result.structuredContent?.error as { reason: string }).reason).toBe("AMBIGUOUS_CONTACT");
+      expect((result.content[0] as { text: string }).text).toContain("call list_conversations");
+    } finally {
+      runtime.close();
+      isolated.cleanup();
+    }
+  });
+
   it("counts flag-only system records separately from user messages", () => {
     const isolated = createFixture();
     const db = new Database(isolated.databasePath);

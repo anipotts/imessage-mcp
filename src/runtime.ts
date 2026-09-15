@@ -185,7 +185,7 @@ export class LocalToolRuntime {
     const resolution = this.resolveContactQuery(query);
     if (resolution.status === "unique") return { handles: resolution.contact.handles, resolution };
     if (resolution.status === "ambiguous") {
-      throw new ImessageMcpError("AMBIGUOUS_CONTACT", "contact query matched multiple unified contacts", {
+      throw new ImessageMcpError("AMBIGUOUS_CONTACT", "contact matched more than one person; call resolve_contact with the same query to see them, then pass one of their handles as contact", {
         candidates: resolution.candidates,
       });
     }
@@ -237,7 +237,7 @@ export class LocalToolRuntime {
     if (!query) throw new ImessageMcpError("INVALID_INPUT", "chat_id or a nonempty query is required");
     const contactResolution = this.resolveContactQuery(query);
     if (contactResolution.status === "ambiguous") {
-      throw new ImessageMcpError("AMBIGUOUS_CONTACT", "contact query matched multiple unified contacts", {
+      throw new ImessageMcpError("AMBIGUOUS_CONTACT", "contact matched more than one person; call resolve_contact with the same query to see them, then pass one of their handles as contact", {
         candidates: contactResolution.candidates,
       });
     }
@@ -259,7 +259,7 @@ export class LocalToolRuntime {
         }
       }
       if (found.conversations.length > 1) {
-        throw new ImessageMcpError("AMBIGUOUS_CONTACT", "contact participates in multiple conversations", {
+        throw new ImessageMcpError("AMBIGUOUS_CONTACT", "contact is in more than one conversation; call list_conversations with the same contact, then pass the chosen chat_id", {
           match_count: found.conversations.length,
         });
       }
@@ -288,7 +288,7 @@ export class LocalToolRuntime {
       if (rows.length > 1) {
         const roots = new Set(rows.map((row) => canonical.get(row.id) ?? row.id));
         if (roots.size > 1) {
-          throw new ImessageMcpError("AMBIGUOUS_CONTACT", "conversation query matched multiple conversations", {
+          throw new ImessageMcpError("AMBIGUOUS_CONTACT", "query matched more than one conversation; call list_conversations and pass the chosen chat_id", {
             match_count: roots.size,
           });
         }
