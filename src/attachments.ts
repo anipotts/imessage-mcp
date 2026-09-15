@@ -326,17 +326,19 @@ export async function readAttachmentContent(
   // Attachments directory; reject it before ever calling realpath on it.
   if (!path.isAbsolute(resolvedPath)) return metadata("outside_attachments");
 
+  // The file first: on a Mac that never received an attachment the root does
+  // not exist either, and a missing file is simply not downloaded.
   let realRoot: string;
   let realFile: string;
-  try {
-    realRoot = await realpath(attachmentsRoot);
-  } catch {
-    return metadata("outside_attachments");
-  }
   try {
     realFile = await realpath(resolvedPath);
   } catch {
     return metadata("not_downloaded");
+  }
+  try {
+    realRoot = await realpath(attachmentsRoot);
+  } catch {
+    return metadata("outside_attachments");
   }
 
   const relative = path.relative(realRoot, realFile);

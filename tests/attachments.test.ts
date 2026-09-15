@@ -504,6 +504,15 @@ describe("readAttachmentContent: path confinement and bounds", () => {
     expect(result).toEqual({ kind: "metadata", reason: "not_downloaded" });
   });
 
+  it("returns not_downloaded when neither the file nor the Attachments folder exists", async () => {
+    const absentRoot = path.join(home, "no-attachments-yet");
+    const result = await readAttachmentContent(
+      record({ filename: path.join(absentRoot, "ab/IMG_missing.HEIC"), mime_type: "image/heic", uti: "public.heic" }),
+      { home, attachmentsRoot: absentRoot },
+    );
+    expect(result).toEqual({ kind: "metadata", reason: "not_downloaded" });
+  });
+
   it("returns not_downloaded for a null filename", async () => {
     const result = await readAttachmentContent(record({ filename: null }), { home, attachmentsRoot });
     expect(result).toEqual({ kind: "metadata", reason: "not_downloaded" });
