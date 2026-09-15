@@ -2,6 +2,12 @@
 
 this file follows [keep a changelog](https://keepachangelog.com/en/1.1.0/), and this project follows semantic versioning.
 
+## 3.0.1
+
+### fixed
+
+- the release workflow checked the published package with a script 3.0 removed, so 3.0.0 reached npm without its MCP Registry entry, GitHub release, or desktop bundle. 3.0.1 has the same code as 3.0.0 and ships through every channel.
+
 ## 3.0.0
 
 The first search of a session no longer rebuilds the index, nothing native is installed, and every MCP client installs the server the same way. Read-only remains a hard boundary.

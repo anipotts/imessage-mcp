@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "imessage-mcp",
   "display_name": "iMessage History",
-  "version": "3.0.0",
+  "version": "3.0.1",
   "description": "Search and read your Apple Messages history. Read-only, runs on your Mac.",
   "author": {
     "name": "Ani Potts",

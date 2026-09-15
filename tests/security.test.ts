@@ -149,6 +149,8 @@ describe("decoding and release hardening", () => {
     const publicNpm = release.slice(release.indexOf("  verify-public-npm:"), release.indexOf("  publish-registry:"));
     expect(publicNpm).toContain("--omit=dev");
     expect(publicNpm).toContain("cmp ");
+    expect(publicNpm).toContain("-name '*.node'");
+    expect(release).not.toContain("verify-installed-graph");
 
     const registry = release.slice(release.indexOf("  publish-registry:"), release.indexOf("  publish-github-release:"));
     expect(registry).toContain("environment: mcp-registry-release");
