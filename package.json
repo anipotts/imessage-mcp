@@ -2,35 +2,24 @@
   "name": "imessage-mcp",
   "version": "2.2.0",
   "mcpName": "io.github.anipotts/imessage-mcp",
-  "description": "Read-only MCP for iMessage, SMS, MMS, and RCS history in Apple Messages on Mac",
+  "description": "Search and read your Apple Messages history from any MCP client. Read-only, runs on your Mac, no native dependencies.",
   "author": "Ani Potts",
   "license": "MIT",
   "type": "module",
-  "main": "dist/index.js",
+  "main": "dist/server.js",
   "bin": {
     "imessage-mcp": "bin/imessage-mcp.js"
   },
   "files": [
     "dist",
     "bin",
-    "native",
-    "assets/demo.gif",
     "assets/icon.svg",
     "assets/icon-64.png",
-    "assets/manifest.json",
-    "docs/GUIDE.md",
-    "docs/DEMO.md",
-    "docs/BENCHMARK.md",
-    "docs/ROADMAP-3.0.md",
     ".claude-plugin",
-    ".mcp.json",
-    "CONTRIBUTING.md",
     "README.md",
     "LICENSE",
     "PRIVACY.md",
     "SECURITY.md",
-    "VERIFICATION.md",
-    "package-files.json",
     "server.json"
   ],
   "scripts": {
@@ -38,42 +27,30 @@
     "build:mcpb": "npm run build && node scripts/build-mcpb.mjs",
     "sign:mcpb": "node scripts/sign-mcpb.mjs",
     "dev": "tsx src/cli.ts",
-    "doctor": "tsx src/cli.ts doctor",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest",
-    "test:installed": "tsx scripts/test-installed.ts",
-    "test:live-parity": "tsx scripts/test-live-parity.ts",
-    "test:mcpb": "tsx scripts/test-mcpb.ts",
-    "test:performance": "npm run build && tsx scripts/test-performance.ts",
-    "test:protocol": "tsx scripts/test-protocol.ts",
-    "test:privacy": "vitest run tests/privacy.test.ts tests/security.test.ts",
-    "screenshots": "tsx scripts/screenshots.ts",
-    "demo:installed": "npm run build && tsx scripts/demo-installed.ts",
-    "check:metadata": "tsx scripts/check-metadata.ts",
-    "verify": "npm run build && npm run typecheck && npm test && npm run test:protocol && npm run test:installed && npm run check:metadata && npm audit --audit-level=high && npm pack --dry-run",
+    "e2e": "npm run build && vitest run --config vitest.e2e.config.ts",
+    "perf": "npm run build && tsx scripts/perf.ts",
+    "live-parity": "tsx scripts/live-parity.ts",
+    "verify": "npm run typecheck && npm test && npm run e2e && npm audit --audit-level=high && npm pack --dry-run",
     "prepublishOnly": "npm run verify",
-    "preflight": "npm run verify && npm run test:performance && npm run build:mcpb && npm run test:mcpb -- --require && npm run test:live-parity"
+    "preflight": "npm run verify && npm run perf && npm run build:mcpb && npm run e2e && npm run live-parity"
   },
   "dependencies": {
     "@modelcontextprotocol/server": "2.0.0",
-    "better-sqlite3": "13.0.3",
-    "node-addon-api": "8.9.2",
     "zod": "4.6.2"
   },
   "devDependencies": {
     "@modelcontextprotocol/client": "2.0.0",
-    "@types/better-sqlite3": "9.6.0",
     "@types/node": "26.5.1",
     "tsx": "4.23.13",
     "typescript": "7.0.2",
     "vitest": "4.1.11"
   },
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=24.16.0"
   },
   "allowScripts": {
-    "better-sqlite3": true,
     "esbuild": true,
     "fsevents": true
   },
@@ -81,28 +58,20 @@
     "darwin"
   ],
   "keywords": [
-    "imessage",
     "mcp",
     "mcp-server",
     "model-context-protocol",
-    "modelcontextprotocol",
-    "macos",
+    "imessage",
     "messages",
-    "claude",
-    "ai",
-    "llm",
-    "apple",
+    "apple-messages",
     "sms",
-    "chat-history",
-    "analytics",
-    "read-only",
-    "privacy",
-    "local-first",
-    "codex",
-    "cursor",
-    "mms",
     "rcs",
-    "apple-messages"
+    "macos",
+    "read-only",
+    "local-first",
+    "claude",
+    "codex",
+    "cursor"
   ],
   "repository": {
     "type": "git",

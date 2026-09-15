@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import Database from "better-sqlite3";
+import Database from "../src/sqlite.js";
 import { APPLE_EPOCH_UNIX_SECONDS } from "../src/time.js";
 
 export interface Fixture {
