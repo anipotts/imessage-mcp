@@ -8,6 +8,22 @@ Last updated: 2026-09-14 (local); new benchmark and demo timestamps are recorded
 
 Every published version, its assets, and its generated notes live in [GitHub releases](https://github.com/anipotts/imessage-mcp/releases); [CHANGELOG.md](CHANGELOG.md) records what changed in each one. `2.0.0` is prepared from protected `main`.
 
+## `2.2.0` verification
+
+Run on 2026-09-14. This release targets a first-time Claude Desktop install: what a user sees without Full Disk Access, how they learn about updates, and what Anthropic's extension directory requires.
+
+| evidence | result |
+| --- | --- |
+| fixture suite | 175 tests passed, including the npm registry lookup against a stubbed fetch (available, current, HTTP error, malformed JSON, invalid version, oversized body, network failure, disabled by `0` and by `false`, a slow registry answered on the next call) and a blocked Messages folder reported as the Full Disk Access fix while a missing database is still reported as missing |
+| blocked Messages access | with reads of the Messages folder denied by a macOS sandbox profile, the way a missing Full Disk Access grant denies them, `doctor` failed `database_read` with the System Settings path, and a stdio client stayed connected while `server_status` and `list_conversations` returned that path in their text content. Before this release the same server exited at startup |
+| protocol | a server started against an unreadable database stays connected, answers with the fix, and serves the next call once the database becomes readable, without a restart |
+| update check | against the live npm registry, 2.1.2 reported `current` and a simulated 2.0.1 reported `available` with the bundle link |
+| desktop bundle | 6.9 MB, launched through its own `mcp_config` at each privacy ceiling; the new update setting resolves to `IMESSAGE_UPDATE_CHECK=true`. With no certificate configured the signing step leaves it unsigned; a throwaway self-signed certificate was rejected as untrusted, as Claude Desktop would treat it |
+| million-message fixture | 23.002 s cold, 7 ms warm, 5.446 s after an unread write, 5.338 s after an edit; `server_status` 3 ms with the update check off |
+| bounded live parity | 375 of 375 stratified attributed bodies matched; seven tools with zero leaked probe values; no private values emitted; cold search 59.2 s |
+
+A real Developer ID signature and a directory listing are not verified here: the first needs a certificate, and the second is Anthropic's review.
+
 ## `2.1.2` verification
 
 Run on 2026-09-14. 2.1.1 compared `PRAGMA data_version` to decide whether its search index was current, and every Messages commit changes that value, so nearly any write, including read receipts, forced a full rebuild. Live measurements below read the archive read-only and record timings only.

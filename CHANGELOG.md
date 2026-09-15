@@ -2,6 +2,22 @@
 
 this file follows [keep a changelog](https://keepachangelog.com/en/1.1.0/), and this project follows semantic versioning.
 
+## 2.2.0
+
+### added
+
+- `server_status` reports whether a newer release exists, with the bundle download and how to update, and `doctor` prints the same line. the lookup is one anonymous request to the public npm registry for this package's latest version, carrying no message, contact, or identity data, cached for twelve hours, and never holding a call up for more than 1.5 seconds. turn it off with `IMESSAGE_UPDATE_CHECK=0` or the new "Check for updates" setting in Claude Desktop.
+- a privacy policy ([PRIVACY.md](PRIVACY.md)), linked from the README and the desktop bundle's manifest, and the bundle manifest now lists its seven tools, as Anthropic's extension directory requires.
+- release builds sign the desktop bundle when an Apple Developer ID certificate is configured, and fail if the signature does not verify as trusted; without one, bundles ship unsigned as before.
+
+### fixed
+
+- without Full Disk Access, the server exited at startup, so Claude Desktop showed only a disconnected extension, and the CLI said the database "was not found". the server now stays connected, every tool answers with the exact System Settings path to fix it, and the next call after access is granted succeeds without a restart. tool errors also carry their message in the text content, for clients that do not show structured results.
+
+### changed
+
+- the README drops an out-of-date note about npm's 1.x line.
+
 ## 2.1.2
 
 ### fixed
