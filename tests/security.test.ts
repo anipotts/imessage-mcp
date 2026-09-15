@@ -119,20 +119,12 @@ describe("bounded results", () => {
   });
 });
 
-describe("native and release hardening", () => {
-  it("keeps the native decoder's body bound equal to the TypeScript bound", async () => {
-    const { readFileSync } = await import("node:fs");
-    const { MAX_ATTRIBUTED_BODY_BYTES } = await import("../src/limits.js");
-    const native = readFileSync(new URL("../native/message-text-decoder.js", import.meta.url), "utf8");
-    const match = /const MAX_BLOB_BYTES = (\d+) \* 1024 \* 1024;/u.exec(native);
-    expect(match).not.toBeNull();
-    expect(Number(match![1]) * 1024 * 1024).toBe(MAX_ATTRIBUTED_BODY_BYTES);
-  });
-
-  it("never invokes legacy NSUnarchiver", () => {
-    const helper = readFileSync(new URL("../native/message-text-decoder.js", import.meta.url), "utf8");
-    expect(helper).not.toContain("NSUnarchiver");
-    expect(helper).toContain("NSKeyedUnarchiver.unarchivedObjectOfClassesFromDataError");
+describe("decoding and release hardening", () => {
+  it("decodes archives in process without Foundation or a child process", () => {
+    for (const file of ["archive.ts", "decoder.ts", "addressbook.ts", "contacts.ts"]) {
+      const source = readFileSync(new URL(`../src/${file}`, import.meta.url), "utf8");
+      expect(source).not.toMatch(/osascript|node:child_process|NSUnarchiver/u);
+    }
   });
 
   it("pins every workflow action to an immutable commit", () => {

@@ -1158,19 +1158,6 @@ describe("2.0 data and query core", () => {
     }
   });
 
-  it("serializes Foundation decoding across independent workers", async () => {
-    const lock = new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT * 3);
-    const left = new MessageTextDecoder(lock, 1);
-    const right = new MessageTextDecoder(lock, 2);
-    const [leftResult, rightResult] = await Promise.all([
-      left.decode([foundationAttributedBody("left exact")]),
-      right.decode([foundationAttributedBody("right exact")]),
-    ]);
-    expect(leftResult).toEqual([{ status: "decoded", text: "left exact" }]);
-    expect(rightResult).toEqual([{ status: "decoded", text: "right exact" }]);
-    expect(Atomics.load(new Int32Array(lock), 2)).toBe(1);
-  });
-
   it("returns typed group events and attachment-only user messages", async () => {
     const result = await getConversationEvents({
       context,

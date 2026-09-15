@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { totalmem } from "node:os";
 import path from "node:path";
-import Database from "better-sqlite3";
+import Database from "./sqlite.js";
 import type { PrivacyMode, ServiceFamily, Warning, Watermark } from "./contracts.js";
 import { serviceFamily } from "./contracts.js";
 import type { UnifiedContactResolver } from "./contacts.js";

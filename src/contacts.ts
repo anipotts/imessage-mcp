@@ -1,7 +1,4 @@
-import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { readAddressBook } from "./addressbook.js";
 import { ImessageMcpError } from "./errors.js";
 
 export interface ContactCandidate {
@@ -28,7 +25,6 @@ interface IndexedContact extends NativeContact {
   handleKeys: Map<string, string>;
 }
 
-const SCRIPT = resolve(dirname(fileURLToPath(import.meta.url)), "../native/contact-resolver.js");
 const MAX_CONTACTS = 50_000;
 const MAX_CONTACT_CANDIDATES = 20;
 const MAX_HANDLES_PER_RESULT = 64;
@@ -96,26 +92,16 @@ export class UnifiedContactResolver {
       this.index(this.testContacts);
       return;
     }
-    if (!this.enabled || process.platform !== "darwin" || !existsSync(SCRIPT)) {
+    if (!this.enabled || process.platform !== "darwin") {
       this.unavailable = "contacts_not_paired";
       return;
     }
-    try {
-      const raw = execFileSync("/usr/bin/osascript", ["-l", "JavaScript", SCRIPT], {
-        encoding: "utf8",
-        timeout: 15_000,
-        maxBuffer: 32 * 1024 * 1024,
-        stdio: ["ignore", "pipe", "ignore"],
-      });
-      const result = JSON.parse(raw) as { status: string; reason?: string; contacts?: NativeContact[] };
-      if (result.status !== "ok" || !validateContactSource(result.contacts)) {
-        this.unavailable = result.reason ?? "contacts_unavailable";
-        return;
-      }
-      this.index(result.contacts);
-    } catch {
-      this.unavailable = "contacts_query_failed";
+    const result = readAddressBook();
+    if (result.status !== "ok") {
+      this.unavailable = result.reason;
+      return;
     }
+    this.index(result.contacts);
   }
 
   private index(source: NativeContact[]): void {
@@ -151,7 +137,10 @@ export class UnifiedContactResolver {
   nameForHandle(handle: string): string | null {
     this.load();
     const matches = this.byHandle.get(normalizeHandle(handle)) ?? [];
-    return matches.length === 1 ? matches[0].name || null : null;
+    // The same person often sits in several accounts without a link; name the
+    // handle when every contact holding it agrees on the name.
+    if (matches.length === 0 || !matches[0].name) return null;
+    return matches.every((contact) => contact.nameKey === matches[0].nameKey) ? matches[0].name : null;
   }
 
   resolve(query: string): ContactResolution {

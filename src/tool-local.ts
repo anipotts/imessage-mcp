@@ -81,7 +81,7 @@ export class LocalToolRuntime {
       config.source_mode,
     );
     this.contacts = new UnifiedContactResolver(config.contacts_mode === "live");
-    this.decoder = new MessageTextDecoder(decoderLock, decoderOwner);
+    this.decoder = new MessageTextDecoder();
     this.conversationCatalog = new ConversationCatalog(this.database);
     if (warmConversationCatalog) this.conversationCatalog.warm();
     this.search = new MemorySearchIndex(this.database, this.decoder, this.contacts, onSearchBuild);

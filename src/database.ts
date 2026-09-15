@@ -1,7 +1,7 @@
 import { createHash, createHmac } from "node:crypto";
 import { accessSync, constants, lstatSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
-import Database from "better-sqlite3";
+import Database from "./sqlite.js";
 import { DEFAULT_DATABASE_PATH } from "./config.js";
 import type { CapabilityState, QueryBudget, SchemaCapabilities, Watermark } from "./contracts.js";
 import { ImessageMcpError } from "./errors.js";
