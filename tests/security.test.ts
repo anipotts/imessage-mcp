@@ -126,8 +126,8 @@ describe("decoding and release hardening", () => {
     expect(verify).toContain("persist-credentials: false");
     expect(verify).toContain('test "v${VERSION}" = "${GITHUB_REF_NAME}"');
     expect(verify).toContain('git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main');
-    expect(verify.indexOf("npm run verify")).toBeLessThan(verify.indexOf("npm run test:performance"));
-    expect(verify.indexOf("npm run test:performance")).toBeLessThan(verify.indexOf("npm pack"));
+    expect(verify.indexOf("npm run verify")).toBeLessThan(verify.indexOf("npm run perf"));
+    expect(verify.indexOf("npm run perf")).toBeLessThan(verify.indexOf("npm pack"));
     expect(verify).toContain("build:mcpb");
     const signing = verify.slice(verify.indexOf("name: sign the desktop bundle"), verify.indexOf("id: pack"));
     expect(signing).toContain("node scripts/sign-mcpb.mjs");
