@@ -77,7 +77,9 @@ function sanitize(value: unknown, mode: PrivacyMode, maskingKey: Buffer, key?: s
   }
 
   if (typeof value === "string") {
-    if (normalizedKey?.includes("handle")) return maskHandle(value, maskingKey);
+    // schema_capabilities lists table and column names such as chat_handle_join,
+    // which are Apple's schema, not anyone's handle.
+    if (normalizedKey?.includes("handle") && !path.includes("schema_capabilities")) return maskHandle(value, maskingKey);
     if (
       mode === "redacted" &&
       (normalizedKey?.endsWith("_at") || normalizedKey === "at" || normalizedKey?.includes("timestamp") || isExactTimestamp(value))
