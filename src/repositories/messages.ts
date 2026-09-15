@@ -9,7 +9,7 @@ import { assertFrozenTraversal, parseWatermark, watermarkToken } from "../databa
 import type { DecodeResult, EditMetadataResult, MessageTextDecoder } from "../decoder.js";
 import { populatedMessageText } from "../decoder.js";
 import { ImessageMcpError } from "../errors.js";
-import { decodeReference, encodeReference } from "../references.js";
+import { decodeCursor, encodeCursor, positiveId } from "../references.js";
 import { validateSender } from "../sender.js";
 import { columnSql, serviceFamilyCase, serviceFamilyPredicate, serviceSql } from "../schema-sql.js";
 import type { DateBounds } from "../time.js";
@@ -33,7 +33,7 @@ export type TimelineEventType = "message" | "retraction" | "participant_joined" 
 
 export interface TimelineEvent {
   event_type: TimelineEventType;
-  message_ref?: string;
+  message_id?: number;
   timestamp: string | null;
   service_family: ServiceFamily;
   direction: "incoming" | "outgoing" | "system";
@@ -56,7 +56,7 @@ export interface TimelineEvent {
     bytes: number | null;
     path?: string;
   }>;
-  reply_to_ref?: string;
+  reply_to_message_id?: number;
   system?: { action_code: number | null; affected_handle: string | null; title: string | null };
   row_status: "complete" | "partial";
 }
@@ -795,7 +795,7 @@ async function materialize(input: {
     const replyRowid = row.reply_to_guid ? replyRows.get(row.reply_to_guid) : undefined;
     const event: TimelineEvent = {
       event_type: retracted ? "retraction" : "message",
-      message_ref: encodeReference(input.request.referenceKey, input.request.lineage, "message", { rowid: row.rowid, guid: row.guid }),
+      message_id: row.rowid,
       timestamp,
       service_family: service,
       direction: sender.direction,
@@ -808,7 +808,7 @@ async function materialize(input: {
       receipt: receiptFor(row, input.request),
       attachments: retracted ? [] : attachments.get(row.rowid) ?? [],
       ...(row.reply_to_guid && replyRowid
-        ? { reply_to_ref: encodeReference(input.request.referenceKey, input.request.lineage, "message", { rowid: replyRowid, guid: row.reply_to_guid }) }
+        ? { reply_to_message_id: replyRowid }
         : {}),
       ...(bodyPartial || editPartial || relationshipPartial
         ? { row_status: "partial" as const }
@@ -831,7 +831,7 @@ export async function getConversationEvents(input: {
   bounds: DateBounds;
   service?: ServiceFamily;
   eventFilters?: TimelineEventType[];
-  aroundMessage?: string;
+  aroundMessage?: number;
   cursor?: string;
   allowPartial: boolean;
   privacy: PrivacyMode;
@@ -848,13 +848,13 @@ export async function getConversationEvents(input: {
   const budget = makeBudget(30_000, 50_000);
   try {
     if (input.aroundMessage && input.cursor) {
-      throw new ImessageMcpError("INVALID_INPUT", "around_message cannot be combined with cursor");
+      throw new ImessageMcpError("INVALID_INPUT", "around_message_id cannot be combined with cursor");
     }
     const hash = queryHash(input);
     let frozen = request.asOf;
     let before: ConversationCursor | undefined;
     if (input.cursor) {
-      const decoded = decodeReference(request.referenceKey, request.lineage, "page", input.cursor).value as unknown as ConversationCursor;
+      const decoded = decodeCursor("page", input.cursor) as unknown as ConversationCursor;
       if (
         decoded.query_hash !== hash ||
         !Number.isSafeInteger(decoded.before_rowid) || decoded.before_rowid <= 0
@@ -871,26 +871,10 @@ export async function getConversationEvents(input: {
       assertFrozenTraversal(frozen, request.asOf);
       before = { ...decoded, frozen, before_date: beforeDate };
     }
-    const around = input.aroundMessage
-      ? decodeReference(request.referenceKey, request.lineage, "message", input.aroundMessage).value
-      : undefined;
-    let aroundId = around && Number.isSafeInteger(around.rowid) && Number(around.rowid) > 0
-      ? Number(around.rowid)
-      : undefined;
-    if (aroundId && typeof around?.guid === "string") {
-      const row = request.db.prepare("SELECT guid FROM message WHERE ROWID = ?").get(aroundId) as { guid: string } | undefined;
-      if (!row || row.guid !== around.guid) aroundId = undefined;
-    }
-    if (!aroundId && typeof around?.guid === "string") {
-      const matches = request.db.prepare("SELECT ROWID AS rowid FROM message WHERE guid = ? LIMIT 2")
-        .all(around.guid) as Array<{ rowid: number }>;
-      if (matches.length > 1) {
-        throw new ImessageMcpError("UNSUPPORTED_SCHEMA", "around_message GUID does not identify exactly one message");
-      }
-      aroundId = matches[0]?.rowid;
-    }
-    if (input.aroundMessage && !aroundId) {
-      throw new ImessageMcpError("INVALID_INPUT", "around_message reference was not found");
+    const aroundId = input.aroundMessage === undefined ? undefined : positiveId(input.aroundMessage, "around_message_id");
+    if (aroundId !== undefined) {
+      const present = request.db.prepare("SELECT 1 AS present FROM message WHERE ROWID = ?").get(aroundId);
+      if (!present) throw new ImessageMcpError("INVALID_INPUT", "around_message_id was not found");
     }
     const rows = loadRows({
       request,
@@ -944,7 +928,7 @@ export async function getConversationEvents(input: {
     }
     const oldest = selected[0];
     const nextCursor = hasMore && oldest
-      ? encodeReference(request.referenceKey, request.lineage, "page", {
+      ? encodeCursor("page", {
           frozen,
           query_hash: hash,
           before_date: oldest.date,
@@ -963,10 +947,3 @@ export async function getConversationEvents(input: {
   }
 }
 
-export function resolveMessageReference(referenceKey: Buffer, lineage: string, reference: string): { rowid?: number; guid?: string } {
-  const value = decodeReference(referenceKey, lineage, "message", reference).value;
-  return {
-    ...(Number.isInteger(value.rowid) ? { rowid: Number(value.rowid) } : {}),
-    ...(typeof value.guid === "string" ? { guid: value.guid } : {}),
-  };
-}

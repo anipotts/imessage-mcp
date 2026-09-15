@@ -6,7 +6,7 @@ import { normalizeHandle } from "../contacts.js";
 import type { DatabaseContext, DatabaseRequest } from "../database.js";
 import { assertFrozenTraversal, parseWatermark, watermarkToken } from "../database.js";
 import { ImessageMcpError } from "../errors.js";
-import { decodeReference, encodeReference } from "../references.js";
+import { decodeCursor, encodeCursor, positiveId } from "../references.js";
 import { chatShapeSql, serviceFamilyCase, serviceSql } from "../schema-sql.js";
 import type { DateBounds } from "../time.js";
 import {
@@ -27,7 +27,7 @@ export interface ConversationFilters {
 }
 
 export interface ConversationSummary {
-  conversation_ref: string;
+  chat_id: number;
   display_name: string | null;
   kind: "direct" | "group";
   participants: Array<{ name: string | null; handle: string }>;
@@ -526,9 +526,7 @@ function publicSummary(
   const kind = raw.groupEvidence ? "group" : raw.directEvidence ? "direct" : handles.length > 1 ? "group" : "direct";
   const displayName = [...new Set(raw.names)].sort()[0] ?? (kind === "direct" ? participants[0]?.name ?? null : null);
   return {
-    conversation_ref: encodeReference(request.referenceKey, request.lineage, "conversation", {
-      chat_ids: raw.chatIds.sort((a, b) => a - b),
-    }),
+    chat_id: minimumChatId(raw.chatIds),
     display_name: displayName,
     kind,
     participants,
@@ -561,7 +559,7 @@ export function listConversations(input: {
     let afterDate: string | null = null;
     let afterChat = Number.MAX_SAFE_INTEGER;
     if (input.cursor) {
-      const decoded = decodeReference(request.referenceKey, request.lineage, "page", input.cursor).value as unknown as PageCursor;
+      const decoded = decodeCursor("page", input.cursor) as unknown as PageCursor;
       if (
         decoded.filters !== fingerprint ||
         !Number.isSafeInteger(decoded.after_chat) || decoded.after_chat <= 0
@@ -589,7 +587,7 @@ export function listConversations(input: {
     const page = selected.slice(0, input.limit);
     const last = page.at(-1);
     const nextCursor = hasMore && last
-      ? encodeReference(request.referenceKey, request.lineage, "page", {
+      ? encodeCursor("page", {
           filters: fingerprint,
           frozen,
           after_date: last.lastDate,
@@ -607,16 +605,18 @@ export function listConversations(input: {
   }
 }
 
-export function resolveConversationReference(referenceKey: Buffer, lineage: string, reference: string): number[] {
-  const value = decodeReference(referenceKey, lineage, "conversation", reference).value;
-  if (
-    !Array.isArray(value.chat_ids) ||
-    value.chat_ids.length === 0 ||
-    value.chat_ids.length > MAX_CHAT_IDS_PER_CONVERSATION ||
-    value.chat_ids.some((id) => !Number.isSafeInteger(id) || Number(id) <= 0) ||
-    new Set(value.chat_ids).size !== value.chat_ids.length
-  ) {
-    throw new ImessageMcpError("INVALID_INPUT", "invalid conversation reference");
-  }
-  return value.chat_ids as number[];
+// Every chat record Apple links into the conversation that chat_id belongs to.
+// chat_id is the conversation's lowest chat ROWID, which is also the root the
+// chat_lookup union keeps, so any member id resolves to the same conversation.
+export function conversationChatIds(request: DatabaseRequest, chatId: unknown): number[] {
+  const id = positiveId(chatId, "chat_id");
+  const exists = request.db.prepare("SELECT 1 AS present FROM chat WHERE ROWID = ?").get(id);
+  if (!exists) throw new ImessageMcpError("INVALID_INPUT", "chat_id does not identify a conversation in this archive");
+  const canonical = canonicalChatMap(request);
+  const root = canonical.get(id) ?? id;
+  const component = [...canonical.entries()]
+    .filter(([, rootId]) => rootId === root)
+    .map(([member]) => member)
+    .sort((a, b) => a - b);
+  return component.length ? component : [id];
 }

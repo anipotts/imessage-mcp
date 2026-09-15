@@ -1,9 +1,10 @@
+import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { CallToolResult } from "@modelcontextprotocol/server";
 import type { RuntimeConfig } from "./config.js";
-import type { PrivacyMode, ServiceFamily } from "./contracts.js";
+import { API_VERSION, type PrivacyMode, type ServiceFamily } from "./contracts.js";
 import { looksLikeHandle, normalizeHandle, UnifiedContactResolver, type ContactResolution } from "./contacts.js";
 import { DatabaseContext, watermarkToken, type DatabaseRequest } from "./database.js";
 import { MessageTextDecoder } from "./decoder.js";
@@ -15,7 +16,7 @@ import {
   ConversationCatalog,
   canonicalChatMap,
   listConversations,
-  resolveConversationReference,
+  conversationChatIds,
   type ConversationFilters,
 } from "./repositories/conversations.js";
 import { getConversationEvents, type TimelineEventType } from "./repositories/messages.js";
@@ -23,6 +24,8 @@ import { prepareCopiedDatabaseSync, syncMessages } from "./repositories/sync.js"
 import { serviceFamilyCase } from "./schema-sql.js";
 import { MemorySearchIndex } from "./search-index.js";
 import { checkForUpdate } from "./update-check.js";
+import { readAttachmentContent } from "./attachments.js";
+import { positiveId } from "./references.js";
 import { compileDateBounds } from "./time.js";
 
 const dirnameHere = dirname(fileURLToPath(import.meta.url));
@@ -47,6 +50,8 @@ function dateInput(params: ToolParams): { date_from?: string; date_to?: string; 
 }
 
 export class LocalToolRuntime {
+  // Masks redacted handles consistently within this process and nowhere else.
+  readonly maskingKey = randomBytes(32);
   readonly database: DatabaseContext;
   readonly contacts: UnifiedContactResolver;
   readonly decoder: MessageTextDecoder;
@@ -56,34 +61,12 @@ export class LocalToolRuntime {
 
   constructor(
     readonly config: RuntimeConfig,
-    readonly maskingKey: Buffer,
-    decoderLock?: SharedArrayBuffer,
-    decoderOwner = 1,
-    warmConversationCatalog = false,
     onSearchBuild?: () => void,
   ) {
-    if (!config.reference_key) {
-      throw new ImessageMcpError(
-        "INVALID_INPUT",
-        "configure IMESSAGE_REFERENCE_KEY or an operator-owned IMESSAGE_REFERENCE_KEY_FILE before starting the server",
-      );
-    }
-    if (!config.database_id) {
-      throw new ImessageMcpError(
-        "INVALID_INPUT",
-        "configure IMESSAGE_DATABASE_ID or an operator-owned IMESSAGE_DATABASE_ID_FILE before starting the server",
-      );
-    }
-    this.database = new DatabaseContext(
-      config.database_path,
-      Buffer.from(config.reference_key, "base64"),
-      Buffer.from(config.database_id, "base64"),
-      config.source_mode,
-    );
+    this.database = new DatabaseContext(config.database_path, config.source_mode);
     this.contacts = new UnifiedContactResolver(config.contacts_mode === "live");
     this.decoder = new MessageTextDecoder();
     this.conversationCatalog = new ConversationCatalog(this.database);
-    if (warmConversationCatalog) this.conversationCatalog.warm();
     this.search = new MemorySearchIndex(this.database, this.decoder, this.contacts, onSearchBuild);
   }
 
@@ -137,17 +120,18 @@ export class LocalToolRuntime {
     return [...values];
   }
 
-  async call(tool: string, params: ToolParams, context: { searchBuilding?: boolean } = {}): Promise<CallToolResult> {
+  async call(tool: string, params: ToolParams): Promise<CallToolResult> {
     let privacy = this.config.privacy_ceiling;
     try {
       privacy = requestedPrivacy(this.config, params);
-      if (tool === "server_status") return await this.serverStatus(privacy, context.searchBuilding === true);
+      if (tool === "server_status") return await this.serverStatus(privacy);
       if (tool === "resolve_contact") return this.resolveContact(params, privacy);
       if (tool === "list_conversations") return this.listConversations(params, privacy);
       if (tool === "get_conversation") return await this.getConversation(params, privacy);
       if (tool === "search_messages") return await this.searchMessages(params, privacy);
       if (tool === "analyze_communication") return this.analyzeCommunication(params, privacy);
       if (tool === "sync_messages") return await this.syncMessages(params, privacy);
+      if (tool === "get_attachment") return await this.getAttachment(params, privacy);
       throw new ImessageMcpError("INVALID_INPUT", "unknown tool");
     } catch (error) {
       return errorResult(tool, error, privacy, this.maskingKey);
@@ -234,17 +218,21 @@ export class LocalToolRuntime {
     };
   }
 
-  private resolveConversation(params: { conversation_ref?: unknown; query?: unknown }): number[] {
-    const conversationRef = typeof params.conversation_ref === "string" ? params.conversation_ref : undefined;
+  private resolveConversation(params: { chat_id?: unknown; query?: unknown }): number[] {
     const queryValue = typeof params.query === "string" ? params.query : undefined;
-    if (conversationRef && queryValue) {
-      throw new ImessageMcpError("INVALID_INPUT", "provide conversation_ref or query, not both");
+    if (params.chat_id !== undefined && queryValue) {
+      throw new ImessageMcpError("INVALID_INPUT", "provide chat_id or query, not both");
     }
-    if (conversationRef) {
-      return resolveConversationReference(this.database.referenceKey, this.database.lineage, conversationRef);
+    if (params.chat_id !== undefined) {
+      const request = this.database.request();
+      try {
+        return conversationChatIds(request, params.chat_id);
+      } finally {
+        request.close();
+      }
     }
     const query = queryValue?.trim();
-    if (!query) throw new ImessageMcpError("INVALID_INPUT", "conversation_ref or a nonempty query is required");
+    if (!query) throw new ImessageMcpError("INVALID_INPUT", "chat_id or a nonempty query is required");
     const contactResolution = this.resolveContactQuery(query);
     if (contactResolution.status === "ambiguous") {
       throw new ImessageMcpError("AMBIGUOUS_CONTACT", "contact query matched multiple unified contacts", {
@@ -261,11 +249,12 @@ export class LocalToolRuntime {
         catalog: this.conversationCatalog,
       });
       if (found.conversations.length === 1) {
-        return resolveConversationReference(
-          this.database.referenceKey,
-          this.database.lineage,
-          found.conversations[0].conversation_ref,
-        );
+        const request = this.database.request();
+        try {
+          return conversationChatIds(request, found.conversations[0].chat_id);
+        } finally {
+          request.close();
+        }
       }
       if (found.conversations.length > 1) {
         throw new ImessageMcpError("AMBIGUOUS_CONTACT", "contact participates in multiple conversations", {
@@ -290,7 +279,7 @@ export class LocalToolRuntime {
       if (rows.length > 20) {
         throw new ImessageMcpError("QUERY_BUDGET_EXCEEDED", "conversation query matched too many chats", {
           match_count: rows.length,
-          retry: "provide a more specific name or a conversation reference",
+          retry: "provide a more specific name or a chat_id",
         });
       }
       const canonical = canonicalChatMap(request);
@@ -313,9 +302,7 @@ export class LocalToolRuntime {
     }
   }
 
-  // searchBuilding: the search index lives in the other worker, which is building
-  // it right now, so this worker's own idle index would misreport the server.
-  private async serverStatus(privacy: PrivacyMode, searchBuilding = false): Promise<CallToolResult> {
+  private async serverStatus(privacy: PrivacyMode): Promise<CallToolResult> {
     const update = await checkForUpdate(packageJson.version);
     const request = this.database.request();
     try {
@@ -326,14 +313,14 @@ export class LocalToolRuntime {
         maskingKey: this.maskingKey,
         effectiveScope: { privacy_mode: privacy },
         data: {
-          api_version: "2.0",
+          api_version: API_VERSION,
           package_version: packageJson.version,
           privacy_ceiling: this.config.privacy_ceiling,
           source_mode: this.config.source_mode,
           detected_services: detectedServices,
           schema_capabilities: this.database.capabilities,
-          decoder_health: this.decoder.healthState(),
-          index_state: searchBuilding ? { ...this.search.state(), state: "building" as const } : this.search.state(),
+          contacts: this.contacts.status(),
+          index_state: this.search.state(),
           as_of: watermarkToken(request.asOf),
           update,
         },
@@ -386,12 +373,6 @@ export class LocalToolRuntime {
   }
 
   private async getConversation(params: ToolParams, privacy: PrivacyMode): Promise<CallToolResult> {
-    if (params.include_attachment_paths && (privacy !== "full" || !this.config.attachment_paths_enabled)) {
-      throw new ImessageMcpError(
-        "PRIVACY_RESTRICTED",
-        "attachment paths require full mode and the startup attachment-path flag",
-      );
-    }
     const chatIds = this.resolveConversation(params);
     const bounds = compileDateBounds(dateInput(params));
     const result = await getConversationEvents({
@@ -403,11 +384,11 @@ export class LocalToolRuntime {
       bounds,
       service: params.service_family as ServiceFamily | undefined,
       eventFilters: params.event_types as TimelineEventType[] | undefined,
-      aroundMessage: optionalString(params, "around_message"),
+      aroundMessage: typeof params.around_message_id === "number" ? params.around_message_id : undefined,
       cursor: optionalString(params, "cursor"),
       allowPartial: Boolean(params.allow_partial),
       privacy,
-      includeAttachmentPaths: Boolean(params.include_attachment_paths),
+      includeAttachmentPaths: false,
     });
     return successResult({
       tool: "get_conversation",
@@ -464,7 +445,7 @@ export class LocalToolRuntime {
       ? { kind: "global" }
       : scopeName === "contact"
         ? { kind: "contact", handles: this.resolveContactHandles(optionalString(params, "contact") ?? "").handles }
-        : { kind: "conversation", chatIds: this.resolveConversation({ conversation_ref: params.conversation_ref }) };
+        : { kind: "conversation", chatIds: this.resolveConversation({ chat_id: params.chat_id }) };
     const bounds = compileDateBounds(dateInput(params));
     const result = analyze({
       context: this.database,
@@ -502,5 +483,54 @@ export class LocalToolRuntime {
       page: { next_cursor: result.hasMore ? result.cursor : null, has_more: result.hasMore, as_of: result.asOf },
       warnings: result.warnings,
     });
+  }
+
+  private async getAttachment(params: ToolParams, privacy: PrivacyMode): Promise<CallToolResult> {
+    if (privacy !== "full") {
+      throw new ImessageMcpError("PRIVACY_RESTRICTED", "attachment content requires the full privacy mode");
+    }
+    const attachmentId = positiveId(params.attachment_id, "attachment_id");
+    const request = this.database.request();
+    let record: { filename: string | null; transfer_name: string | null; mime_type: string | null; uti: string | null; total_bytes: number | null } | undefined;
+    try {
+      if (request.capabilities.attachments !== "available") {
+        throw new ImessageMcpError("UNSUPPORTED_SCHEMA", "this Messages database has no attachment tables");
+      }
+      const columns = request.capabilities.tables.attachment ?? [];
+      const column = (name: string) => (columns.includes(name) ? name : `NULL AS ${name}`);
+      record = request.db.prepare(
+        `SELECT ${column("filename")}, ${column("transfer_name")}, ${column("mime_type")}, ${column("uti")}, ${column("total_bytes")}
+         FROM attachment WHERE ROWID = ?`,
+      ).get(attachmentId) as typeof record;
+    } finally {
+      request.close();
+    }
+    if (!record) throw new ImessageMcpError("INVALID_INPUT", "attachment_id was not found");
+    const content = await readAttachmentContent(record, {
+      maxLongEdge: typeof params.max_long_edge === "number" ? params.max_long_edge : undefined,
+    });
+    const name = record.transfer_name ?? (record.filename ? record.filename.split("/").pop() ?? null : null);
+    const result = successResult({
+      tool: "get_attachment",
+      privacy,
+      maskingKey: this.maskingKey,
+      effectiveScope: { privacy_mode: privacy },
+      data: {
+        attachment_id: attachmentId,
+        filename: name,
+        mime_type: record.mime_type,
+        bytes: record.total_bytes,
+        content: content.kind,
+        ...(content.kind === "metadata" ? { reason: content.reason } : {}),
+        ...(content.kind === "image" ? { width: content.width, height: content.height } : {}),
+        ...(content.kind === "text" ? { truncated: content.truncated } : {}),
+      },
+    });
+    if (content.kind === "image") {
+      result.content = [...result.content, { type: "image", data: content.data.toString("base64"), mimeType: content.mimeType }];
+    } else if (content.kind === "text") {
+      result.content = [...result.content, { type: "text", text: content.text }];
+    }
+    return result;
   }
 }

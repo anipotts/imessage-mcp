@@ -73,20 +73,3 @@ export function loadApiToken(required = true): Buffer | null {
   });
 }
 
-export function loadReferenceKey(required = true): Buffer | null {
-  return operatorSecret({
-    directName: "IMESSAGE_REFERENCE_KEY",
-    fileName: "IMESSAGE_REFERENCE_KEY_FILE",
-    label: "opaque-reference key",
-    required,
-  });
-}
-
-export function loadDatabaseId(required = true): Buffer | null {
-  return operatorSecret({
-    directName: "IMESSAGE_DATABASE_ID",
-    fileName: "IMESSAGE_DATABASE_ID_FILE",
-    label: "database-lineage identity",
-    required,
-  });
-}

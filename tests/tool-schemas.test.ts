@@ -2,10 +2,11 @@ import { afterEach, describe, expect, it } from "vitest";
 import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
 import { McpServer, type CallToolResult } from "@modelcontextprotocol/server";
 import { API_VERSION } from "../src/contracts.js";
-import { registerTools, type ToolRuntime } from "../src/tools.js";
+import { registerTools, type ToolRuntime } from "../src/server.js";
 
 const TOOL_TITLES: Record<string, string> = {
   analyze_communication: "Analyze communication",
+  get_attachment: "Get attachment",
   get_conversation: "Get conversation",
   list_conversations: "List conversations",
   resolve_contact: "Resolve contact",
@@ -42,7 +43,6 @@ const SUCCESS: CallToolResult = {
         rcs: "unknown",
         tables: { message: ["ROWID", "guid"] },
       },
-      decoder_health: "healthy",
       index_state: { state: "cold", indexed_messages: 0, memory_used_bytes: 0, memory_limit_bytes: 1024 },
       as_of: "im2_synthetic",
     },

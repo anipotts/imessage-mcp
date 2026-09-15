@@ -9,7 +9,7 @@ import { assertFrozenTraversal, parseWatermark, watermarkToken } from "../databa
 import type { MessageTextDecoder } from "../decoder.js";
 import { populatedMessageText } from "../decoder.js";
 import { ImessageMcpError } from "../errors.js";
-import { decodeReference, encodeReference, MAX_SYNC_CURSOR_LENGTH } from "../references.js";
+import { decodeCursor, encodeCursor, MAX_SYNC_CURSOR_LENGTH } from "../references.js";
 import { validateSender } from "../sender.js";
 import { columnSql, serviceFamilyCase, serviceSql } from "../schema-sql.js";
 import {
@@ -40,9 +40,9 @@ export type ChangeType =
 export interface SyncChange {
   change_type: ChangeType;
   changed_at: string | null;
-  message_ref?: string;
-  conversation_ref?: string;
-  parent_message_ref?: string;
+  message_id?: number;
+  chat_id?: number;
+  parent_message_id?: number;
   service_family: ServiceFamily;
   direction?: "incoming" | "outgoing" | "system";
   sender?: { name: string | null; handle: string | null };
@@ -206,7 +206,7 @@ async function assertFingerprintFilesStable(files: FingerprintedFile[]): Promise
 
 async function copiedDatabaseFingerprint(context: DatabaseContext): Promise<string> {
   const deadline = Date.now() + COPY_FINGERPRINT_TIMEOUT_MS;
-  const hash = createHmac("sha256", context.referenceKey).update("imessage-mcp:sync:copied-database:v2\0");
+  const hash = createHash("sha256").update("imessage-mcp:sync:copied-database:v3\0");
   const files = [
     await fingerprintFile(hash, context.canonicalPath, false, deadline),
     await fingerprintFile(hash, `${context.canonicalPath}-wal`, true, deadline),
@@ -1121,12 +1121,12 @@ async function materialize(
       change_type: row.change_type,
       changed_at: appleTimestampToIso(row.change_time),
       ...(reaction && parent && parentRowid
-        ? { parent_message_ref: encodeReference(request.referenceKey, request.lineage, "message", { rowid: parentRowid, guid: parent }) }
+        ? { parent_message_id: parentRowid }
         : !reaction
-          ? { message_ref: encodeReference(request.referenceKey, request.lineage, "message", { rowid: row.rowid, guid: row.guid }) }
+          ? { message_id: row.rowid }
           : {}),
       ...(chatIds.length
-        ? { conversation_ref: encodeReference(request.referenceKey, request.lineage, "conversation", { chat_ids: chatIds }) }
+        ? { chat_id: Math.min(...chatIds) }
         : {}),
       service_family: serviceFamily(row.service),
       direction: row.change_type === "group_event" ? "system" : sender.direction,
@@ -1204,7 +1204,7 @@ export async function syncMessages(input: {
       const integrity = input.context.sourceMode === "live"
         ? syncIntegrity(request, request.asOf.max_message_id)
         : undefined;
-      const cursor = encodeReference(request.referenceKey, request.lineage, "sync", {
+      const cursor = encodeCursor("sync", {
         version: 2,
         source_mode: input.context.sourceMode,
         checkpoint: request.asOf,
@@ -1213,13 +1213,7 @@ export async function syncMessages(input: {
       });
       return { changes: [], cursor, hasMore: false, asOf: watermarkToken(request.asOf), warnings: [] };
     }
-    const value = decodeReference(
-      request.referenceKey,
-      request.lineage,
-      "sync",
-      input.cursor,
-      MAX_SYNC_CURSOR_LENGTH,
-    ).value as unknown as SyncCursor;
+    const value = decodeCursor("sync", input.cursor, MAX_SYNC_CURSOR_LENGTH) as unknown as SyncCursor;
     if (
       value.version !== 2 ||
       value.source_mode !== input.context.sourceMode ||
@@ -1257,7 +1251,7 @@ export async function syncMessages(input: {
       }
       return {
         changes: [],
-        cursor: encodeReference(request.referenceKey, request.lineage, "sync", {
+        cursor: encodeCursor("sync", {
           version: 2,
           source_mode: "copy",
           checkpoint: request.asOf,
@@ -1343,7 +1337,7 @@ export async function syncMessages(input: {
         };
     return {
       ...rendered,
-      cursor: encodeReference(request.referenceKey, request.lineage, "sync", nextState as unknown as Record<string, unknown>),
+      cursor: encodeCursor("sync", nextState as unknown as Record<string, unknown>),
       hasMore,
       asOf: watermarkToken(state.target as Watermark),
     };

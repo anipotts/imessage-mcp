@@ -1,10 +1,11 @@
-import { createHash, createHmac } from "node:crypto";
+import { createHash } from "node:crypto";
 import { accessSync, constants, lstatSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
 import Database from "./sqlite.js";
 import { DEFAULT_DATABASE_PATH } from "./config.js";
 import type { CapabilityState, QueryBudget, SchemaCapabilities, Watermark } from "./contracts.js";
 import { ImessageMcpError } from "./errors.js";
+import { findResponsibleApp, fullDiskAccessInstruction } from "./responsible-app.js";
 import { appleTimestampSortSql, sqliteIntegerBinding, sqliteIntegerToken } from "./time.js";
 
 const RELEVANT_TABLES = [
@@ -25,13 +26,13 @@ const MAX_SCHEMA_METADATA_BYTES = 256 * 1024;
 type FileIdentity = { device: bigint; inode: bigint };
 
 // macOS privacy protection (TCC) reports a blocked Messages folder as EPERM, and
-// Node's existsSync reports that as a missing file. Callers see this text in
-// the tool result, so it names the exact fix.
-export const FULL_DISK_ACCESS_MESSAGE =
-  "macOS is blocking access to Messages. Open System Settings > Privacy & Security > Full Disk Access " +
-  "(x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles), turn on the app that runs " +
-  "this server (Claude for Claude Desktop, your terminal for Claude Code or Codex, Cursor for Cursor), " +
-  "then quit and reopen that app";
+// Node's existsSync reports that as a missing file. The error names the app to
+// grant when it is a recognized client; the lookup runs once per process.
+let accessInstruction: string | undefined;
+export function fullDiskAccessMessage(): string {
+  accessInstruction ??= fullDiskAccessInstruction(findResponsibleApp());
+  return accessInstruction;
+}
 
 function accessDenied(error: unknown): boolean {
   const code = (error as { code?: unknown } | null)?.code;
@@ -39,7 +40,7 @@ function accessDenied(error: unknown): boolean {
 }
 
 function unavailable(error: unknown, message: string): ImessageMcpError {
-  return new ImessageMcpError("DATABASE_UNAVAILABLE", accessDenied(error) ? FULL_DISK_ACCESS_MESSAGE : message);
+  return new ImessageMcpError("DATABASE_UNAVAILABLE", accessDenied(error) ? fullDiskAccessMessage() : message);
 }
 
 interface ResolvedRegularFile {
@@ -313,38 +314,21 @@ function watermark(db: Database.Database, capabilities: SchemaCapabilities): Wat
   };
 }
 
-function computeLineage(
-  referenceKey: Buffer,
-  databaseId: Buffer,
-): string {
-  const hmac = createHmac("sha256", referenceKey)
-    .update("imessage-mcp:v2:database-lineage:v3\0")
-    .update(String(databaseId.length))
-    .update("\0")
-    .update(databaseId);
-  return hmac.digest("hex");
-}
-
 export class DatabaseRequest {
   readonly db: Database.Database;
   readonly capabilities: SchemaCapabilities;
-  readonly lineage: string;
-  readonly referenceKey: Buffer;
   readonly asOf: Watermark;
   private readonly ownsDatabase: boolean;
   private closed = false;
 
   constructor(
     source: string | Database.Database,
-    referenceKey: Buffer,
-    databaseId: Buffer,
     knownCapabilities?: SchemaCapabilities,
     observedDataVersion?: number,
     knownWatermark?: Watermark,
   ) {
     this.ownsDatabase = typeof source === "string";
     this.db = this.ownsDatabase ? openReadonlyDatabase(source as string) : source as Database.Database;
-    this.referenceKey = Buffer.from(referenceKey);
     try {
       if (this.db.inTransaction) {
         throw new ImessageMcpError("DATABASE_CHANGED", "database request connection retained an unexpected transaction");
@@ -361,7 +345,6 @@ export class DatabaseRequest {
       // watermark. This bounded read pins the query connection's snapshot
       // before that observer comparison.
       this.db.prepare("SELECT ROWID FROM message ORDER BY ROWID LIMIT 1").get();
-      this.lineage = computeLineage(this.referenceKey, databaseId);
       this.asOf = knownWatermark
         ? { ...knownWatermark, data_version: observedDataVersion ?? knownWatermark.data_version }
         : watermark(this.db, this.capabilities);
@@ -393,37 +376,21 @@ export class DatabaseRequest {
 export class DatabaseContext {
   readonly canonicalPath: string;
   readonly capabilities: SchemaCapabilities;
-  readonly lineage: string;
-  readonly referenceKey: Buffer;
   readonly sourceMode: "live" | "copy";
-  private readonly databaseId: Buffer;
   private readonly fileIdentity: { device: bigint; inode: bigint };
   private readonly schemaVersion: number;
   private readonly observer: Database.Database;
   private readonly queryConnection: Database.Database;
+  // The search index builds on its own connection so its long read snapshot
+  // never blocks the requests tool calls open on the query connection.
+  private indexConnection: Database.Database | null = null;
   private cachedWatermark: Watermark;
   private closed = false;
 
   constructor(
     databasePath: string,
-    referenceKey: Buffer,
-    databaseId: Buffer,
     sourceMode: "live" | "copy" = "copy",
   ) {
-    if (referenceKey.length < 32 || referenceKey.length > 4096) {
-      throw new ImessageMcpError("INVALID_INPUT", "opaque-reference key must contain between 32 and 4096 bytes");
-    }
-    if (databaseId.length < 32 || databaseId.length > 4096) {
-      throw new ImessageMcpError("INVALID_INPUT", "database-lineage identity must contain between 32 and 4096 bytes");
-    }
-    if (referenceKey.equals(databaseId)) {
-      throw new ImessageMcpError(
-        "INVALID_INPUT",
-        "opaque-reference key and database-lineage identity must be generated independently",
-      );
-    }
-    this.referenceKey = Buffer.from(referenceKey);
-    this.databaseId = Buffer.from(databaseId);
     this.sourceMode = sourceMode;
     const selected = resolveRequiredRegularFile(databasePath);
     this.canonicalPath = selected.canonicalPath;
@@ -443,7 +410,7 @@ export class DatabaseContext {
     let request: DatabaseRequest;
     try {
       const dataVersion = this.observedDataVersion();
-      request = new DatabaseRequest(this.queryConnection, this.referenceKey, this.databaseId, undefined, dataVersion);
+      request = new DatabaseRequest(this.queryConnection, undefined, dataVersion);
       this.assertFileIdentity();
       this.assertSchemaVersion();
       if (this.observedDataVersion() !== dataVersion) {
@@ -456,15 +423,17 @@ export class DatabaseContext {
     }
     try {
       this.capabilities = request.capabilities;
-      this.lineage = request.lineage;
       this.cachedWatermark = { ...request.asOf };
     } finally {
       request.close();
     }
   }
 
-  request(): DatabaseRequest {
+  request(options: { connection?: "query" | "index" } = {}): DatabaseRequest {
     if (this.closed) throw new ImessageMcpError("DATABASE_UNAVAILABLE", "database context is closed");
+    const connection = options.connection === "index"
+      ? (this.indexConnection ??= openReadonlyDatabase(this.canonicalPath))
+      : this.queryConnection;
     this.assertFileIdentity();
     this.assertSchemaVersion();
     const dataVersion = this.observedDataVersion();
@@ -472,9 +441,7 @@ export class DatabaseContext {
       ? this.cachedWatermark
       : undefined;
     const request = new DatabaseRequest(
-      this.queryConnection,
-      this.referenceKey,
-      this.databaseId,
+      connection,
       this.capabilities,
       dataVersion,
       knownWatermark,
@@ -488,10 +455,6 @@ export class DatabaseContext {
     } catch (error) {
       request.close();
       throw error;
-    }
-    if (request.lineage !== this.lineage) {
-      request.close();
-      throw new ImessageMcpError("DATABASE_CHANGED", "database lineage changed while the server was running");
     }
     if (!knownWatermark) this.cachedWatermark = { ...request.asOf };
     return request;
@@ -516,6 +479,7 @@ export class DatabaseContext {
   close(): void {
     if (this.closed) return;
     this.closed = true;
+    this.indexConnection?.close();
     this.queryConnection.close();
     this.observer.close();
   }

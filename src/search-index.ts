@@ -10,7 +10,7 @@ import { assertFrozenTraversal, parseWatermark, watermarkToken } from "./databas
 import type { MessageTextDecoder } from "./decoder.js";
 import { populatedMessageText } from "./decoder.js";
 import { ImessageMcpError } from "./errors.js";
-import { decodeReference, encodeReference } from "./references.js";
+import { decodeCursor, encodeCursor } from "./references.js";
 import { assertMessageConversationIntegrity } from "./repositories/conversations.js";
 import { columnSql, serviceFamilyCase, serviceFamilyPredicate, serviceSql } from "./schema-sql.js";
 import { validateSender } from "./sender.js";
@@ -30,8 +30,8 @@ export type SearchScope = "text" | "conversation_names" | "attachment_filenames"
 export type SearchOrder = "newest" | "relevance";
 
 export interface SearchHit {
-  message_ref: string;
-  conversation_ref: string;
+  message_id: number;
+  chat_id: number;
   timestamp: string | null;
   service_family: ServiceFamily;
   sender: { name: string | null; handle: string | null };
@@ -81,7 +81,8 @@ interface IndexEstimate {
 }
 
 const MIB = 1024 * 1024;
-const SOURCE_BATCH_SIZE = 500;
+const SOURCE_BATCH_SIZE = 200;
+const BUILD_STEP_MS = 40;
 const SOURCE_BATCH_BYTES = 8 * MIB;
 const MAX_INDEX_TEXT_BYTES = 3 * MIB;
 const MAX_INDEX_BLOB_BYTES = MAX_ATTRIBUTED_BODY_BYTES;
@@ -426,6 +427,9 @@ export class MemorySearchIndex {
   private complete = false;
   private trigram = false;
   private building: Promise<void> | null = null;
+  private ensuring: Promise<void> = Promise.resolve();
+  private progressDone = 0;
+  private progressTotal = 0;
   private signatures: SourceSignatures | null = null;
 
   constructor(
@@ -437,6 +441,7 @@ export class MemorySearchIndex {
 
   state(): {
     state: "cold" | "ready" | "partial" | "building";
+    progress?: number;
     indexed_messages: number;
     memory_used_bytes: number;
     memory_limit_bytes: number;
@@ -446,6 +451,9 @@ export class MemorySearchIndex {
       : 0;
     return {
       state: this.building ? "building" : !this.index ? "cold" : this.complete ? "ready" : "partial",
+      ...(this.building && this.progressTotal > 0
+        ? { progress: Math.min(1, Math.round((this.progressDone / this.progressTotal) * 100) / 100) }
+        : {}),
       indexed_messages: count,
       memory_used_bytes: this.index ? this.memoryFootprint(this.index) : 0,
       memory_limit_bytes: this.memoryLimit(),
@@ -850,6 +858,7 @@ export class MemorySearchIndex {
       : null;
 
     let cursor = afterRowid;
+    let lastYield = performance.now();
     while (cursor < targetRowid) {
       const batchTarget = this.nextBatchTarget(request, cursor, targetRowid);
       const batch = this.sourceRows(request, cursor, batchTarget);
@@ -965,7 +974,13 @@ export class MemorySearchIndex {
         throw error;
       }
       cursor = batch.at(-1)!.rowid;
+      this.progressDone += batch.length;
       this.enforceMemoryLimit(db);
+      // Yield to the event loop so other tool calls answer while a build runs.
+      if (performance.now() - lastYield > BUILD_STEP_MS) {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        lastYield = performance.now();
+      }
     }
   }
 
@@ -991,11 +1006,13 @@ export class MemorySearchIndex {
 
   private async build(allowPartial: boolean, existing?: DatabaseRequest): Promise<void> {
     this.onBuild?.();
-    const request = existing ?? this.context.request();
+    const request = existing ?? this.context.request({ connection: "index" });
     let db: Database.Database | null = null;
     try {
       assertMessageConversationIntegrity(request);
       const estimate = this.estimate(request, allowPartial);
+      this.progressDone = 0;
+      this.progressTotal = estimate.rows;
       if (!allowPartial && estimate.max_blob_bytes > MAX_INDEX_BLOB_BYTES) {
         throw new ImessageMcpError("DECODE_FAILED", `search index encountered an attributed-body blob above the ${MAX_ATTRIBUTED_BODY_LABEL} decoder limit`, {
           max_blob_bytes: estimate.max_blob_bytes,
@@ -1125,13 +1142,33 @@ export class MemorySearchIndex {
     this.recountPartialRows(index);
   }
 
-  async ensure(allowPartial: boolean): Promise<void> {
-    if (this.building) await this.building;
+  // Calls are serialized: the background build, a search, and a refresh each
+  // hold the index connection's read snapshot while they run.
+  ensure(allowPartial: boolean): Promise<void> {
+    const run = this.ensuring.then(() => this.ensureOnce(allowPartial));
+    this.ensuring = run.catch(() => undefined);
+    return run;
+  }
+
+  // Resolves true once no build is running, or false after waitMs.
+  async waitForBuild(waitMs: number): Promise<boolean> {
+    const current = this.building;
+    if (!current) return true;
+    let timer: NodeJS.Timeout | undefined;
+    const settled = await Promise.race([
+      current.then(() => true, () => true),
+      new Promise<false>((resolve) => { timer = setTimeout(() => resolve(false), waitMs); timer.unref(); }),
+    ]);
+    clearTimeout(timer);
+    return settled;
+  }
+
+  private async ensureOnce(allowPartial: boolean): Promise<void> {
     if (!this.index || !this.signatures) {
       await this.track(this.build(allowPartial));
       return;
     }
-    const request = this.context.request();
+    const request = this.context.request({ connection: "index" });
     try {
       if (this.indexedWatermark?.data_version !== request.asOf.data_version) {
         await this.track(this.refresh(allowPartial, request));
@@ -1270,7 +1307,7 @@ export class MemorySearchIndex {
     });
     let decodedCursor: IndexCursor | null = null;
     if (input.cursor) {
-      const decoded = decodeReference(this.context.referenceKey, this.context.lineage, "page", input.cursor).value as unknown as IndexCursor;
+      const decoded = decodeCursor("page", input.cursor) as unknown as IndexCursor;
       if (
         decoded.query_hash !== hash ||
         !Number.isSafeInteger(decoded.after_rowid) || decoded.after_rowid <= 0 ||
@@ -1356,8 +1393,8 @@ export class MemorySearchIndex {
       const chatIds = chatIdArray(String(row.chat_ids));
       const filenames = stringArray(String(row.filenames), MAX_INDEX_RELATIONS_PER_MESSAGE, "indexed filename");
       return {
-        message_ref: encodeReference(this.context.referenceKey, this.context.lineage, "message", { rowid: Number(row.rowid), guid: row.guid }),
-        conversation_ref: encodeReference(this.context.referenceKey, this.context.lineage, "conversation", { chat_ids: chatIds }),
+        message_id: Number(row.rowid),
+        chat_id: chatIds[0],
         timestamp: appleTimestampToIso(row.date_token),
         service_family: serviceFamily(row.service),
         sender: sender.identity,
@@ -1372,7 +1409,7 @@ export class MemorySearchIndex {
     });
     const last = page.at(-1);
     const nextCursor = hasMore && last
-      ? encodeReference(this.context.referenceKey, this.context.lineage, "page", {
+      ? encodeCursor("page", {
           query_hash: hash,
           frozen,
           after_date: sqliteIntegerToken(last.date_token, "search cursor timestamp"),

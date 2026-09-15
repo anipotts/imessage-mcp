@@ -7,8 +7,7 @@ import {
   validateOriginHeader,
   type AuthInfo,
 } from "@modelcontextprotocol/server";
-import type { ToolRuntime } from "./tools.js";
-import { createMcpServer } from "./tools.js";
+import { createMcpServer, type ToolRuntime } from "./server.js";
 import { ImessageMcpError } from "./errors.js";
 import { loadApiToken as readApiToken } from "./secrets.js";
 

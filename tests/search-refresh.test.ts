@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import Database from "better-sqlite3";
+import Database from "../src/sqlite.js";
 import { UnifiedContactResolver } from "../src/contacts.js";
 import { DatabaseContext } from "../src/database.js";
 import { MessageTextDecoder } from "../src/decoder.js";
@@ -7,8 +7,6 @@ import { MemorySearchIndex, type SearchMode, type SearchScope } from "../src/sea
 import { compileDateBounds } from "../src/time.js";
 import { appleNanoseconds, createFixture, type Fixture } from "./fixture.js";
 
-const REFERENCE_KEY = Buffer.alloc(32, 0x5a);
-const DATABASE_ID = Buffer.alloc(32, 0x6b);
 
 type Ranges = Array<[number, number]>;
 
@@ -73,7 +71,7 @@ describe("search index refresh", () => {
     writer = new Database(fixture.databasePath);
     insertMessage(300, "second bucket seed");
     insertMessage(600, "third bucket seed", 4);
-    context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, DATABASE_ID);
+    context = new DatabaseContext(fixture.databasePath, "copy");
     contacts = new UnifiedContactResolver(true, [
       { identifier: "alice", name: "Alice Refresh", phones: ["+15550000001"], emails: [] },
       { identifier: "bob", name: "Bob Refresh", phones: ["+15550000002"], emails: [] },

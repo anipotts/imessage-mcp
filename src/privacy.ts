@@ -29,8 +29,11 @@ const IDENTITY_KEYS = new Set([
   "handle",
   "handles",
   "participants",
-  "conversation_ref",
-  "message_ref",
+  "chat_id",
+  "message_id",
+  "reply_to_message_id",
+  "around_message_id",
+  "attachment_id",
   "chat_identifier",
   "guid",
 ]);
