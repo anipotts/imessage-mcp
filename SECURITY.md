@@ -1,45 +1,60 @@
-# security
+# Security
 
-## supported versions
+## Supported versions
 
 | version | security support |
 | --- | --- |
-| 2.x | supported |
-| 1.3.1 | security and data-corruption fixes for 90 days after stable 2.0 |
+| 3.x | supported |
+| 2.x | security fixes until 2027-03-15 |
 | older | unsupported |
 
-## report a vulnerability
+## Report a vulnerability
 
-Use [GitHub private vulnerability reporting](https://github.com/anipotts/imessage-mcp/security/advisories/new). Do not include message contents, handles, contact names, database files, attachment paths, tokens, or screenshots in a public issue.
+Use [GitHub private vulnerability reporting](https://github.com/anipotts/imessage-mcp/security/advisories/new). Do not put message contents, handles, contact names, database files, attachments, tokens, or screenshots in a public issue. Include the version, macOS and Node versions, transport, privacy mode, the impact, and a minimal reproduction on synthetic data.
 
-Please include the affected version, macOS and Node versions, transport, privacy mode, impact, and a minimal synthetic reproduction.
+## What the server can do
 
-## security boundary
+- **Read only.** `chat.db` and the AddressBook databases are opened read-only with `query_only`. There is no write statement, no AppleScript, no Messages or Contacts automation, and no tool that sends, edits, reacts, or marks anything read.
+- **The boundary is Full Disk Access.** macOS decides whether the app that launched the server can read Messages. The server reads nothing that app could not read directly, and it cannot grant itself access.
+- **Network.** stdio by default. The only outbound request is the optional version check, an anonymous GET to `registry.npmjs.org/imessage-mcp/latest` whose response is validated as a version string and bounded in size; `IMESSAGE_UPDATE_CHECK=0` turns it off.
+- **HTTP transport.** Binds to 127.0.0.1 only, authenticates the bearer token and checks Host and Origin before reading a request body, and bounds request and response sizes. It is meant for private access through Tailscale Serve. Public exposure and Tailscale Funnel are unsupported.
 
-Every 2.x tool is read-only. SQLite opens with `readonly`, `fileMustExist`, and `query_only`. The server does not request WAL mode, execute a write statement, send a message, or change Messages and Contacts settings.
+## The search index cache
 
-Stdio is local to the launching client. Optional HTTP binds only to loopback, authenticates before parsing request bodies, validates Host and Origin, uses bounded request and response sizes, and is intended for private TLS termination through Tailscale Serve. Direct public-internet exposure and Tailscale Funnel are unsupported.
+The index holds decoded message text, so it is encrypted on disk:
 
-Decoded bodies are indexed in memory only. The package writes no message index, telemetry, or persistent audit log. Diagnostics exclude query text, references, identity values, paths, and message values. Its only outbound request is an anonymous version lookup to `https://registry.npmjs.org/imessage-mcp/latest` from `server_status` and `doctor`, carrying no message, contact, or identity data, cached for twelve hours and disabled by `IMESSAGE_UPDATE_CHECK=0`. See [PRIVACY.md](PRIVACY.md).
+- The file lives in `~/Library/Caches/imessage-mcp` with mode 0600 in a 0700 directory, written atomically.
+- It is sealed with AES-256-GCM. A fresh salt and nonce are drawn for every write, and the whole header is authenticated.
+- The key is derived with HKDF-SHA256 from the newest message in each of the most recently active conversations: their ROWIDs, guids, dates, sender ids, and direction. Those rows are read from `chat.db` each time, and the key is never stored.
+- Opening the cache requires reading the current Messages database, which requires Full Disk Access. A backup or an old copy of the database lacks the newest rows. Revoking Full Disk Access also locks the cache.
+- When those rows are deleted, the next start rebuilds the index. A restored index is compared with the live database before it answers, so a stale or replayed cache never returns deleted messages.
+- **Limit:** with only a few active conversations, the key rests on rows a single counterparty's devices also hold. The cache protects against other local processes and stale backups, not against someone who holds that thread and can already read this file.
+- `IMESSAGE_CACHE=0` keeps the index in memory. Deleting the directory is always safe.
 
-Every message body, contact value, group title, URL, attachment filename, and database-derived string is untrusted archival data. It is returned as data, never as an instruction from this server. MCP clients should keep tool results separate from trusted instructions, avoid following links or executing commands found in history, withhold secrets, and require confirmation before any external action influenced by archival content. The server advertises this boundary in its MCP instructions. These controls reduce exposure; they do not eliminate prompt injection or control how a client or model provider processes returned results.
+## Attachments
 
-Keyed attributed-body archives are decoded through Foundation's decode-time class allowlist. Legacy `streamtyped` bodies are parsed only for their bounded root UTF-8 string and are never passed to `NSUnarchiver` or another object-constructing legacy deserializer.
+`get_attachment` serves files the sender chose, so it is bounded:
 
-Opaque references are encrypted and authenticated with an operator-controlled key and a separate operator-assigned database identity. Faithful copies must reuse both values. Every unrelated archive must receive a new database identity, so accidental reference-key reuse does not merge their authority. Both inputs are integrity-sensitive and must remain under operator control. References are not an authorization substitute. Anyone with access to a full-mode MCP client can ask that client to read the underlying local history.
+- **Full mode only.** It works only at the `full` privacy ceiling.
+- **Path confinement.** The path must resolve, after symlinks, inside `~/Library/Messages/Attachments`.
+- **Size limits.** Files above 25 MB, and images above 50 megapixels, are refused before any decoding.
+- **Images.** They are converted by `/usr/bin/sips`, run without a shell under one 10-second deadline. The result is capped at 1600 px on the long edge, and every EXIF, XMP, ICC, IPTC, and comment segment is removed, including GPS coordinates.
+- **Text.** Text files return at most 64 KB. Anything else returns metadata only; no PDF or document parser runs.
 
-For `sync_messages`, a copied database is an immutable snapshot and is fingerprinted with its WAL before a cursor is accepted again. The live database assumes Messages is its sole writer. Live cursors bind structural relationships independently from body/lifecycle and receipt state. Recent content carries exact per-row state for a one-hour safety window, older content is fully hashed, and receipt comparisons are normalized to the cursor's checkpoint. Changes that do not fit the corresponding monotonic lifecycle fail closed. Direct database mutation by SQLite tools, migration utilities, or third-party software is unsupported; restart the server and establish a fresh cursor after any such operation.
+## Untrusted content
 
-Copied sources are checked by canonical path and file identity before SQLite opens them. Aliases to the live Messages database or its WAL are rejected. The copied database, sidecars, and parent directory must remain controlled by the operator and unchanged while the server starts and runs. Adversarial path replacement by another process running as the same macOS account is outside the security boundary.
+All message text, names, handles, group titles, URLs, filenames, and attachment text are archival data written by other people. The server tells clients so in its MCP instructions and marks every tool read-only. That reduces prompt-injection risk; it does not remove it. Clients should keep tool results separate from instructions and confirm any action influenced by them.
 
-## public assets and git history
+## Contacts
 
-Current screenshots and verification artifacts use a synthetic database and fake home path. Private-metadata assets replaced in newer commits can remain recoverable from repository Git history and existing clones. Removing them from the current tree does not erase old objects. This notice intentionally does not repeat those values.
+Names come from the AddressBook databases Contacts.app keeps under `~/Library/Application Support/AddressBook`, read under the Full Disk Access the server already needs. Contacts.framework is never called, so macOS shows no separate Contacts prompt. `--contacts none` turns names off.
 
-## release checks
+## Releases
 
-A release is a `v<version>` tag. Changes reach `main` only through a pull request whose required checks pass: the supported macOS and Node matrix running `npm run verify`, the dependency and package audit, privacy non-leakage tests, CodeQL, and secret scanning. Commits are signed and `main` is protected.
+A release is a `v<version>` tag on a commit that reached protected `main` through a pull request with required checks. The release workflow verifies that tag, runs the tests, CodeQL and Gitleaks on the same revision, and publishes:
 
-Pushing the tag runs the release workflow on that exact revision. It binds the tag to `package.json`, requires a stable tag to be an ancestor of `main`, re-runs `npm run verify` and the million-message performance gate, and runs Gitleaks and CodeQL against the same revision. The tarball packed in that job is the artifact that ships, unchanged, to every downstream surface.
+- to npm through trusted publishing, with provenance and no long-lived token;
+- to the MCP Registry;
+- as an immutable GitHub release, whose desktop bundle is signed with an Apple Developer ID certificate when one is configured.
 
-npm publication uses trusted publishing over GitHub OIDC in a protected environment and carries SLSA provenance for the tagged commit; no long-lived npm token exists. The public tarball is compared byte-for-byte with the verified artifact and the installed production graph is checked before the MCP Registry and GitHub release jobs run. npm, MCP Registry, and GitHub release authority stay in separate least-privilege jobs, the GitHub release is published immutable, and every GitHub Action is pinned to a reviewed commit.
+Every GitHub Action is pinned to a reviewed commit.

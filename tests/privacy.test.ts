@@ -80,6 +80,16 @@ describe("privacy ceilings", () => {
     expect(result.content[1]).not.toHaveProperty("text", expect.stringContaining("Alice"));
   });
 
+  it("keeps schema table and column names readable while masking real handles", () => {
+    const data = {
+      schema_capabilities: { tables: { chat_handle_join: ["chat_id", "handle_id"] } },
+      participants: [{ handle: "+15551234567" }],
+    };
+    const serialized = JSON.stringify(successResult({ tool: "server_status", privacy: "redacted", maskingKey, effectiveScope: {}, data }).structuredContent);
+    expect(serialized).toContain('"chat_handle_join":["chat_id","handle_id"]');
+    expect(serialized).not.toContain("+15551234567");
+  });
+
   it("returns identity-free counts without opaque record references in aggregate mode", () => {
     const result = successResult({ tool: "list_conversations", privacy: "aggregate", maskingKey, effectiveScope: { privacy_mode: "aggregate" }, data: privateData });
     const serialized = JSON.stringify(result.structuredContent);

@@ -33,8 +33,7 @@ jobs:
           package-manager-cache: true
       - run: npm ci
       - run: npm audit --audit-level=high
-      - run: npm run check:metadata
-      - run: npm run test:privacy
+      - run: npx --no-install vitest run tests/privacy.test.ts tests/security.test.ts
       - run: npm pack --dry-run
 
   secret-scan:

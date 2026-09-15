@@ -1,7 +1,6 @@
 #!/usr/bin/env tsx
 
 import assert from "node:assert/strict";
-import { randomBytes } from "node:crypto";
 import { homedir } from "node:os";
 import path from "node:path";
 import { serviceFamily, type ServiceFamily } from "../src/contracts.js";
@@ -10,7 +9,7 @@ import { DatabaseContext } from "../src/database.js";
 import { MessageTextDecoder, populatedMessageText } from "../src/decoder.js";
 import { UnifiedContactResolver } from "../src/contacts.js";
 import { columnSql, serviceSql } from "../src/schema-sql.js";
-import { LocalToolRuntime } from "../src/tool-local.js";
+import { LocalToolRuntime } from "../src/runtime.js";
 import { MAX_ATTRIBUTED_BODY_BYTES } from "../src/limits.js";
 
 interface ParityRow {
@@ -24,8 +23,7 @@ const defaultDatabasePath = path.join(homedir(), "Library", "Messages", "chat.db
 const configuredDatabasePath = process.env.IMESSAGE_PARITY_DB;
 const databasePath = configuredDatabasePath ? path.resolve(configuredDatabasePath) : defaultDatabasePath;
 const sourceMode = configuredDatabasePath ? "copy" : "live";
-const databaseId = randomBytes(48);
-const context = new DatabaseContext(databasePath, randomBytes(32), databaseId, sourceMode);
+const context = new DatabaseContext(databasePath, sourceMode);
 const decoder = new MessageTextDecoder();
 const MAX_SAMPLE = 500;
 const MAX_BATCH_ITEMS = 500;
@@ -66,7 +64,6 @@ async function exerciseTools(): Promise<{
   aggregate_leaks: number;
   duration_ms: Record<string, number>;
 }> {
-  const referenceKey = randomBytes(48);
   const config: RuntimeConfig = {
     database_path: databasePath,
     source_mode: sourceMode,
@@ -74,12 +71,10 @@ async function exerciseTools(): Promise<{
     privacy_ceiling: "full",
     transport: "stdio",
     port: 3000,
-    attachment_paths_enabled: false,
-    reference_key: referenceKey.toString("base64"),
-    database_id: databaseId.toString("base64"),
   };
-  referenceKey.fill(0);
-  const runtime = new LocalToolRuntime(config, randomBytes(32));
+  // The parity run measures a cold build, so it never touches the real cache.
+  process.env.IMESSAGE_CACHE = "0";
+  const runtime = new LocalToolRuntime(config);
   try {
     await runtime.prepare();
     const probe = privateProbe();
@@ -94,16 +89,16 @@ async function exerciseTools(): Promise<{
       limit: 1,
       privacy_mode: "full",
     }));
-    const fullData = fullList.data as { conversations?: Array<{ conversation_ref?: unknown }> };
-    const conversationRef = fullData.conversations?.[0]?.conversation_ref;
-    assert.equal(typeof conversationRef, "string", "no conversation reference was available for tool parity");
+    const fullData = fullList.data as { conversations?: Array<{ chat_id?: unknown }> };
+    const chatId = fullData.conversations?.[0]?.chat_id;
+    assert.equal(typeof chatId, "number", "no conversation was available for tool parity");
 
     const results = [
       await call("server_status", { privacy_mode: "aggregate" }),
       await call("resolve_contact", { query: probe.handle, privacy_mode: "aggregate" }),
       await call("list_conversations", { limit: 50, privacy_mode: "aggregate" }),
       await call("get_conversation", {
-        conversation_ref: conversationRef,
+        chat_id: chatId,
         limit: 50,
         allow_partial: true,
         privacy_mode: "aggregate",
@@ -131,10 +126,9 @@ async function exerciseTools(): Promise<{
     }
     const aggregate = results.map(([, result]) => structured(result));
     const serialized = JSON.stringify(aggregate);
-    const leaks = [probe.handle, conversationRef as string]
-      .filter((value) => serialized.includes(value)).length;
-    assert.equal(leaks, 0, "aggregate tool output retained a private probe value or record reference");
-    assert.doesNotMatch(serialized, /"(?:message|conversation)_ref"/u);
+    const leaks = [probe.handle].filter((value) => serialized.includes(value)).length;
+    assert.equal(leaks, 0, "aggregate tool output retained a private probe value");
+    assert.doesNotMatch(serialized, /"(?:message_id|chat_id|attachment_id)":/u);
     assert.doesNotMatch(serialized, /"query"\s*:/u);
     assert.ok(durationMs.server_status < 1_000, "server_status exceeded the sub-second metadata budget");
     assert.ok(durationMs.list_conversations < 1_000, "list_conversations exceeded the sub-second metadata budget");
@@ -238,7 +232,6 @@ try {
     source: sourceMode === "live" ? "live_mac_chat_db" : "copied_mac_chat_db",
     readonly: "passed",
     schema: context.capabilities.required_core,
-    decoder_self_test: decoder.healthState(),
     exact_parity: { sampled: rows.length, matched: exact, mismatched: mismatch },
     service_families: [...services].sort(),
     contacts: contacts.state,

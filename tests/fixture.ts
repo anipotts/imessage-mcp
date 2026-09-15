@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import Database from "better-sqlite3";
+import Database from "../src/sqlite.js";
 import { APPLE_EPOCH_UNIX_SECONDS } from "../src/time.js";
 
 export interface Fixture {
@@ -275,4 +275,30 @@ export function createMinimalSchemaFixture(): Fixture {
   }
   db.close();
   return fixture;
+}
+
+// A body archived with NSKeyedArchiver, the format Messages may write instead of
+// the legacy typedstream.
+export function foundationKeyedAttributedBody(text: string, mutable = true): Buffer {
+  const className = mutable ? "NSMutableAttributedString" : "NSAttributedString";
+  const script = `ObjC.import("Foundation"); function run(argv) {
+    const mutable = $.NSMutableAttributedString.alloc.init;
+    mutable.mutableString.appendString($(argv[0]));
+    const object = "${className}" === "NSAttributedString" ? mutable.copy : mutable;
+    const data = $.NSKeyedArchiver.archivedDataWithRootObject(object);
+    return ObjC.unwrap(data.base64EncodedStringWithOptions(0));
+  }`;
+  return Buffer.from(execFileSync("/usr/bin/osascript", ["-l", "JavaScript", "-e", script, text], { encoding: "utf8" }).trim(), "base64");
+}
+
+// message_summary_info without an edit collection, which Messages writes for
+// most messages, including some it marks edited.
+export function foundationSummaryWithoutEdits(): Buffer {
+  const script = `ObjC.import("Foundation"); function run() {
+    const root = $.NSMutableDictionary.dictionary;
+    root.setObjectForKey($(1), $("amc"));
+    const data = $.NSPropertyListSerialization.dataWithPropertyListFormatOptionsError(root, $.NSPropertyListBinaryFormat_v1_0, 0, Ref());
+    return ObjC.unwrap(data.base64EncodedStringWithOptions(0));
+  }`;
+  return Buffer.from(execFileSync("/usr/bin/osascript", ["-l", "JavaScript", "-e", script], { encoding: "utf8" }).trim(), "base64");
 }

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { DatabaseContext, FULL_DISK_ACCESS_MESSAGE, openReadonlyDatabase } from "../src/database.js";
+import { DatabaseContext, fullDiskAccessMessage, openReadonlyDatabase } from "../src/database.js";
 import { checkForUpdate, isNewer, LATEST_BUNDLE_URL, resetUpdateCheckForTests } from "../src/update-check.js";
 
 const enabled = { IMESSAGE_UPDATE_CHECK: "1" };
@@ -94,10 +94,10 @@ describe("blocked Messages access", () => {
 
   it("names the Full Disk Access fix instead of reporting a missing database", () => {
     const databasePath = blocked();
-    expect(() => openReadonlyDatabase(databasePath)).toThrow(FULL_DISK_ACCESS_MESSAGE);
-    expect(() => new DatabaseContext(databasePath, Buffer.alloc(32, 1), Buffer.alloc(32, 2), "copy"))
-      .toThrow(FULL_DISK_ACCESS_MESSAGE);
-    expect(FULL_DISK_ACCESS_MESSAGE).toContain("x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles");
+    const message = fullDiskAccessMessage();
+    expect(() => openReadonlyDatabase(databasePath)).toThrow(message);
+    expect(() => new DatabaseContext(databasePath, "copy")).toThrow(message);
+    expect(message).toContain("x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles");
   });
 
   it("still reports a database that does not exist as missing", () => {

@@ -2,7 +2,14 @@
   "mcpServers": {
     "imessage": {
       "command": "npx",
-      "args": ["-y", "imessage-mcp@2", "--contacts", "none", "--privacy", "redacted"]
+      "args": [
+        "-y",
+        "imessage-mcp@latest",
+        "--contacts",
+        "none",
+        "--privacy",
+        "redacted"
+      ]
     }
   }
 }

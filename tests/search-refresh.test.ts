@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import Database from "better-sqlite3";
+import Database from "../src/sqlite.js";
 import { UnifiedContactResolver } from "../src/contacts.js";
 import { DatabaseContext } from "../src/database.js";
 import { MessageTextDecoder } from "../src/decoder.js";
@@ -7,8 +7,6 @@ import { MemorySearchIndex, type SearchMode, type SearchScope } from "../src/sea
 import { compileDateBounds } from "../src/time.js";
 import { appleNanoseconds, createFixture, type Fixture } from "./fixture.js";
 
-const REFERENCE_KEY = Buffer.alloc(32, 0x5a);
-const DATABASE_ID = Buffer.alloc(32, 0x6b);
 
 type Ranges = Array<[number, number]>;
 
@@ -73,7 +71,7 @@ describe("search index refresh", () => {
     writer = new Database(fixture.databasePath);
     insertMessage(300, "second bucket seed");
     insertMessage(600, "third bucket seed", 4);
-    context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, DATABASE_ID);
+    context = new DatabaseContext(fixture.databasePath, "copy");
     contacts = new UnifiedContactResolver(true, [
       { identifier: "alice", name: "Alice Refresh", phones: ["+15550000001"], emails: [] },
       { identifier: "bob", name: "Bob Refresh", phones: ["+15550000002"], emails: [] },
@@ -98,12 +96,20 @@ describe("search index refresh", () => {
     fixture.cleanup();
   });
 
-  it("ignores writes that search never reads without rebuilding or re-indexing", async () => {
-    writer.prepare("UPDATE message SET is_read = 1, date_read = ? WHERE ROWID = 1").run(appleNanoseconds("2026-04-02T00:00:00Z"));
+  it("ignores writes that neither search nor sync reads without rebuilding or re-indexing", async () => {
+    writer.prepare("UPDATE message SET other_handle = 7 WHERE ROWID = 1").run();
     writer.prepare("UPDATE chat SET state = 3 WHERE ROWID = 1").run();
     expect((await search("hello literal")).total).toBe(1);
     expect(onBuild).toHaveBeenCalledTimes(1);
     expect(populated).toEqual([]);
+  });
+
+  it("re-indexes only the bucket of a message whose receipt changed, for the sync change log", async () => {
+    writer.prepare("UPDATE message SET is_read = 1, date_read = ? WHERE ROWID = 600").run(appleNanoseconds("2026-04-02T00:00:00Z"));
+    expect((await search("third bucket seed")).total).toBe(1);
+    expect(onBuild).toHaveBeenCalledTimes(1);
+    expect(populated).toEqual([[511, 600]]);
+    expect(internals(index).index.prepare("SELECT type, rowid FROM changes").all()).toEqual([{ type: "receipt_changed", rowid: 600 }]);
   });
 
   it("re-indexes only the bucket holding an edited message", async () => {

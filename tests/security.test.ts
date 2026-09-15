@@ -2,37 +2,17 @@ import { afterEach, describe, expect, it } from "vitest";
 import { chmodSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { decodeReference, encodeReference } from "../src/references.js";
 import { successResult } from "../src/result.js";
-import { loadDatabaseId } from "../src/secrets.js";
 import { loadApiToken } from "../src/transport.js";
 
 const originalToken = process.env.IMESSAGE_API_TOKEN;
 const originalFile = process.env.IMESSAGE_API_TOKEN_FILE;
-const originalDatabaseId = process.env.IMESSAGE_DATABASE_ID;
-const originalDatabaseIdFile = process.env.IMESSAGE_DATABASE_ID_FILE;
 
 afterEach(() => {
   if (originalToken === undefined) delete process.env.IMESSAGE_API_TOKEN;
   else process.env.IMESSAGE_API_TOKEN = originalToken;
   if (originalFile === undefined) delete process.env.IMESSAGE_API_TOKEN_FILE;
   else process.env.IMESSAGE_API_TOKEN_FILE = originalFile;
-  if (originalDatabaseId === undefined) delete process.env.IMESSAGE_DATABASE_ID;
-  else process.env.IMESSAGE_DATABASE_ID = originalDatabaseId;
-  if (originalDatabaseIdFile === undefined) delete process.env.IMESSAGE_DATABASE_ID_FILE;
-  else process.env.IMESSAGE_DATABASE_ID_FILE = originalDatabaseIdFile;
-});
-
-describe("database lineage identity boundary", () => {
-  it("requires a distinct, bounded operator-controlled identity source", () => {
-    delete process.env.IMESSAGE_DATABASE_ID;
-    delete process.env.IMESSAGE_DATABASE_ID_FILE;
-    expect(() => loadDatabaseId()).toThrow(/requires/u);
-    process.env.IMESSAGE_DATABASE_ID = "short";
-    expect(() => loadDatabaseId()).toThrow(/32/u);
-    process.env.IMESSAGE_DATABASE_ID_FILE = "/tmp/also-set";
-    expect(() => loadDatabaseId()).toThrow(/only one/u);
-  });
 });
 
 describe("HTTP token boundary", () => {
@@ -88,25 +68,6 @@ describe("HTTP token boundary", () => {
   });
 });
 
-describe("opaque references", () => {
-  it("survives restarts and rejects tampering or unrelated database lineages", () => {
-    const key = Buffer.alloc(32, 0x5a);
-    const otherKey = Buffer.alloc(32, 0x6b);
-    const reference = encodeReference(key, "lineage-a", "conversation", { chat_ids: [1, 2] });
-    expect(decodeReference(key, "lineage-a", "conversation", reference).value).toEqual({ chat_ids: [1, 2] });
-    expect(() => decodeReference(key, "lineage-b", "conversation", reference)).toThrow(/lineage/u);
-    expect(() => decodeReference(otherKey, "lineage-a", "conversation", reference)).toThrow(/lineage/u);
-    const tamperIndex = 40;
-    const tampered = reference.slice(0, tamperIndex) +
-      (reference[tamperIndex] === "A" ? "B" : "A") + reference.slice(tamperIndex + 1);
-    expect(() => decodeReference(key, "lineage-a", "conversation", tampered)).toThrow(/lineage/u);
-    expect(() => decodeReference(key, "lineage-a", "conversation", "not-a-reference"))
-      .toThrowError(expect.objectContaining({ reason: "INVALID_INPUT" }));
-    expect(() => decodeReference(key, "lineage-a", "message", reference))
-      .toThrowError(expect.objectContaining({ reason: "INVALID_INPUT" }));
-  });
-});
-
 describe("bounded results", () => {
   it("rejects an MCP result before either transport can exceed four MiB", () => {
     expect(() => successResult({
@@ -119,20 +80,12 @@ describe("bounded results", () => {
   });
 });
 
-describe("native and release hardening", () => {
-  it("keeps the native decoder's body bound equal to the TypeScript bound", async () => {
-    const { readFileSync } = await import("node:fs");
-    const { MAX_ATTRIBUTED_BODY_BYTES } = await import("../src/limits.js");
-    const native = readFileSync(new URL("../native/message-text-decoder.js", import.meta.url), "utf8");
-    const match = /const MAX_BLOB_BYTES = (\d+) \* 1024 \* 1024;/u.exec(native);
-    expect(match).not.toBeNull();
-    expect(Number(match![1]) * 1024 * 1024).toBe(MAX_ATTRIBUTED_BODY_BYTES);
-  });
-
-  it("never invokes legacy NSUnarchiver", () => {
-    const helper = readFileSync(new URL("../native/message-text-decoder.js", import.meta.url), "utf8");
-    expect(helper).not.toContain("NSUnarchiver");
-    expect(helper).toContain("NSKeyedUnarchiver.unarchivedObjectOfClassesFromDataError");
+describe("decoding and release hardening", () => {
+  it("decodes archives in process without Foundation or a child process", () => {
+    for (const file of ["archive.ts", "decoder.ts", "addressbook.ts", "contacts.ts"]) {
+      const source = readFileSync(new URL(`../src/${file}`, import.meta.url), "utf8");
+      expect(source).not.toMatch(/osascript|node:child_process|NSUnarchiver/u);
+    }
   });
 
   it("pins every workflow action to an immutable commit", () => {
@@ -173,8 +126,8 @@ describe("native and release hardening", () => {
     expect(verify).toContain("persist-credentials: false");
     expect(verify).toContain('test "v${VERSION}" = "${GITHUB_REF_NAME}"');
     expect(verify).toContain('git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main');
-    expect(verify.indexOf("npm run verify")).toBeLessThan(verify.indexOf("npm run test:performance"));
-    expect(verify.indexOf("npm run test:performance")).toBeLessThan(verify.indexOf("npm pack"));
+    expect(verify.indexOf("npm run verify")).toBeLessThan(verify.indexOf("npm run perf"));
+    expect(verify.indexOf("npm run perf")).toBeLessThan(verify.indexOf("npm pack"));
     expect(verify).toContain("build:mcpb");
     const signing = verify.slice(verify.indexOf("name: sign the desktop bundle"), verify.indexOf("id: pack"));
     expect(signing).toContain("node scripts/sign-mcpb.mjs");

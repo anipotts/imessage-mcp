@@ -2,22 +2,21 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { copyFileSync, existsSync, linkSync, renameSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { userInfo } from "node:os";
 import path from "node:path";
-import Database from "better-sqlite3";
+import Database from "../src/sqlite.js";
 import { DEFAULT_DATABASE_PATH, resolveDefaultDatabasePath, runtimeConfig } from "../src/config.js";
 import { doctor } from "../src/commands/doctor.js";
 import { serviceFamily } from "../src/contracts.js";
 import { UnifiedContactResolver } from "../src/contacts.js";
 import { assertCopiedDatabaseSourceBoundary, DatabaseContext } from "../src/database.js";
 import { MessageTextDecoder } from "../src/decoder.js";
-import { MAX_REFERENCE_LENGTH, MAX_SYNC_CURSOR_LENGTH } from "../src/references.js";
+import { MAX_CURSOR_LENGTH, MAX_SYNC_CURSOR_LENGTH } from "../src/references.js";
 import { estimateSearchIndexFloor, MemorySearchIndex } from "../src/search-index.js";
-import { LocalToolRuntime } from "../src/tool-local.js";
+import { LocalToolRuntime } from "../src/runtime.js";
 import { APPLE_EPOCH_UNIX_SECONDS, appleTimestampToIso, compileDateBounds } from "../src/time.js";
 import { MAX_ATTRIBUTED_BODY_BYTES } from "../src/limits.js";
 import { analyze } from "../src/repositories/analytics.js";
-import { ConversationCatalog, listConversations, resolveConversationReference } from "../src/repositories/conversations.js";
-import { getConversationEvents, resolveMessageReference } from "../src/repositories/messages.js";
-import { prepareCopiedDatabaseSync, syncMessages } from "../src/repositories/sync.js";
+import { ConversationCatalog, listConversations } from "../src/repositories/conversations.js";
+import { getConversationEvents } from "../src/repositories/messages.js";
 import {
   appleNanoseconds,
   createFixture,
@@ -31,9 +30,6 @@ import {
   foundationEmptyAttributedBody,
 } from "./fixture.js";
 
-const REFERENCE_KEY = Buffer.alloc(32, 0x5a);
-const DATABASE_ID = Buffer.alloc(32, 0x6b);
-const OTHER_DATABASE_ID = Buffer.alloc(32, 0x7c);
 
 function markMessagesRecentlyMutable(databasePath: string, rowids: number[]): number {
   const base = appleNanoseconds(new Date(Date.now() - 2 * 60 * 1000).toISOString());
@@ -94,10 +90,8 @@ describe("2.0 data and query core", () => {
       transport: "stdio",
       databasePath: fixture.databasePath,
       contacts: "none",
-      referenceKey: REFERENCE_KEY,
-      databaseId: DATABASE_ID,
     });
-    context = new DatabaseContext(config.database_path, REFERENCE_KEY, DATABASE_ID);
+    context = new DatabaseContext(config.database_path);
     contacts = new UnifiedContactResolver(false);
     decoder = new MessageTextDecoder();
   });
@@ -119,16 +113,12 @@ describe("2.0 data and query core", () => {
       transport: "stdio",
       databasePath: DEFAULT_DATABASE_PATH,
       contacts: "none",
-      referenceKey: REFERENCE_KEY,
-      databaseId: DATABASE_ID,
     });
     expect(explicit.source_mode).toBe("live");
     expect(() => runtimeConfig({
       transport: "stdio",
       databasePath: path.join(fixture.directory, "copied-chat.db"),
       contacts: "live",
-      referenceKey: REFERENCE_KEY,
-      databaseId: DATABASE_ID,
     })).toThrowError(expect.objectContaining({ reason: "INVALID_INPUT" }));
   });
 
@@ -144,61 +134,14 @@ describe("2.0 data and query core", () => {
     }
   });
 
-  it("reports the canonical WAL for a symlink-selected copied database", async () => {
-    const doctorFixture = createFixture();
-    const aliasPath = path.join(doctorFixture.directory, "selected-copy.db");
-    const writer = new Database(doctorFixture.databasePath);
-    const output: string[] = [];
-    const stdout = vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
-      output.push(String(chunk));
-      return true;
-    });
-    try {
-      symlinkSync(doctorFixture.databasePath, aliasPath);
-      writer.pragma("journal_mode = WAL");
-      writer.pragma("wal_autocheckpoint = 0");
-      writer.prepare("UPDATE message SET text = text WHERE ROWID = 1").run();
-      expect(existsSync(`${doctorFixture.databasePath}-wal`)).toBe(true);
-      expect(existsSync(`${aliasPath}-wal`)).toBe(false);
-
-      await doctor(runtimeConfig({
-        transport: "stdio",
-        databasePath: aliasPath,
-        contacts: "none",
-        referenceKey: REFERENCE_KEY,
-        databaseId: DATABASE_ID,
-      }), true);
-
-      const result = JSON.parse(output.join("")) as {
-        checks: Array<{ name: string; status: string; detail: string }>;
-      };
-      expect(result.checks.find((check) => check.name === "wal_read")).toEqual({
-        name: "wal_read",
-        status: "pass",
-        detail: "active WAL is readable",
-      });
-      expect(result.checks.find((check) => check.name === "contacts")).toEqual({
-        name: "contacts",
-        status: "pass",
-        detail: "disabled by --contacts none; using handles only",
-      });
-    } finally {
-      stdout.mockRestore();
-      writer.close();
-      doctorFixture.cleanup();
-    }
-  });
-
   it("warns before an oversized archive fails its first search", async () => {
     const capacityFixture = createFixture();
     const capacityConfig = runtimeConfig({
       transport: "stdio",
       databasePath: capacityFixture.databasePath,
       contacts: "none",
-      referenceKey: REFERENCE_KEY,
-      databaseId: DATABASE_ID,
     });
-    const capacityContext = new DatabaseContext(capacityFixture.databasePath, REFERENCE_KEY, DATABASE_ID);
+    const capacityContext = new DatabaseContext(capacityFixture.databasePath);
     const request = capacityContext.request();
     let estimated = 0;
     try {
@@ -221,7 +164,7 @@ describe("2.0 data and query core", () => {
       limitBytes?: number,
     ): Promise<{ code: number; text: string }> => {
       output.length = 0;
-      const code = await doctor(capacityConfig, json, [], { searchIndexMemoryLimitBytes: limitBytes });
+      const code = await doctor(capacityConfig, json, { searchIndexMemoryLimitBytes: limitBytes });
       return { code, text: output.join("") };
     };
     const capacityOf = (text: string): { name: string; status: string; detail: string } => {
@@ -247,41 +190,6 @@ describe("2.0 data and query core", () => {
       stdout.mockRestore();
       capacityFixture.cleanup();
     }
-  });
-
-  it("honors and validates the attachment-path startup environment", () => {
-    const previous = process.env.IMESSAGE_ATTACHMENT_PATHS;
-    try {
-      process.env.IMESSAGE_ATTACHMENT_PATHS = "1";
-      expect(runtimeConfig({
-        transport: "stdio",
-        databasePath: fixture.databasePath,
-        contacts: "none",
-        referenceKey: REFERENCE_KEY,
-        databaseId: DATABASE_ID,
-      }).attachment_paths_enabled).toBe(true);
-      process.env.IMESSAGE_ATTACHMENT_PATHS = "yes";
-      expect(() => runtimeConfig({
-        transport: "stdio",
-        databasePath: fixture.databasePath,
-        contacts: "none",
-        referenceKey: REFERENCE_KEY,
-        databaseId: DATABASE_ID,
-      })).toThrowError(expect.objectContaining({ reason: "INVALID_INPUT" }));
-    } finally {
-      if (previous === undefined) delete process.env.IMESSAGE_ATTACHMENT_PATHS;
-      else process.env.IMESSAGE_ATTACHMENT_PATHS = previous;
-    }
-  });
-
-  it("requires independent reference and database identity values", () => {
-    expect(() => runtimeConfig({
-      transport: "stdio",
-      databasePath: fixture.databasePath,
-      contacts: "none",
-      referenceKey: REFERENCE_KEY,
-      databaseId: REFERENCE_KEY,
-    })).toThrowError(expect.objectContaining({ reason: "INVALID_INPUT" }));
   });
 
   it("retains ambiguous unified contacts instead of guessing", () => {
@@ -321,10 +229,7 @@ describe("2.0 data and query core", () => {
         transport: "stdio",
         databasePath: fixture.databasePath,
         contacts: "none",
-        referenceKey: REFERENCE_KEY,
-        databaseId: DATABASE_ID,
       }),
-      Buffer.alloc(32, 7),
     );
     try {
       const result = await runtime.call("resolve_contact", { query: "555-000-0001", privacy_mode: "full" });
@@ -343,10 +248,7 @@ describe("2.0 data and query core", () => {
         transport: "stdio",
         databasePath: fixture.databasePath,
         contacts: "none",
-        referenceKey: REFERENCE_KEY,
-        databaseId: DATABASE_ID,
       }),
-      Buffer.alloc(32, 7),
     );
     try {
       const result = await runtime.call("list_conversations", {
@@ -363,56 +265,13 @@ describe("2.0 data and query core", () => {
     }
   });
 
-  it("preserves references across faithful copies and separates operator-assigned lineages", () => {
-    const source = createFixture();
-    const copy = path.join(source.directory, "faithful-copy.db");
-    copyFileSync(source.databasePath, copy);
-    const sourceContext = new DatabaseContext(source.databasePath, REFERENCE_KEY, DATABASE_ID);
-    const copyContext = new DatabaseContext(copy, REFERENCE_KEY, DATABASE_ID);
-    let sourceLineage = "";
-    try {
-      sourceLineage = sourceContext.lineage;
-      expect(copyContext.lineage).toBe(sourceContext.lineage);
-    } finally {
-      sourceContext.close();
-      copyContext.close();
-    }
-    const unrelated = new DatabaseContext(copy, REFERENCE_KEY, OTHER_DATABASE_ID);
-    try {
-      expect(unrelated.lineage).not.toBe(sourceLineage);
-    } finally {
-      unrelated.close();
-      source.cleanup();
-    }
-  });
-
-  it("keeps the operator-assigned lineage stable as live history grows", () => {
-    const isolated = createFixture();
-    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID);
-    try {
-      const changed = new Database(isolated.databasePath);
-      const date = appleNanoseconds("2026-08-10T12:00:00Z");
-      changed.prepare(`INSERT INTO message(ROWID,guid,text,handle_id,date,is_from_me,service)
-                       VALUES (21,'lineage-growth','new history',1,?,0,'iMessage')`).run(date);
-      changed.prepare("INSERT INTO chat_message_join(chat_id,message_id,message_date,index_state) VALUES (1,21,?,0)")
-        .run(date);
-      changed.close();
-      const request = isolatedContext.request();
-      expect(request.lineage).toBe(isolatedContext.lineage);
-      request.close();
-    } finally {
-      isolatedContext.close();
-      isolated.cleanup();
-    }
-  });
-
   it("establishes the cached-watermark read snapshot before returning a request", () => {
     const isolated = createFixture();
     const setup = new Database(isolated.databasePath);
     setup.pragma("journal_mode = WAL");
     const before = setup.prepare("SELECT text FROM message WHERE ROWID = 1").pluck().get();
     setup.close();
-    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID, "live");
+    const isolatedContext = new DatabaseContext(isolated.databasePath, "live");
     try {
       // Warm the cached-watermark path, then open a request whose first
       // consumer query is deliberately delayed until after another connection
@@ -445,13 +304,11 @@ describe("2.0 data and query core", () => {
     const original = path.join(isolated.directory, "original.db");
     copyFileSync(isolated.databasePath, alternate);
     symlinkSync(isolated.databasePath, link);
-    const linkedContext = new DatabaseContext(link, REFERENCE_KEY, DATABASE_ID);
+    const linkedContext = new DatabaseContext(link);
     try {
       unlinkSync(link);
       symlinkSync(alternate, link);
-      const request = linkedContext.request();
-      expect(request.lineage).toBe(linkedContext.lineage);
-      request.close();
+      linkedContext.request().close();
       renameSync(isolated.databasePath, original);
       copyFileSync(original, isolated.databasePath);
       expect(() => linkedContext.request()).toThrowError(expect.objectContaining({ reason: "DATABASE_CHANGED" }));
@@ -495,7 +352,7 @@ describe("2.0 data and query core", () => {
       for (const selectedPath of [copied.databasePath, copiedLink]) {
         expect(() => assertCopiedDatabaseSourceBoundary(selectedPath, live.databasePath)).not.toThrow();
       }
-      const copiedContext = new DatabaseContext(copiedLink, REFERENCE_KEY, DATABASE_ID, "copy");
+      const copiedContext = new DatabaseContext(copiedLink, "copy");
       copiedContext.close();
     } finally {
       live.cleanup();
@@ -561,7 +418,7 @@ describe("2.0 data and query core", () => {
     expect(listed.conversations).toHaveLength(4);
     const linked = listed.conversations.find((conversation) => conversation.service_families.includes("imessage") && conversation.service_families.includes("sms"));
     expect(linked).toBeDefined();
-    expect(resolveConversationReference(context.referenceKey, context.lineage, linked!.conversation_ref)).toEqual([1, 2]);
+    expect(linked!.chat_id).toBe(1);
     const incomingOnly = listed.conversations.find((conversation) => conversation.participants.some((participant) => participant.handle === "unknown@example.test"));
     expect(incomingOnly?.replied).toBe(false);
     const group = listed.conversations.find((conversation) => conversation.kind === "group");
@@ -576,7 +433,7 @@ describe("2.0 data and query core", () => {
     db.prepare("UPDATE message SET date=? WHERE ROWID=4").run(moved);
     db.prepare("UPDATE chat_message_join SET message_date=? WHERE message_id=4").run(moved);
     db.close();
-    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID);
+    const isolatedContext = new DatabaseContext(isolated.databasePath);
     try {
       const listed = listConversations({
         context: isolatedContext,
@@ -620,7 +477,7 @@ describe("2.0 data and query core", () => {
     }
     db.close();
 
-    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID);
+    const isolatedContext = new DatabaseContext(isolated.databasePath);
     const isolatedContacts = new UnifiedContactResolver(false);
     const index = new MemorySearchIndex(isolatedContext, new MessageTextDecoder(), isolatedContacts);
     const bounds = compileDateBounds({ date_from: "2026-03-08", date_to: "2026-03-08", timezone: "UTC" });
@@ -691,7 +548,7 @@ describe("2.0 data and query core", () => {
       "INSERT INTO chat_message_join(chat_id,message_id,message_date,index_state) SELECT 2,1,date,0 FROM message WHERE ROWID=1",
     ).run();
     db.close();
-    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID);
+    const isolatedContext = new DatabaseContext(isolated.databasePath);
     const isolatedContacts = new UnifiedContactResolver(false);
     const index = new MemorySearchIndex(isolatedContext, new MessageTextDecoder(), isolatedContacts);
     try {
@@ -722,7 +579,7 @@ describe("2.0 data and query core", () => {
       expect(timeline.events.filter((event) => event.text?.startsWith("hello literal"))).toEqual([
         expect.objectContaining({ service_family: "unknown" }),
       ]);
-      expect(new Set(timeline.events.map((event) => event.message_ref)).size).toBe(11);
+      expect(new Set(timeline.events.map((event) => event.message_id)).size).toBe(11);
 
       const counts = analyze({
         context: isolatedContext,
@@ -743,11 +600,7 @@ describe("2.0 data and query core", () => {
         privacy: "full",
       });
       expect(searched.hits).toEqual([expect.objectContaining({ service_family: "unknown" })]);
-      expect(resolveConversationReference(
-        isolatedContext.referenceKey,
-        isolatedContext.lineage,
-        searched.hits[0].conversation_ref,
-      )).toEqual([1, 2]);
+      expect(searched.hits[0].chat_id).toBe(1);
     } finally {
       index.close();
       isolatedContext.close();
@@ -762,7 +615,7 @@ describe("2.0 data and query core", () => {
       "INSERT INTO chat_message_join(chat_id,message_id,message_date,index_state) SELECT 3,1,date,0 FROM message WHERE ROWID=1",
     ).run();
     db.close();
-    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID);
+    const isolatedContext = new DatabaseContext(isolated.databasePath);
     const isolatedContacts = new UnifiedContactResolver(false);
     const isolatedDecoder = new MessageTextDecoder();
     const index = new MemorySearchIndex(isolatedContext, isolatedDecoder, isolatedContacts);
@@ -792,14 +645,6 @@ describe("2.0 data and query core", () => {
         allowPartial: false,
         privacy: "full",
       })).rejects.toMatchObject(unsupported);
-      await expect(syncMessages({
-        context: isolatedContext,
-        contacts: isolatedContacts,
-        decoder: isolatedDecoder,
-        limit: 50,
-        allowPartial: false,
-        privacy: "full",
-      })).rejects.toMatchObject(unsupported);
     } finally {
       index.close();
       isolatedContext.close();
@@ -813,7 +658,7 @@ describe("2.0 data and query core", () => {
     db.prepare("UPDATE chat SET style=43, display_name=NULL, group_id=NULL WHERE ROWID=4").run();
     db.prepare("DELETE FROM chat_handle_join WHERE chat_id=4 AND handle_id=2").run();
     db.close();
-    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID);
+    const isolatedContext = new DatabaseContext(isolated.databasePath);
     try {
       const listed = listConversations({
         context: isolatedContext,
@@ -839,21 +684,35 @@ describe("2.0 data and query core", () => {
         transport: "stdio",
         databasePath: isolated.databasePath,
         contacts: "none",
-        referenceKey: REFERENCE_KEY,
-        databaseId: DATABASE_ID,
       }),
-      Buffer.alloc(32, 9),
     );
     try {
       const result = await runtime.call("get_conversation", {
         query: "Linked Alice",
         limit: 200,
         allow_partial: false,
-        include_attachment_paths: false,
         privacy_mode: "full",
       });
       expect(result.isError).toBeUndefined();
       expect((result.structuredContent?.data as { events: unknown[] }).events).toHaveLength(11);
+    } finally {
+      runtime.close();
+      isolated.cleanup();
+    }
+  });
+
+  it("tells the caller which tool resolves an ambiguous conversation query", async () => {
+    const isolated = createFixture();
+    const db = new Database(isolated.databasePath);
+    const chats = db.prepare("SELECT ROWID FROM chat ORDER BY ROWID").pluck().all() as number[];
+    db.prepare(`UPDATE chat SET display_name='Twin' WHERE ROWID IN (${chats[0]}, ${chats.at(-1)})`).run();
+    db.close();
+    const runtime = new LocalToolRuntime(runtimeConfig({ transport: "stdio", databasePath: isolated.databasePath, contacts: "none" }));
+    try {
+      const result = await runtime.call("get_conversation", { query: "Twin", limit: 20, privacy_mode: "full" });
+      expect(result.isError).toBe(true);
+      expect((result.structuredContent?.error as { reason: string }).reason).toBe("AMBIGUOUS_CONTACT");
+      expect((result.content[0] as { text: string }).text).toContain("call list_conversations");
     } finally {
       runtime.close();
       isolated.cleanup();
@@ -865,7 +724,7 @@ describe("2.0 data and query core", () => {
     const db = new Database(isolated.databasePath);
     db.prepare("UPDATE message SET is_system_message=1, item_type=0 WHERE ROWID=8").run();
     db.close();
-    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID);
+    const isolatedContext = new DatabaseContext(isolated.databasePath);
     try {
       const listed = listConversations({
         context: isolatedContext,
@@ -887,7 +746,7 @@ describe("2.0 data and query core", () => {
     const db = new Database(isolated.databasePath);
     db.prepare("UPDATE message SET is_system_message=1, item_type=0, group_title='New title' WHERE ROWID=8").run();
     db.close();
-    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID);
+    const isolatedContext = new DatabaseContext(isolated.databasePath);
     const base = {
       context: isolatedContext,
       contacts: new UnifiedContactResolver(false),
@@ -923,7 +782,7 @@ describe("2.0 data and query core", () => {
       }
     })();
     db.close();
-    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID);
+    const isolatedContext = new DatabaseContext(isolated.databasePath);
     try {
       expect(() => listConversations({
         context: isolatedContext,
@@ -961,10 +820,7 @@ describe("2.0 data and query core", () => {
     const retracted = result.events.find((event) => event.event_type === "retraction");
     expect(retracted).not.toHaveProperty("text");
     expect(retracted?.retraction?.state).toBe("retracted");
-    const replyReference = result.events.find((event) => event.text === "thread reply")?.reply_to_ref;
-    expect(replyReference).toMatch(/^im2_/u);
-    expect(resolveMessageReference(context.referenceKey, context.lineage, replyReference ?? ""))
-      .toEqual({ rowid: 1, guid: "m1" });
+    expect(result.events.find((event) => event.text === "thread reply")?.reply_to_message_id).toBe(1);
     expect(result.events.find((event) => event.text === "receipt target")?.receipt?.state).toBe("read");
     expect(result.events.find((event) => event.text === "green sms")?.edit).toMatchObject({
       state: "unavailable",
@@ -982,7 +838,7 @@ describe("2.0 data and query core", () => {
     const db = new Database(isolated.databasePath);
     db.prepare("UPDATE message SET text=NULL, attributedBody=? WHERE ROWID=1").run(Buffer.from("malformed body"));
     db.close();
-    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID);
+    const isolatedContext = new DatabaseContext(isolated.databasePath);
     const input = {
       context: isolatedContext,
       contacts: new UnifiedContactResolver(false),
@@ -999,7 +855,7 @@ describe("2.0 data and query core", () => {
       expect(partial.warnings).toEqual([
         expect.objectContaining({ code: "DECODE_FAILED", skipped_count: 1 }),
       ]);
-      expect(partial.events.find((event) => event.message_ref && event.text_status === "malformed"))
+      expect(partial.events.find((event) => event.message_id && event.text_status === "malformed"))
         .toMatchObject({ row_status: "partial" });
     } finally {
       isolatedContext.close();
@@ -1012,7 +868,7 @@ describe("2.0 data and query core", () => {
     const db = new Database(isolated.databasePath);
     db.prepare("UPDATE message SET message_summary_info=? WHERE ROWID=10").run(Buffer.from("malformed edits"));
     db.close();
-    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID);
+    const isolatedContext = new DatabaseContext(isolated.databasePath);
     const input = {
       context: isolatedContext,
       contacts: new UnifiedContactResolver(false),
@@ -1045,7 +901,7 @@ describe("2.0 data and query core", () => {
     db.prepare("INSERT INTO handle(ROWID,id) VALUES (99,?)").run("x".repeat(4_097));
     db.prepare("UPDATE message SET handle_id=99 WHERE ROWID=13").run();
     db.close();
-    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID);
+    const isolatedContext = new DatabaseContext(isolated.databasePath);
     try {
       await expect(getConversationEvents({
         context: isolatedContext,
@@ -1069,7 +925,7 @@ describe("2.0 data and query core", () => {
     const db = new Database(isolated.databasePath);
     db.prepare("UPDATE message SET handle_id=99 WHERE ROWID=15").run();
     db.close();
-    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID);
+    const isolatedContext = new DatabaseContext(isolated.databasePath);
     const input = {
       context: isolatedContext,
       contacts: new UnifiedContactResolver(false),
@@ -1101,7 +957,7 @@ describe("2.0 data and query core", () => {
     const db = new Database(isolated.databasePath);
     db.prepare("UPDATE message SET handle_id=99 WHERE ROWID=1").run();
     db.close();
-    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID);
+    const isolatedContext = new DatabaseContext(isolated.databasePath);
     const input = {
       context: isolatedContext,
       contacts: new UnifiedContactResolver(false),
@@ -1139,7 +995,7 @@ describe("2.0 data and query core", () => {
                 VALUES (21,'m1','duplicate guid',1,?,0,'iMessage')`).run(date);
     db.prepare("INSERT INTO chat_message_join(chat_id,message_id,message_date,index_state) VALUES (1,21,?,0)").run(date);
     db.close();
-    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID);
+    const isolatedContext = new DatabaseContext(isolated.databasePath);
     try {
       await expect(getConversationEvents({
         context: isolatedContext,
@@ -1156,19 +1012,6 @@ describe("2.0 data and query core", () => {
       isolatedContext.close();
       isolated.cleanup();
     }
-  });
-
-  it("serializes Foundation decoding across independent workers", async () => {
-    const lock = new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT * 3);
-    const left = new MessageTextDecoder(lock, 1);
-    const right = new MessageTextDecoder(lock, 2);
-    const [leftResult, rightResult] = await Promise.all([
-      left.decode([foundationAttributedBody("left exact")]),
-      right.decode([foundationAttributedBody("right exact")]),
-    ]);
-    expect(leftResult).toEqual([{ status: "decoded", text: "left exact" }]);
-    expect(rightResult).toEqual([{ status: "decoded", text: "right exact" }]);
-    expect(Atomics.load(new Int32Array(lock), 2)).toBe(1);
   });
 
   it("returns typed group events and attachment-only user messages", async () => {
@@ -1344,8 +1187,8 @@ describe("2.0 data and query core", () => {
     });
     expect(substringRelevance.hits.at(-1)?.snippet).toContain("thread reply");
     expect(substringRelevance.hits.every((hit) => typeof hit.relevance === "number")).toBe(true);
-    expect(repeated.hits.map(({ message_ref: _message, conversation_ref: _conversation, ...hit }) => hit))
-      .toEqual(phrase.hits.map(({ message_ref: _message, conversation_ref: _conversation, ...hit }) => hit));
+    expect(repeated.hits.map(({ message_id: _message, chat_id: _conversation, ...hit }) => hit))
+      .toEqual(phrase.hits.map(({ message_id: _message, chat_id: _conversation, ...hit }) => hit));
     index.close();
   });
 
@@ -1398,10 +1241,7 @@ describe("2.0 data and query core", () => {
         transport: "stdio",
         databasePath: fixture.databasePath,
         contacts: "none",
-        referenceKey: REFERENCE_KEY,
-        databaseId: DATABASE_ID,
       }),
-      Buffer.alloc(32, 7),
     );
     const params = {
       query: "reply",
@@ -1449,11 +1289,7 @@ describe("2.0 data and query core", () => {
         allowPartial: false,
         privacy: "full",
       });
-      const ids = result.hits.map((hit) => resolveMessageReference(
-        context.referenceKey,
-        context.lineage,
-        hit.message_ref,
-      ).rowid);
+      const ids = result.hits.map((hit) => hit.message_id);
       expect(ids).toContain(2);
       expect(result.hits.every((hit) => hit.matched_scopes.includes("conversation_names"))).toBe(true);
     } finally {
@@ -1467,7 +1303,7 @@ describe("2.0 data and query core", () => {
     db.prepare("UPDATE message SET text=NULL, attributedBody=? WHERE ROWID=1").run(Buffer.from("malformed search body"));
     db.prepare("UPDATE chat SET display_name='Partial Search Match' WHERE ROWID IN (1, 2)").run();
     db.close();
-    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID);
+    const isolatedContext = new DatabaseContext(isolated.databasePath);
     const index = new MemorySearchIndex(isolatedContext, new MessageTextDecoder(), new UnifiedContactResolver(false));
     const input = {
       query: "Partial Search Match",
@@ -1498,7 +1334,7 @@ describe("2.0 data and query core", () => {
     const db = new Database(isolated.databasePath);
     db.prepare("UPDATE message SET handle_id=99 WHERE ROWID=1").run();
     db.close();
-    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID);
+    const isolatedContext = new DatabaseContext(isolated.databasePath);
     const index = new MemorySearchIndex(isolatedContext, new MessageTextDecoder(), new UnifiedContactResolver(false));
     const input = {
       query: "hello literal",
@@ -1537,7 +1373,7 @@ describe("2.0 data and query core", () => {
                 VALUES (21,'m1','duplicate searchable guid',1,?,0,'iMessage')`).run(date);
     db.prepare("INSERT INTO chat_message_join(chat_id,message_id,message_date,index_state) VALUES (1,21,?,0)").run(date);
     db.close();
-    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID);
+    const isolatedContext = new DatabaseContext(isolated.databasePath);
     const index = new MemorySearchIndex(isolatedContext, new MessageTextDecoder(), new UnifiedContactResolver(false));
     try {
       await expect(index.search({
@@ -1578,7 +1414,7 @@ describe("2.0 data and query core", () => {
       const db = new Database(isolated.databasePath);
       db.prepare("UPDATE message SET text=NULL, attributedBody=? WHERE ROWID=1").run(foundationEmptyAttributedBody(false));
       db.close();
-      const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID);
+      const isolatedContext = new DatabaseContext(isolated.databasePath);
       const index = new MemorySearchIndex(isolatedContext, new MessageTextDecoder(), new UnifiedContactResolver(false));
       try {
         const result = await index.search({
@@ -1635,7 +1471,7 @@ describe("2.0 data and query core", () => {
       const db = new Database(isolated.databasePath);
       db.prepare("UPDATE message SET text=NULL, attributedBody=? WHERE ROWID=1").run(body);
       db.close();
-      const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID);
+      const isolatedContext = new DatabaseContext(isolated.databasePath);
       const index = new MemorySearchIndex(isolatedContext, new MessageTextDecoder(), new UnifiedContactResolver(false));
       try {
         const result = await index.search({
@@ -1662,7 +1498,7 @@ describe("2.0 data and query core", () => {
       const db = new Database(isolated.databasePath);
       db.prepare("UPDATE message SET text=NULL, attributedBody=? WHERE ROWID=1").run(body);
       db.close();
-      const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID);
+      const isolatedContext = new DatabaseContext(isolated.databasePath);
       try {
         const page = await getConversationEvents({
           context: isolatedContext,
@@ -1683,29 +1519,6 @@ describe("2.0 data and query core", () => {
       }
     }, 120_000);
 
-    it("syncs it without allow_partial", async () => {
-      const fixture = createFixture();
-      const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, DATABASE_ID, "live");
-      const contacts = new UnifiedContactResolver(false);
-      const decoder = new MessageTextDecoder();
-      try {
-        const first = await syncMessages({ context, contacts, decoder, limit: 50, allowPartial: false, privacy: "full" });
-        const db = new Database(fixture.databasePath);
-        const date = appleNanoseconds("2026-08-10T12:00:00Z");
-        db.prepare(`INSERT INTO message(ROWID,guid,text,attributedBody,handle_id,date,is_from_me,service)
-                    VALUES (21,'long-paste-sync',NULL,?,1,?,0,'iMessage')`).run(body, date);
-        db.prepare("INSERT INTO chat_message_join(chat_id,message_id,message_date,index_state) VALUES (1,21,?,0)").run(date);
-        db.close();
-        const next = await syncMessages({ context, contacts, decoder, cursor: first.cursor, limit: 50, allowPartial: false, privacy: "full" });
-        expect(next.warnings ?? []).toEqual([]);
-        expect(next.changes).toEqual(expect.arrayContaining([
-          expect.objectContaining({ change_type: "message_created", row_status: "complete" }),
-        ]));
-      } finally {
-        context.close();
-        fixture.cleanup();
-      }
-    }, 120_000);
   });
 
   it("never loads oversized search blobs and omits only their bodies in partial mode", async () => {
@@ -1715,7 +1528,7 @@ describe("2.0 data and query core", () => {
       .run(Buffer.alloc(MAX_ATTRIBUTED_BODY_BYTES + 1, 0x61));
     db.prepare("UPDATE chat SET display_name='Oversized Search Match' WHERE ROWID IN (1, 2)").run();
     db.close();
-    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID);
+    const isolatedContext = new DatabaseContext(isolated.databasePath);
     const index = new MemorySearchIndex(isolatedContext, new MessageTextDecoder(), new UnifiedContactResolver(false));
     const input = {
       query: "Oversized Search Match",
@@ -1750,7 +1563,7 @@ describe("2.0 data and query core", () => {
     ).run();
     db.prepare("INSERT INTO message_attachment_join(message_id,attachment_id) VALUES (7,2)").run();
     db.close();
-    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID);
+    const isolatedContext = new DatabaseContext(isolated.databasePath);
     const index = new MemorySearchIndex(isolatedContext, new MessageTextDecoder(), new UnifiedContactResolver(false));
     const bounds = compileDateBounds({ timezone: "UTC" });
     try {
@@ -1801,7 +1614,7 @@ describe("2.0 data and query core", () => {
     db.prepare("UPDATE message SET text=? WHERE ROWID=1")
       .run(`${"x".repeat(300_000)} marker 👨‍👩‍👧‍👦 tail`);
     db.close();
-    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID);
+    const isolatedContext = new DatabaseContext(isolated.databasePath);
     const index = new MemorySearchIndex(isolatedContext, new MessageTextDecoder(), new UnifiedContactResolver(false));
     try {
       const result = await index.search({
@@ -1830,7 +1643,7 @@ describe("2.0 data and query core", () => {
     const db = new Database(isolated.databasePath);
     db.prepare("UPDATE message SET text=? WHERE ROWID=1").run(`marker ${largeGrapheme.repeat(40)}`);
     db.close();
-    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID);
+    const isolatedContext = new DatabaseContext(isolated.databasePath);
     const index = new MemorySearchIndex(isolatedContext, new MessageTextDecoder(), new UnifiedContactResolver(false));
     try {
       const result = await index.search({
@@ -1856,7 +1669,7 @@ describe("2.0 data and query core", () => {
 
   it("uses stable keyset pages and rejects a cursor after any database change", async () => {
     const isolated = createFixture();
-    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID);
+    const isolatedContext = new DatabaseContext(isolated.databasePath);
     const isolatedContacts = new UnifiedContactResolver(false);
     const isolatedDecoder = new MessageTextDecoder();
     try {
@@ -1884,8 +1697,8 @@ describe("2.0 data and query core", () => {
         privacy: "full",
         includeAttachmentPaths: false,
       });
-      const firstRefs = new Set(first.events.map((event) => event.message_ref).filter(Boolean));
-      expect(second.events.every((event) => !event.message_ref || !firstRefs.has(event.message_ref))).toBe(true);
+      const firstRefs = new Set(first.events.map((event) => event.message_id).filter((id) => id !== undefined));
+      expect(second.events.every((event) => !event.message_id || !firstRefs.has(event.message_id))).toBe(true);
       expect(second.asOf).toBe(first.asOf);
 
       const db = new Database(isolated.databasePath);
@@ -1947,7 +1760,7 @@ describe("2.0 data and query core", () => {
     })();
     db.close();
 
-    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID);
+    const isolatedContext = new DatabaseContext(isolated.databasePath);
     const isolatedContacts = new UnifiedContactResolver(false);
     const isolatedDecoder = new MessageTextDecoder();
     const index = new MemorySearchIndex(isolatedContext, isolatedDecoder, isolatedContacts);
@@ -1963,11 +1776,7 @@ describe("2.0 data and query core", () => {
           cursor: conversationCursor,
           privacy: "full",
         });
-        conversationOrder.push(resolveConversationReference(
-          isolatedContext.referenceKey,
-          isolatedContext.lineage,
-          result.conversations[0].conversation_ref,
-        )[0]);
+        conversationOrder.push(result.conversations[0].chat_id);
         conversationCursor = result.nextCursor ?? undefined;
       }
       expect(conversationOrder).toEqual([7, 8, 6]);
@@ -2020,7 +1829,7 @@ describe("2.0 data and query core", () => {
 
   it("freezes search pages, then refreshes complete results for a fresh query", async () => {
     const isolated = createFixture();
-    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID);
+    const isolatedContext = new DatabaseContext(isolated.databasePath);
     const index = new MemorySearchIndex(isolatedContext, new MessageTextDecoder(), new UnifiedContactResolver(false));
     try {
       const bounds = compileDateBounds({ timezone: "UTC" });
@@ -2073,7 +1882,7 @@ describe("2.0 data and query core", () => {
 
   it("rebuilds search after an append combined with a backdated edit", async () => {
     const isolated = createFixture();
-    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID);
+    const isolatedContext = new DatabaseContext(isolated.databasePath);
     const index = new MemorySearchIndex(isolatedContext, new MessageTextDecoder(), new UnifiedContactResolver(false));
     const bounds = compileDateBounds({ timezone: "UTC" });
     try {
@@ -2145,7 +1954,7 @@ describe("2.0 data and query core", () => {
     const db = new Database(isolated.databasePath);
     db.prepare("UPDATE message SET text=? WHERE ROWID=1").run("x".repeat(3 * 1024 * 1024 + 1));
     db.close();
-    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID);
+    const isolatedContext = new DatabaseContext(isolated.databasePath);
     try {
       await expect(getConversationEvents({
         context: isolatedContext,
@@ -2216,7 +2025,7 @@ describe("2.0 data and query core", () => {
     db.prepare("UPDATE chat SET display_name='Named One To One' WHERE ROWID=3").run();
     db.prepare("UPDATE chat SET style=43, display_name=NULL WHERE ROWID=4").run();
     db.close();
-    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID);
+    const isolatedContext = new DatabaseContext(isolated.databasePath);
     const list = (kind?: "direct" | "group") => listConversations({
       context: isolatedContext,
       contacts: new UnifiedContactResolver(false),
@@ -2259,7 +2068,7 @@ describe("2.0 data and query core", () => {
     db.prepare("INSERT INTO handle(ROWID,id) VALUES (99,'alice@example.test')").run();
     db.prepare("INSERT INTO chat_handle_join(chat_id,handle_id) VALUES (2,99)").run();
     db.close();
-    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID);
+    const isolatedContext = new DatabaseContext(isolated.databasePath);
     try {
       const listed = listConversations({
         context: isolatedContext,
@@ -2294,7 +2103,7 @@ describe("2.0 data and query core", () => {
     db.prepare("INSERT INTO message(ROWID,guid,text,date,is_from_me,service) VALUES (21,'group-reply','reply',?,1,'RCS')").run(date);
     db.prepare("INSERT INTO chat_message_join(chat_id,message_id,message_date,index_state) VALUES (4,21,?,0)").run(date);
     db.close();
-    const isolatedContext = new DatabaseContext(isolated.databasePath, REFERENCE_KEY, DATABASE_ID);
+    const isolatedContext = new DatabaseContext(isolated.databasePath);
     try {
       const result = analyze({
         context: isolatedContext,
@@ -2314,7 +2123,7 @@ describe("2.0 data and query core", () => {
 describe("capability-aware schemas", () => {
   it("keeps all read paths available when optional tables and columns are absent", async () => {
     const fixture = createMinimalSchemaFixture();
-    const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, DATABASE_ID);
+    const context = new DatabaseContext(fixture.databasePath);
     const contacts = new UnifiedContactResolver(false);
     const decoder = new MessageTextDecoder();
     const index = new MemorySearchIndex(context, decoder, contacts);
@@ -2368,835 +2177,10 @@ describe("capability-aware schemas", () => {
         bounds,
         sessionGapHours: 8,
       }).overall).toHaveProperty("messages");
-      expect((await syncMessages({
-        context,
-        contacts,
-        decoder,
-        limit: 50,
-        allowPartial: false,
-        privacy: "full",
-      })).changes).toEqual([]);
+      await index.ensure(true);
+      expect(index.changeLog().read(0, 10)).toEqual([]);
     } finally {
       index.close();
-      context.close();
-      fixture.cleanup();
-    }
-  });
-});
-
-describe("stateless sync", () => {
-  it("hashes existing multi-megabyte archive values without treating them as decoder inputs", async () => {
-    const fixture = createFixture();
-    const db = new Database(fixture.databasePath);
-    db.prepare("UPDATE message SET attributedBody=? WHERE ROWID=1")
-      .run(Buffer.alloc(2 * 1024 * 1024, 0x61));
-    db.close();
-    const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, DATABASE_ID, "live");
-    try {
-      const first = await syncMessages({
-        context,
-        contacts: new UnifiedContactResolver(false),
-        decoder: new MessageTextDecoder(),
-        limit: 50,
-        allowPartial: false,
-        privacy: "full",
-      });
-      expect(first.changes).toEqual([]);
-      expect(first.cursor).toMatch(/^im2_/u);
-    } finally {
-      context.close();
-      fixture.cleanup();
-    }
-  });
-
-  it("never loads oversized changed blobs and reports them only in partial mode", async () => {
-    const fixture = createFixture();
-    const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, DATABASE_ID, "live");
-    const contacts = new UnifiedContactResolver(false);
-    const decoder = new MessageTextDecoder();
-    try {
-      const first = await syncMessages({ context, contacts, decoder, limit: 50, allowPartial: false, privacy: "full" });
-      const db = new Database(fixture.databasePath);
-      const date = appleNanoseconds("2026-08-10T12:00:00Z");
-      db.prepare(`INSERT INTO message(ROWID,guid,text,attributedBody,handle_id,date,is_from_me,service)
-                  VALUES (21,'oversized-sync',NULL,?,1,?,0,'iMessage')`)
-        .run(Buffer.alloc(MAX_ATTRIBUTED_BODY_BYTES + 1, 0x61), date);
-      db.prepare("INSERT INTO chat_message_join(chat_id,message_id,message_date,index_state) VALUES (1,21,?,0)")
-        .run(date);
-      db.close();
-
-      await expect(syncMessages({
-        context,
-        contacts,
-        decoder,
-        cursor: first.cursor,
-        limit: 50,
-        allowPartial: false,
-        privacy: "full",
-      })).rejects.toMatchObject({ reason: "DECODE_FAILED" });
-      const partial = await syncMessages({
-        context,
-        contacts,
-        decoder,
-        cursor: first.cursor,
-        limit: 50,
-        allowPartial: true,
-        privacy: "full",
-      });
-      expect(partial.warnings).toEqual([
-        expect.objectContaining({ code: "DECODE_FAILED", skipped_count: 1 }),
-      ]);
-      expect(partial.changes).toEqual(expect.arrayContaining([
-        expect.objectContaining({ change_type: "message_created", row_status: "partial" }),
-      ]));
-    } finally {
-      context.close();
-      fixture.cleanup();
-    }
-  });
-
-  it("detects lifecycle changes separated by one exact Apple nanosecond", async () => {
-    const fixture = createFixture();
-    const recent = BigInt(Date.now() - APPLE_EPOCH_UNIX_SECONDS * 1000 - 120_000) * 1_000_000n;
-    const db = new Database(fixture.databasePath);
-    db.prepare("UPDATE message SET date=?, date_edited=?, text='precision before' WHERE ROWID=10")
-      .run(recent, recent);
-    db.prepare("UPDATE chat_message_join SET message_date=? WHERE message_id=10").run(recent);
-    db.close();
-    const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, DATABASE_ID, "live");
-    const contacts = new UnifiedContactResolver(false);
-    const decoder = new MessageTextDecoder();
-    try {
-      const first = await syncMessages({ context, contacts, decoder, limit: 50, allowPartial: false, privacy: "full" });
-      const changed = new Database(fixture.databasePath);
-      changed.prepare("UPDATE message SET date_edited=?, text='precision after' WHERE ROWID=10")
-        .run(recent + 1n);
-      changed.close();
-      const second = await syncMessages({
-        context,
-        contacts,
-        decoder,
-        cursor: first.cursor,
-        limit: 50,
-        allowPartial: false,
-        privacy: "full",
-      });
-      expect(second.changes).toEqual(expect.arrayContaining([
-        expect.objectContaining({ change_type: "message_edited", text: "precision after" }),
-      ]));
-    } finally {
-      context.close();
-      fixture.cleanup();
-    }
-  });
-
-  it("starts at latest and emits new, edited, retracted, reaction, receipt, and group changes", async () => {
-    const fixture = createFixture();
-    try {
-      const recent = markMessagesRecentlyMutable(fixture.databasePath, [10, 12]);
-      const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, DATABASE_ID, "live");
-      const contacts = new UnifiedContactResolver(false);
-      const decoder = new MessageTextDecoder();
-      const first = await syncMessages({ context, contacts, decoder, limit: 50, allowPartial: false, privacy: "full" });
-      expect(first.changes).toEqual([]);
-
-      const db = new Database(fixture.databasePath);
-      const now = recent + 60 * 1_000_000_000;
-      db.prepare(`INSERT INTO message(ROWID,guid,text,attributedBody,handle_id,date,is_from_me,cache_has_attachments,item_type,is_system_message,associated_message_type,date_edited,date_retracted,date_read,date_delivered,service)
-                  VALUES (21,'new-21','new synced text',NULL,1,?,0,0,0,0,0,0,0,0,0,'iMessage')`).run(now);
-      db.prepare("INSERT INTO chat_message_join(chat_id,message_id,message_date,index_state) VALUES (1,21,?,0)").run(now);
-      db.prepare("UPDATE message SET text='edited current again', date_edited=? WHERE ROWID=10").run(now + 1_000_000_000);
-      db.prepare("UPDATE message SET text='superseded private value', date_edited=?, date_retracted=? WHERE ROWID=12")
-        .run(now + 1_500_000_000, now + 2_000_000_000);
-      db.prepare(`INSERT INTO message(ROWID,guid,handle_id,date,is_from_me,associated_message_guid,associated_message_type,service)
-                  VALUES (22,'reaction-22',1,?,0,'p:0/new-21',2003,'iMessage')`).run(now + 3_000_000_000);
-      db.prepare("INSERT INTO chat_message_join(chat_id,message_id,message_date,index_state) VALUES (1,22,?,0)").run(now + 3_000_000_000);
-      db.prepare(`INSERT INTO message(ROWID,guid,handle_id,date,is_from_me,associated_message_guid,associated_message_type,service)
-                  VALUES (24,'reaction-24',1,?,0,'p:0/new-21',3003,'iMessage')`).run(now + 3_500_000_000);
-      db.prepare("INSERT INTO chat_message_join(chat_id,message_id,message_date,index_state) VALUES (1,24,?,0)").run(now + 3_500_000_000);
-      db.prepare(`INSERT INTO message(ROWID,guid,handle_id,date,is_from_me,item_type,is_system_message,group_action_type,service)
-                  VALUES (23,'group-23',2,?,0,1,1,1,'RCS')`).run(now + 4_000_000_000);
-      db.prepare("INSERT INTO chat_message_join(chat_id,message_id,message_date,index_state) VALUES (4,23,?,0)").run(now + 4_000_000_000);
-      db.prepare("UPDATE message SET date_delivered=?, is_delivered=1 WHERE ROWID=4").run(now + 5_000_000_000);
-      db.prepare("UPDATE message SET date_read=?, is_read=1 WHERE ROWID=1").run(now + 5_500_000_000);
-      db.close();
-
-      const second = await syncMessages({ context, contacts, decoder, cursor: first.cursor, limit: 50, allowPartial: false, privacy: "full" });
-      const types = new Set(second.changes.map((change) => change.change_type));
-      expect(types).toContain("message_created");
-      expect(types).toContain("message_edited");
-      expect(types).toContain("message_retracted");
-      expect(types).toContain("reaction_added");
-      expect(types).toContain("reaction_removed");
-      expect(types).toContain("receipt_changed");
-      expect(types).toContain("group_event");
-      expect(second.changes.filter((change) => change.message_ref &&
-        (change.change_type === "message_edited" || change.change_type === "message_retracted"))
-        .some((change) => change.current_state?.retracted)).toBe(true);
-      expect(second.changes.filter((change) => change.current_state?.retracted))
-        .toEqual(expect.arrayContaining([expect.not.objectContaining({ text: expect.anything() })]));
-      expect(second.changes.find((change) => change.change_type === "reaction_removed")?.current_state)
-        .toMatchObject({ reaction_type: 2003, present: false });
-      expect(second.changes).toEqual(expect.arrayContaining([
-        expect.objectContaining({
-          change_type: "receipt_changed",
-          direction: "incoming",
-          current_state: expect.objectContaining({ direction: "local", receipt: "read" }),
-        }),
-        expect.objectContaining({
-          change_type: "receipt_changed",
-          direction: "outgoing",
-          current_state: expect.objectContaining({ direction: "remote", receipt: "delivered" }),
-        }),
-      ]));
-      const created = second.changes.find((change) => change.change_type === "message_created");
-      expect(resolveConversationReference(
-        context.referenceKey,
-        context.lineage,
-        created?.conversation_ref ?? "",
-      )).toEqual([1, 2]);
-      context.close();
-    } finally {
-      fixture.cleanup();
-    }
-  });
-
-  it("pages a bounded change set without omission or duplication", async () => {
-    const fixture = createFixture();
-    const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, DATABASE_ID, "live");
-    const contacts = new UnifiedContactResolver(false);
-    const decoder = new MessageTextDecoder();
-    try {
-      const first = await syncMessages({ context, contacts, decoder, limit: 2, allowPartial: false, privacy: "full" });
-      const db = new Database(fixture.databasePath);
-      const base = appleNanoseconds("2026-08-10T12:00:00Z");
-      for (let id = 21; id <= 27; id += 1) {
-        const date = base + (id - 21) * 1_000_000_000;
-        db.prepare(`INSERT INTO message(ROWID,guid,text,handle_id,date,is_from_me,service)
-                    VALUES (?,?,'bounded sync',1,?,0,'iMessage')`).run(id, `bounded-${id}`, date);
-        db.prepare("INSERT INTO chat_message_join(chat_id,message_id,message_date,index_state) VALUES (1,?,?,0)")
-          .run(id, date);
-      }
-      db.close();
-
-      let cursor = first.cursor;
-      const references: string[] = [];
-      let hasMore = true;
-      while (hasMore) {
-        const page = await syncMessages({ context, contacts, decoder, cursor, limit: 2, allowPartial: false, privacy: "full" });
-        references.push(...page.changes
-          .filter((change) => change.change_type === "message_created")
-          .map((change) => change.message_ref!));
-        cursor = page.cursor;
-        hasMore = page.hasMore;
-      }
-      expect(references).toHaveLength(7);
-      expect(new Set(references).size).toBe(7);
-    } finally {
-      context.close();
-      fixture.cleanup();
-    }
-  });
-
-  it("does not emit orphan message rows that are absent from visible conversations", async () => {
-    const fixture = createFixture();
-    const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, DATABASE_ID, "live");
-    const contacts = new UnifiedContactResolver(false);
-    const decoder = new MessageTextDecoder();
-    try {
-      const first = await syncMessages({ context, contacts, decoder, limit: 50, allowPartial: false, privacy: "full" });
-      const db = new Database(fixture.databasePath);
-      db.prepare(`INSERT INTO message(ROWID,guid,text,handle_id,date,is_from_me,service)
-                  VALUES (21,'orphan-21','not visible',1,?,0,'iMessage')`)
-        .run(appleNanoseconds("2026-08-10T12:00:00Z"));
-      db.close();
-      const next = await syncMessages({
-        context,
-        contacts,
-        decoder,
-        cursor: first.cursor,
-        limit: 50,
-        allowPartial: false,
-        privacy: "full",
-      });
-      expect(next.changes).toEqual([]);
-    } finally {
-      context.close();
-      fixture.cleanup();
-    }
-  });
-
-  it("fails closed when a reaction change has no parent identifier", async () => {
-    const fixture = createFixture();
-    const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, DATABASE_ID, "live");
-    const contacts = new UnifiedContactResolver(false);
-    const decoder = new MessageTextDecoder();
-    try {
-      const first = await syncMessages({ context, contacts, decoder, limit: 50, allowPartial: false, privacy: "full" });
-      const db = new Database(fixture.databasePath);
-      const date = appleNanoseconds("2026-08-10T12:00:00Z");
-      db.prepare(`INSERT INTO message(ROWID,guid,handle_id,date,is_from_me,associated_message_type,service)
-                  VALUES (21,'parentless-reaction',1,?,0,2001,'iMessage')`).run(date);
-      db.prepare("INSERT INTO chat_message_join(chat_id,message_id,message_date,index_state) VALUES (1,21,?,0)").run(date);
-      db.close();
-      await expect(syncMessages({
-        context,
-        contacts,
-        decoder,
-        cursor: first.cursor,
-        limit: 50,
-        allowPartial: false,
-        privacy: "full",
-      })).rejects.toMatchObject({ reason: "UNSUPPORTED_SCHEMA" });
-      const partial = await syncMessages({
-        context,
-        contacts,
-        decoder,
-        cursor: first.cursor,
-        limit: 50,
-        allowPartial: true,
-        privacy: "full",
-      });
-      expect(partial.changes).toContainEqual(expect.objectContaining({
-        change_type: "reaction_added",
-        sender: { name: null, handle: "+15550000001" },
-        row_status: "partial",
-      }));
-      expect(partial.changes.find((change) => change.change_type === "reaction_added"))
-        .not.toHaveProperty("parent_message_ref");
-      expect(partial.warnings).toContainEqual(expect.objectContaining({
-        code: "UNSUPPORTED_SCHEMA",
-        skipped_count: 1,
-      }));
-    } finally {
-      context.close();
-      fixture.cleanup();
-    }
-  });
-
-  it("never attributes an unresolved incoming sync sender to Me", async () => {
-    const fixture = createFixture();
-    const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, DATABASE_ID, "live");
-    const contacts = new UnifiedContactResolver(false);
-    const decoder = new MessageTextDecoder();
-    try {
-      const first = await syncMessages({ context, contacts, decoder, limit: 50, allowPartial: false, privacy: "full" });
-      const db = new Database(fixture.databasePath);
-      const date = appleNanoseconds("2026-08-10T12:00:00Z");
-      db.prepare(`INSERT INTO message(ROWID,guid,text,handle_id,date,is_from_me,service)
-                  VALUES (21,'unresolved-sender','unresolved incoming',99,?,0,'iMessage')`).run(date);
-      db.prepare("INSERT INTO chat_message_join(chat_id,message_id,message_date,index_state) VALUES (1,21,?,0)").run(date);
-      db.close();
-      await expect(syncMessages({
-        context,
-        contacts,
-        decoder,
-        cursor: first.cursor,
-        limit: 50,
-        allowPartial: false,
-        privacy: "full",
-      })).rejects.toMatchObject({ reason: "UNSUPPORTED_SCHEMA" });
-      const partial = await syncMessages({
-        context,
-        contacts,
-        decoder,
-        cursor: first.cursor,
-        limit: 50,
-        allowPartial: true,
-        privacy: "full",
-      });
-      expect(partial.changes).toContainEqual(expect.objectContaining({
-        change_type: "message_created",
-        direction: "incoming",
-        sender: { name: null, handle: null },
-        row_status: "partial",
-      }));
-      expect(partial.warnings).toContainEqual(expect.objectContaining({
-        code: "UNSUPPORTED_SCHEMA",
-        skipped_count: 1,
-      }));
-    } finally {
-      context.close();
-      fixture.cleanup();
-    }
-  });
-
-  it("rejects an ambiguous reaction parent GUID before emitting a sync reference", async () => {
-    const fixture = createFixture();
-    const duplicateDate = appleNanoseconds("2026-08-10T11:59:00Z");
-    const setup = new Database(fixture.databasePath);
-    setup.prepare(`INSERT INTO message(ROWID,guid,text,handle_id,date,is_from_me,service)
-                   VALUES (21,'m1','duplicate parent',1,?,0,'iMessage')`).run(duplicateDate);
-    setup.prepare("INSERT INTO chat_message_join(chat_id,message_id,message_date,index_state) VALUES (3,21,?,0)")
-      .run(duplicateDate);
-    setup.close();
-    const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, DATABASE_ID, "live");
-    const contacts = new UnifiedContactResolver(false);
-    const decoder = new MessageTextDecoder();
-    try {
-      const first = await syncMessages({ context, contacts, decoder, limit: 50, allowPartial: false, privacy: "full" });
-      const db = new Database(fixture.databasePath);
-      const date = appleNanoseconds("2026-08-10T12:00:00Z");
-      db.prepare(`INSERT INTO message(ROWID,guid,handle_id,date,is_from_me,associated_message_guid,associated_message_type,service)
-                  VALUES (22,'ambiguous-parent-reaction',1,?,0,'m1',2001,'iMessage')`).run(date);
-      db.prepare("INSERT INTO chat_message_join(chat_id,message_id,message_date,index_state) VALUES (1,22,?,0)").run(date);
-      db.close();
-      await expect(syncMessages({
-        context,
-        contacts,
-        decoder,
-        cursor: first.cursor,
-        limit: 50,
-        allowPartial: true,
-        privacy: "full",
-      })).rejects.toMatchObject({ reason: "UNSUPPORTED_SCHEMA" });
-    } finally {
-      context.close();
-      fixture.cleanup();
-    }
-  });
-
-  it("accepts its own bounded sync cursor when recent exact state exceeds normal reference size", async () => {
-    const fixture = createFixture();
-    appendRecentMessages(fixture.databasePath, 600);
-    const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, DATABASE_ID, "live");
-    const contacts = new UnifiedContactResolver(false);
-    const decoder = new MessageTextDecoder();
-    try {
-      const first = await syncMessages({ context, contacts, decoder, limit: 50, allowPartial: false, privacy: "full" });
-      expect(first.cursor.length).toBeGreaterThan(MAX_REFERENCE_LENGTH);
-      expect(first.cursor.length).toBeLessThanOrEqual(MAX_SYNC_CURSOR_LENGTH);
-      const second = await syncMessages({
-        context,
-        contacts,
-        decoder,
-        cursor: first.cursor,
-        limit: 50,
-        allowPartial: false,
-        privacy: "full",
-      });
-      expect(second.changes).toEqual([]);
-    } finally {
-      context.close();
-      fixture.cleanup();
-    }
-  });
-
-  it("emits reusable bounded cursors while a large live change set is paginated", async () => {
-    const fixture = createFixture();
-    appendRecentMessages(fixture.databasePath, 1_500);
-    const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, DATABASE_ID, "live");
-    const contacts = new UnifiedContactResolver(false);
-    const decoder = new MessageTextDecoder();
-    try {
-      const first = await syncMessages({ context, contacts, decoder, limit: 200, allowPartial: false, privacy: "aggregate" });
-      appendRecentMessages(fixture.databasePath, 201, 1_521, 60_000);
-      const page = await syncMessages({
-        context,
-        contacts,
-        decoder,
-        cursor: first.cursor,
-        limit: 200,
-        allowPartial: false,
-        privacy: "aggregate",
-      });
-      expect(page.hasMore).toBe(true);
-      expect(page.cursor.length).toBeLessThanOrEqual(MAX_SYNC_CURSOR_LENGTH);
-      const final = await syncMessages({
-        context,
-        contacts,
-        decoder,
-        cursor: page.cursor,
-        limit: 200,
-        allowPartial: false,
-        privacy: "aggregate",
-      });
-      expect(final.hasMore).toBe(false);
-      expect(final.changes).toHaveLength(1);
-      expect(final.cursor.length).toBeLessThanOrEqual(MAX_SYNC_CURSOR_LENGTH);
-      await expect(syncMessages({
-        context,
-        contacts,
-        decoder,
-        cursor: final.cursor,
-        limit: 200,
-        allowPartial: false,
-        privacy: "aggregate",
-      })).resolves.toMatchObject({ changes: [], hasMore: false });
-    } finally {
-      context.close();
-      fixture.cleanup();
-    }
-  });
-
-  it("invalidates live sync when chat_lookup changes canonical conversation membership", async () => {
-    const fixture = createFixture();
-    const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, DATABASE_ID, "live");
-    const contacts = new UnifiedContactResolver(false);
-    const decoder = new MessageTextDecoder();
-    try {
-      const first = await syncMessages({ context, contacts, decoder, limit: 50, allowPartial: false, privacy: "full" });
-      const db = new Database(fixture.databasePath);
-      const date = appleNanoseconds(new Date().toISOString());
-      db.prepare("INSERT INTO chat(ROWID,guid,chat_identifier,service_name) VALUES (?,?,?,?)")
-        .run(6, "chat-guid-6", "linked-new", "RCS");
-      db.prepare("INSERT INTO chat_handle_join(chat_id,handle_id) VALUES (?,?)").run(6, 1);
-      db.prepare("INSERT INTO chat_lookup(identifier,domain,chat) VALUES (?,?,?)").run("linked-alice", "RCS", 6);
-      db.prepare("INSERT INTO message(ROWID,guid,text,handle_id,date,is_from_me,service) VALUES (?,?,?,?,?,0,?)")
-        .run(21, "lookup-new", "new linked", 1, date, "RCS");
-      db.prepare("INSERT INTO chat_message_join(chat_id,message_id,message_date,index_state) VALUES (?,?,?,0)")
-        .run(6, 21, date);
-      db.close();
-      await expect(syncMessages({
-        context,
-        contacts,
-        decoder,
-        cursor: first.cursor,
-        limit: 50,
-        allowPartial: false,
-        privacy: "full",
-      })).rejects.toMatchObject({ reason: "DATABASE_CHANGED" });
-    } finally {
-      context.close();
-      fixture.cleanup();
-    }
-  });
-
-  it("fails closed on an unsupported SQLite message.text storage class", async () => {
-      const fixture = createFixture();
-      const db = new Database(fixture.databasePath);
-      db.prepare("UPDATE message SET text=?, attributedBody=NULL WHERE ROWID=1").run(Buffer.from("concealed"));
-      db.close();
-      const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, DATABASE_ID);
-      const input = {
-        context,
-        contacts: new UnifiedContactResolver(false),
-        decoder: new MessageTextDecoder(),
-        chatIds: [1, 2],
-        limit: 200,
-        bounds: compileDateBounds({ timezone: "UTC" }),
-        privacy: "full" as const,
-        includeAttachmentPaths: false,
-      };
-      try {
-        await expect(getConversationEvents({ ...input, allowPartial: false }))
-          .rejects.toMatchObject({ reason: "UNSUPPORTED_SCHEMA" });
-        const partial = await getConversationEvents({ ...input, allowPartial: true });
-        expect(partial.warnings).toContainEqual(expect.objectContaining({
-          code: "UNSUPPORTED_SCHEMA",
-          skipped_count: 1,
-        }));
-        expect(partial.events).toContainEqual(expect.objectContaining({
-          text_status: "unsupported",
-          row_status: "partial",
-        }));
-      } finally {
-        context.close();
-        fixture.cleanup();
-      }
-  });
-
-  it("fails search and live sync closed on unsupported SQLite body storage", async () => {
-    const searchFixture = createFixture();
-    const searchDb = new Database(searchFixture.databasePath);
-    searchDb.prepare("UPDATE message SET text=?, attributedBody=NULL WHERE ROWID=1").run(Buffer.from("concealed"));
-    searchDb.close();
-    const searchContext = new DatabaseContext(searchFixture.databasePath, REFERENCE_KEY, DATABASE_ID);
-    const index = new MemorySearchIndex(searchContext, new MessageTextDecoder(), new UnifiedContactResolver(false));
-    try {
-      await expect(index.search({
-        query: "concealed",
-        mode: "substring",
-        scopes: ["text"],
-        order: "newest",
-        bounds: compileDateBounds({ timezone: "UTC" }),
-        limit: 50,
-        allowPartial: false,
-        privacy: "full",
-      })).rejects.toMatchObject({ reason: "UNSUPPORTED_SCHEMA" });
-    } finally {
-      index.close();
-      searchContext.close();
-      searchFixture.cleanup();
-    }
-
-    const syncFixture = createFixture();
-    const syncContext = new DatabaseContext(syncFixture.databasePath, REFERENCE_KEY, DATABASE_ID, "live");
-    const contacts = new UnifiedContactResolver(false);
-    const decoder = new MessageTextDecoder();
-    try {
-      const first = await syncMessages({ context: syncContext, contacts, decoder, limit: 50, allowPartial: false, privacy: "full" });
-      const syncDb = new Database(syncFixture.databasePath);
-      const date = appleNanoseconds(new Date().toISOString());
-      syncDb.prepare("INSERT INTO message(ROWID,guid,text,handle_id,date,is_from_me,service) VALUES (?,?,?,?,?,0,?)")
-        .run(21, "typed-body", Buffer.from("concealed"), 1, date, "iMessage");
-      syncDb.prepare("INSERT INTO chat_message_join(chat_id,message_id,message_date,index_state) VALUES (1,?,?,0)")
-        .run(21, date);
-      syncDb.close();
-      await expect(syncMessages({
-        context: syncContext,
-        contacts,
-        decoder,
-        cursor: first.cursor,
-        limit: 50,
-        allowPartial: false,
-        privacy: "full",
-      })).rejects.toMatchObject({ reason: "UNSUPPORTED_SCHEMA" });
-    } finally {
-      syncContext.close();
-      syncFixture.cleanup();
-    }
-  });
-
-  it("rejects schema-amplified relevant tables before materializing their columns", () => {
-    const fixture = createFixture();
-    const db = new Database(fixture.databasePath);
-    db.exec("DROP TABLE attachment");
-    db.exec(`CREATE TABLE attachment(ROWID INTEGER PRIMARY KEY, ${Array.from(
-      { length: 512 },
-      (_, index) => `column_${index} TEXT`,
-    ).join(", ")})`);
-    db.close();
-    expect(() => new DatabaseContext(fixture.databasePath, REFERENCE_KEY, DATABASE_ID))
-      .toThrowError(expect.objectContaining({ reason: "QUERY_BUDGET_EXCEEDED" }));
-    fixture.cleanup();
-  });
-
-  it("fails closed when the live edit-integrity window exceeds its cursor budget", async () => {
-    const fixture = createFixture();
-    appendRecentMessages(fixture.databasePath, 2_049);
-    const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, DATABASE_ID, "live");
-    const contacts = new UnifiedContactResolver(false);
-    const decoder = new MessageTextDecoder();
-    try {
-      await expect(syncMessages({
-        context,
-        contacts,
-        decoder,
-        limit: 50,
-        allowPartial: false,
-        privacy: "full",
-      })).rejects.toMatchObject({ reason: "QUERY_BUDGET_EXCEEDED" });
-    } finally {
-      context.close();
-      fixture.cleanup();
-    }
-  });
-
-  it("fails closed for an append combined with an unclassifiable backdated lifecycle mutation", async () => {
-    const fixture = createFixture();
-    const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, DATABASE_ID, "live");
-    const contacts = new UnifiedContactResolver(false);
-    const decoder = new MessageTextDecoder();
-    try {
-      const first = await syncMessages({ context, contacts, decoder, limit: 50, allowPartial: false, privacy: "full" });
-      const db = new Database(fixture.databasePath);
-      const appended = appleNanoseconds("2026-08-10T12:00:00Z");
-      const backdated = appleNanoseconds("2026-03-08T06:31:00Z");
-      db.prepare("UPDATE message SET text='unclassifiable current body', date_edited=? WHERE ROWID=1").run(backdated);
-      db.prepare(`INSERT INTO message(ROWID,guid,text,handle_id,date,is_from_me,service)
-                  VALUES (21,'combined-sync-append','new alongside backdated edit',1,?,0,'iMessage')`).run(appended);
-      db.prepare("INSERT INTO chat_message_join(chat_id,message_id,message_date,index_state) VALUES (1,21,?,0)").run(appended);
-      db.close();
-      await expect(syncMessages({
-        context,
-        contacts,
-        decoder,
-        cursor: first.cursor,
-        limit: 50,
-        allowPartial: false,
-        privacy: "full",
-      })).rejects.toMatchObject({ reason: "DATABASE_CHANGED" });
-    } finally {
-      context.close();
-      fixture.cleanup();
-    }
-  });
-
-  it("rejects a count-preserving relationship mutation even when a valid edit advances", async () => {
-    const fixture = createFixture();
-    const recent = markMessagesRecentlyMutable(fixture.databasePath, [10]);
-    const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, DATABASE_ID, "live");
-    const contacts = new UnifiedContactResolver(false);
-    const decoder = new MessageTextDecoder();
-    try {
-      const first = await syncMessages({ context, contacts, decoder, limit: 50, allowPartial: false, privacy: "full" });
-      const db = new Database(fixture.databasePath);
-      db.prepare("UPDATE chat_message_join SET chat_id=2 WHERE chat_id=1 AND message_id=1").run();
-      db.prepare("UPDATE message SET text='legitimate current edit', date_edited=? WHERE ROWID=10")
-        .run(recent + 60 * 1_000_000_000);
-      db.close();
-      await expect(syncMessages({
-        context,
-        contacts,
-        decoder,
-        cursor: first.cursor,
-        limit: 50,
-        allowPartial: false,
-        privacy: "full",
-      })).rejects.toMatchObject({ reason: "DATABASE_CHANGED" });
-    } finally {
-      context.close();
-      fixture.cleanup();
-    }
-  });
-
-  it("does not let one valid edit authorize another recent message body mutation", async () => {
-    const fixture = createFixture();
-    const recent = markMessagesRecentlyMutable(fixture.databasePath, [10, 12]);
-    const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, DATABASE_ID, "live");
-    const contacts = new UnifiedContactResolver(false);
-    const decoder = new MessageTextDecoder();
-    try {
-      const first = await syncMessages({ context, contacts, decoder, limit: 50, allowPartial: false, privacy: "full" });
-      const db = new Database(fixture.databasePath);
-      db.prepare("UPDATE message SET text='legitimate current edit', date_edited=? WHERE ROWID=10")
-        .run(recent + 60 * 1_000_000_000);
-      db.prepare("UPDATE message SET text='unclassified recent body mutation' WHERE ROWID=12").run();
-      db.close();
-      await expect(syncMessages({
-        context,
-        contacts,
-        decoder,
-        cursor: first.cursor,
-        limit: 50,
-        allowPartial: false,
-        privacy: "full",
-      })).rejects.toMatchObject({ reason: "DATABASE_CHANGED" });
-    } finally {
-      context.close();
-      fixture.cleanup();
-    }
-  });
-
-  it("does not let a receipt advance authorize an unrelated body mutation", async () => {
-    const fixture = createFixture();
-    const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, DATABASE_ID, "live");
-    const contacts = new UnifiedContactResolver(false);
-    const decoder = new MessageTextDecoder();
-    try {
-      const first = await syncMessages({ context, contacts, decoder, limit: 50, allowPartial: false, privacy: "full" });
-      const db = new Database(fixture.databasePath);
-      db.prepare("UPDATE message SET text='unauthorized body mutation' WHERE ROWID=1").run();
-      db.prepare("UPDATE message SET date_delivered=?, is_delivered=1 WHERE ROWID=4")
-        .run(appleNanoseconds("2026-08-10T12:00:00Z"));
-      db.close();
-      await expect(syncMessages({
-        context,
-        contacts,
-        decoder,
-        cursor: first.cursor,
-        limit: 50,
-        allowPartial: false,
-        privacy: "full",
-      })).rejects.toMatchObject({ reason: "DATABASE_CHANGED" });
-    } finally {
-      context.close();
-      fixture.cleanup();
-    }
-  });
-
-  it("does not let one receipt advance authorize another receipt mutation", async () => {
-    const fixture = createFixture();
-    const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, DATABASE_ID, "live");
-    const contacts = new UnifiedContactResolver(false);
-    const decoder = new MessageTextDecoder();
-    try {
-      const first = await syncMessages({ context, contacts, decoder, limit: 50, allowPartial: false, privacy: "full" });
-      const db = new Database(fixture.databasePath);
-      db.prepare("UPDATE message SET date_delivered=?, is_delivered=1 WHERE ROWID=4")
-        .run(appleNanoseconds(new Date(Date.now() - 60_000).toISOString()));
-      db.prepare("UPDATE message SET date_read=? WHERE ROWID=18")
-        .run(appleNanoseconds("2026-03-09T05:01:00Z"));
-      db.close();
-      await expect(syncMessages({
-        context,
-        contacts,
-        decoder,
-        cursor: first.cursor,
-        limit: 50,
-        allowPartial: false,
-        privacy: "full",
-      })).rejects.toMatchObject({ reason: "DATABASE_CHANGED" });
-    } finally {
-      context.close();
-      fixture.cleanup();
-    }
-  });
-
-  it("treats copied databases as immutable after a sync checkpoint", async () => {
-    const fixture = createFixture();
-    const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, DATABASE_ID, "copy");
-    const contacts = new UnifiedContactResolver(false);
-    const decoder = new MessageTextDecoder();
-    try {
-      const first = await syncMessages({ context, contacts, decoder, limit: 50, allowPartial: false, privacy: "full" });
-      const db = new Database(fixture.databasePath);
-      db.prepare("UPDATE message SET text='changed copied snapshot', date_edited=? WHERE ROWID=10")
-        .run(appleNanoseconds("2026-08-10T12:00:00Z"));
-      db.close();
-      await expect(syncMessages({
-        context,
-        contacts,
-        decoder,
-        cursor: first.cursor,
-        limit: 50,
-        allowPartial: false,
-        privacy: "full",
-      })).rejects.toMatchObject({ reason: "DATABASE_CHANGED" });
-    } finally {
-      context.close();
-      fixture.cleanup();
-    }
-  });
-
-  it("rejects a copied database changed after its startup fingerprint", async () => {
-    const fixture = createFixture();
-    const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, DATABASE_ID, "copy");
-    const contacts = new UnifiedContactResolver(false);
-    const decoder = new MessageTextDecoder();
-    try {
-      await prepareCopiedDatabaseSync(context);
-      const db = new Database(fixture.databasePath);
-      db.prepare("UPDATE message SET text='changed after startup preparation' WHERE ROWID=10").run();
-      db.close();
-      await expect(syncMessages({
-        context,
-        contacts,
-        decoder,
-        limit: 50,
-        allowPartial: false,
-        privacy: "full",
-      })).rejects.toMatchObject({ reason: "DATABASE_CHANGED" });
-    } finally {
-      context.close();
-      fixture.cleanup();
-    }
-  });
-
-  it("invalidates warmed conversation integrity when the database changes", async () => {
-    const fixture = createFixture();
-    const context = new DatabaseContext(fixture.databasePath, REFERENCE_KEY, DATABASE_ID, "live");
-    const contacts = new UnifiedContactResolver(false);
-    const decoder = new MessageTextDecoder();
-    const catalog = new ConversationCatalog(context);
-    try {
-      catalog.warm();
-      const db = new Database(fixture.databasePath);
-      db.prepare(`INSERT INTO chat_message_join(chat_id,message_id,message_date,index_state)
-                  SELECT 99,message_id,message_date,index_state
-                  FROM chat_message_join WHERE message_id=1 LIMIT 1`).run();
-      db.close();
-      await expect(syncMessages({
-        context,
-        contacts,
-        decoder,
-        limit: 50,
-        allowPartial: false,
-        privacy: "full",
-        catalog,
-      })).rejects.toMatchObject({ reason: "UNSUPPORTED_SCHEMA" });
-    } finally {
       context.close();
       fixture.cleanup();
     }

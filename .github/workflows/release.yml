@@ -50,7 +50,7 @@ jobs:
           fi
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
       - run: npm run verify
-      - run: npm run test:performance
+      - run: npm run perf
       - name: build the desktop bundle
         run: npm run build:mcpb
       # Only this step sees the signing secrets, and it runs only the pinned,
@@ -86,7 +86,7 @@ jobs:
           mkdir release-artifact
           TARBALL=$(npm pack --json --pack-destination release-artifact | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>process.stdout.write(JSON.parse(s)[0].filename))")
           test -f "release-artifact/${TARBALL}"
-          npm run test:mcpb -- --require
+          IMESSAGE_E2E_REQUIRE_BUNDLE=1 npm run e2e
           mv dist-mcpb/imessage-mcp.mcpb release-artifact/
           test -f release-artifact/imessage-mcp.mcpb
           echo "tarball=${TARBALL}" >> "$GITHUB_OUTPUT"

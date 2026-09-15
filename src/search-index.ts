@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { totalmem } from "node:os";
 import path from "node:path";
-import Database from "better-sqlite3";
+import Database from "./sqlite.js";
 import type { PrivacyMode, ServiceFamily, Warning, Watermark } from "./contracts.js";
 import { serviceFamily } from "./contracts.js";
 import type { UnifiedContactResolver } from "./contacts.js";
@@ -10,12 +10,27 @@ import { assertFrozenTraversal, parseWatermark, watermarkToken } from "./databas
 import type { MessageTextDecoder } from "./decoder.js";
 import { populatedMessageText } from "./decoder.js";
 import { ImessageMcpError } from "./errors.js";
-import { decodeReference, encodeReference } from "./references.js";
+import { decodeCursor, encodeCursor } from "./references.js";
 import { assertMessageConversationIntegrity } from "./repositories/conversations.js";
 import { columnSql, serviceFamilyCase, serviceFamilyPredicate, serviceSql } from "./schema-sql.js";
 import { validateSender } from "./sender.js";
 import type { DateBounds } from "./time.js";
 import { MAX_ATTRIBUTED_BODY_BYTES, MAX_ATTRIBUTED_BODY_LABEL } from "./limits.js";
+import { readCacheFile, sourceHash, writeCacheFile } from "./cache.js";
+import {
+  archiveIdentity,
+  identityRows,
+  CHANGE_LOG_SQL,
+  diffRowStates,
+  metaValue,
+  newLogId,
+  readRowStates,
+  recordChanges,
+  setMetaValue,
+  storedRowStates,
+  writeRowStates,
+  type ChangeRow,
+} from "./changes.js";
 import {
   appleTimestampBoundary,
   appleTimestampBoundarySql,
@@ -30,8 +45,8 @@ export type SearchScope = "text" | "conversation_names" | "attachment_filenames"
 export type SearchOrder = "newest" | "relevance";
 
 export interface SearchHit {
-  message_ref: string;
-  conversation_ref: string;
+  message_id: number;
+  chat_id: number;
   timestamp: string | null;
   service_family: ServiceFamily;
   sender: { name: string | null; handle: string | null };
@@ -81,7 +96,12 @@ interface IndexEstimate {
 }
 
 const MIB = 1024 * 1024;
-const SOURCE_BATCH_SIZE = 500;
+const SOURCE_BATCH_SIZE = 200;
+// Bump when the index tables change shape; older checkpoints are then ignored.
+const INDEX_SCHEMA_VERSION = 1;
+const CHECKPOINT_INTERVAL_MS = 5 * 60 * 1000;
+const ROW_STATE_CHUNK = 2_000;
+const BUILD_STEP_MS = 40;
 const SOURCE_BATCH_BYTES = 8 * MIB;
 const MAX_INDEX_TEXT_BYTES = 3 * MIB;
 const MAX_INDEX_BLOB_BYTES = MAX_ATTRIBUTED_BODY_BYTES;
@@ -144,7 +164,7 @@ function hashValue(hash: ReturnType<typeof createHash>, value: unknown): void {
 // attachment joins of those messages, and each conversation's names,
 // services, and participants keyed by the chat_ids value the index stores.
 // Contacts are loaded once per process, so resolved names cannot drift.
-function sourceSignatures(request: DatabaseRequest): SourceSignatures {
+async function sourceSignatures(request: DatabaseRequest): Promise<SourceSignatures> {
   const target = request.asOf.max_message_id;
   const size = SIGNATURE_BUCKET_ROWS;
   // quote() serializes in SQLite without per-value JavaScript work; casting to
@@ -159,24 +179,34 @@ function sourceSignatures(request: DatabaseRequest): SourceSignatures {
     }
     return hash;
   };
+  // Every row counts, not only searchable ones: reactions, group events and
+  // receipt state feed the sync change log.
   const messageFields = [
     exact("m.guid"),
     "QUOTE(m.date)",
     "QUOTE(m.is_from_me)",
     "QUOTE(m.handle_id)",
     exact("h.id"),
-    exact(columnSql(request, "message", "m", "service", "NULL")),
-    exact(columnSql(request, "message", "m", "text", "NULL")),
-    exact(columnSql(request, "message", "m", "attributedBody", "NULL")),
+    ...["service", "text", "attributedBody", "associated_message_guid"].map((name) => exact(columnSql(request, "message", "m", name, "NULL"))),
+    ...["associated_message_type", "item_type", "is_system_message", "date_retracted", "date_edited", "is_read", "date_read", "is_delivered", "date_delivered"]
+      .map((name) => `QUOTE(${columnSql(request, "message", "m", name, "NULL")})`),
   ];
-  const messages = request.db.prepare(
-    `SELECT m.ROWID, ${messageFields.join(" || ',' || ")}
+  // One rowid-range query per bucket concatenates its rows inside SQLite, so a
+  // million-message archive costs a few thousand hash updates instead of a
+  // million, and the pass yields between buckets so other tools keep answering.
+  const bucketRows = request.db.prepare(
+    `SELECT GROUP_CONCAT('m' || m.ROWID || ',' || ${messageFields.join(" || ',' || ")}, ';' ORDER BY m.ROWID)
      FROM message m LEFT JOIN handle h ON h.ROWID = m.handle_id
-     WHERE m.ROWID <= @target AND ${eligibleMessageSql(request)}
-     ORDER BY m.ROWID`,
-  ).raw().iterate({ target }) as Iterable<[number, string]>;
-  for (const [rowid, fields] of messages) {
-    hashFor(Math.floor(Number(rowid) / size)).update(`m${rowid},${fields};`);
+     WHERE m.ROWID BETWEEN @first AND @last`,
+  ).pluck();
+  let lastYield = performance.now();
+  for (let bucket = 0; bucket * size <= target; bucket += 1) {
+    const rows = bucketRows.get({ first: bucket * size, last: Math.min(target, (bucket + 1) * size - 1) }) as string | null;
+    if (rows !== null) hashFor(bucket).update(rows);
+    if (performance.now() - lastYield > BUILD_STEP_MS) {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      lastYield = performance.now();
+    }
   }
   // Join rows are small, so each bucket's rows are concatenated in SQLite.
   const relations: string[] = [
@@ -426,17 +456,104 @@ export class MemorySearchIndex {
   private complete = false;
   private trigram = false;
   private building: Promise<void> | null = null;
+  private ensuring: Promise<void> = Promise.resolve();
+  private progressDone = 0;
+  private progressTotal = 0;
   private signatures: SourceSignatures | null = null;
+
+  private cacheTried = false;
+  private lastCheckpoint = 0;
 
   constructor(
     private readonly context: DatabaseContext,
     private readonly decoder: MessageTextDecoder,
     private readonly contacts: UnifiedContactResolver,
     private readonly onBuild?: () => void,
+    // Where encrypted checkpoints live; undefined keeps the index in memory only.
+    private readonly cacheDirectory?: string,
   ) {}
+
+  private cachePath(): string | null {
+    return this.cacheDirectory ? path.join(this.cacheDirectory, `${sourceHash(this.context.canonicalPath)}.index`) : null;
+  }
+
+  // Writes the index to its encrypted cache file. Failures only cost a rebuild
+  // on the next start, so they are swallowed.
+  private checkpoint(request: DatabaseRequest): void {
+    const file = this.cachePath();
+    if (!file || !this.index || !this.signatures || !this.indexedWatermark) return;
+    try {
+      const index = this.index;
+      const signatures = this.signatures;
+      index.transaction(() => {
+        index.exec("DELETE FROM signature_bucket; DELETE FROM signature_conversation;");
+        const bucket = index.prepare("INSERT INTO signature_bucket(bucket, hash) VALUES (?, ?)");
+        for (const [key, hash] of signatures.buckets) bucket.run(key, hash);
+        const conversation = index.prepare("INSERT INTO signature_conversation(chat_ids, hash) VALUES (?, ?)");
+        for (const [key, hash] of signatures.conversations) conversation.run(key, hash);
+        setMetaValue(index, "watermark", JSON.stringify(this.indexedWatermark));
+      })();
+      writeCacheFile({
+        path: file,
+        plaintext: index.serialize(),
+        source: request.db,
+        schemaVersion: INDEX_SCHEMA_VERSION,
+        sourceHash: sourceHash(this.context.canonicalPath),
+      });
+      this.lastCheckpoint = Date.now();
+    } catch {
+      // keep serving from memory
+    }
+  }
+
+  // Loads the last checkpoint when its key still derives from this archive.
+  // The restored index is then refreshed against the live fingerprints, so a
+  // stale or replayed checkpoint never serves rows that no longer exist.
+  private restore(request: DatabaseRequest): boolean {
+    const file = this.cachePath();
+    if (!file) return false;
+    let db: Database.Database | null = null;
+    try {
+      const plaintext = readCacheFile({
+        path: file,
+        source: request.db,
+        schemaVersion: INDEX_SCHEMA_VERSION,
+        sourceHash: sourceHash(this.context.canonicalPath),
+      });
+      if (!plaintext) return false;
+      db = this.openIndex(plaintext);
+      const idRows = JSON.parse(metaValue(db, "db_id_rows") ?? "null") as unknown;
+      if (!Array.isArray(idRows) || !idRows.every((row) => Number.isSafeInteger(row))) return false;
+      if (metaValue(db, "db_id") !== archiveIdentity(request.db, idRows as number[])) return false;
+      const watermark = metaValue(db, "watermark");
+      if (!watermark) return false;
+      const buckets = new Map<number, string>();
+      for (const row of db.prepare("SELECT bucket, hash FROM signature_bucket").all() as Array<{ bucket: number; hash: string }>) {
+        buckets.set(Number(row.bucket), row.hash);
+      }
+      const conversations = new Map<string, string>();
+      for (const row of db.prepare("SELECT chat_ids, hash FROM signature_conversation").all() as Array<{ chat_ids: string; hash: string }>) {
+        conversations.set(row.chat_ids, row.hash);
+      }
+      this.trigram = Boolean(db.prepare("SELECT 1 AS present FROM sqlite_master WHERE name = 'message_trigram'").get());
+      this.index = db;
+      db = null;
+      this.signatures = { buckets, conversations };
+      // data_version belongs to the process that wrote the checkpoint; -1 forces
+      // the first ensure() to compare fingerprints with the live archive.
+      this.indexedWatermark = { ...(JSON.parse(watermark) as Watermark), data_version: -1 };
+      this.recountPartialRows(this.index);
+      return true;
+    } catch {
+      return false;
+    } finally {
+      db?.close();
+    }
+  }
 
   state(): {
     state: "cold" | "ready" | "partial" | "building";
+    progress?: number;
     indexed_messages: number;
     memory_used_bytes: number;
     memory_limit_bytes: number;
@@ -446,6 +563,9 @@ export class MemorySearchIndex {
       : 0;
     return {
       state: this.building ? "building" : !this.index ? "cold" : this.complete ? "ready" : "partial",
+      ...(this.building && this.progressTotal > 0
+        ? { progress: Math.min(1, Math.round((this.progressDone / this.progressTotal) * 100) / 100) }
+        : {}),
       indexed_messages: count,
       memory_used_bytes: this.index ? this.memoryFootprint(this.index) : 0,
       memory_limit_bytes: this.memoryLimit(),
@@ -456,11 +576,38 @@ export class MemorySearchIndex {
     return searchIndexMemoryLimit();
   }
 
-  private createIndex(): Database.Database {
+  // An in-memory index database, empty or restored from a cache checkpoint.
+  private openIndex(serialized?: Buffer): Database.Database {
     const db = new Database(":memory:");
+    if (serialized) db.deserialize(serialized);
     db.pragma("temp_store = MEMORY");
     const pageSize = Number(db.pragma("page_size", { simple: true })) || 4096;
     db.pragma(`max_page_count = ${Math.max(1, Math.floor(this.memoryLimit() / pageSize))}`);
+    db.function("mcp_text_matches", { deterministic: true }, (value: unknown, query: unknown, mode: unknown) =>
+      typeof value === "string" && typeof query === "string" &&
+      (mode === "token" || mode === "phrase") && normalizedScopeMatches(value, query, mode) ? 1 : 0
+    );
+    db.function("mcp_values_match", { deterministic: true }, (encoded: unknown, query: unknown, mode: unknown) => {
+      if (typeof encoded !== "string" || typeof query !== "string" || (mode !== "token" && mode !== "phrase")) return 0;
+      try {
+        const values = JSON.parse(encoded) as unknown;
+        return Array.isArray(values) && values.some((value) =>
+          typeof value === "string" && normalizedScopeMatches(value, query, mode)
+        ) ? 1 : 0;
+      } catch {
+        return 0;
+      }
+    });
+    return db;
+  }
+
+  private createIndex(): Database.Database {
+    const db = this.openIndex();
+    db.exec(CHANGE_LOG_SQL);
+    db.exec(`
+      CREATE TABLE signature_bucket (bucket INTEGER PRIMARY KEY, hash TEXT NOT NULL);
+      CREATE TABLE signature_conversation (chat_ids TEXT PRIMARY KEY, hash TEXT NOT NULL);
+    `);
     db.exec(`
       CREATE TABLE message_text (
         rowid INTEGER PRIMARY KEY,
@@ -485,21 +632,6 @@ export class MemorySearchIndex {
         sender_partial INTEGER NOT NULL
       );
     `);
-    db.function("mcp_text_matches", { deterministic: true }, (value: unknown, query: unknown, mode: unknown) =>
-      typeof value === "string" && typeof query === "string" &&
-      (mode === "token" || mode === "phrase") && normalizedScopeMatches(value, query, mode) ? 1 : 0
-    );
-    db.function("mcp_values_match", { deterministic: true }, (encoded: unknown, query: unknown, mode: unknown) => {
-      if (typeof encoded !== "string" || typeof query !== "string" || (mode !== "token" && mode !== "phrase")) return 0;
-      try {
-        const values = JSON.parse(encoded) as unknown;
-        return Array.isArray(values) && values.some((value) =>
-          typeof value === "string" && normalizedScopeMatches(value, query, mode)
-        ) ? 1 : 0;
-      } catch {
-        return 0;
-      }
-    });
     return db;
   }
 
@@ -850,6 +982,7 @@ export class MemorySearchIndex {
       : null;
 
     let cursor = afterRowid;
+    let lastYield = performance.now();
     while (cursor < targetRowid) {
       const batchTarget = this.nextBatchTarget(request, cursor, targetRowid);
       const batch = this.sourceRows(request, cursor, batchTarget);
@@ -965,7 +1098,13 @@ export class MemorySearchIndex {
         throw error;
       }
       cursor = batch.at(-1)!.rowid;
+      this.progressDone += batch.length;
       this.enforceMemoryLimit(db);
+      // Yield to the event loop so other tool calls answer while a build runs.
+      if (performance.now() - lastYield > BUILD_STEP_MS) {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        lastYield = performance.now();
+      }
     }
   }
 
@@ -991,11 +1130,13 @@ export class MemorySearchIndex {
 
   private async build(allowPartial: boolean, existing?: DatabaseRequest): Promise<void> {
     this.onBuild?.();
-    const request = existing ?? this.context.request();
+    const request = existing ?? this.context.request({ connection: "index" });
     let db: Database.Database | null = null;
     try {
       assertMessageConversationIntegrity(request);
       const estimate = this.estimate(request, allowPartial);
+      this.progressDone = 0;
+      this.progressTotal = estimate.rows;
       if (!allowPartial && estimate.max_blob_bytes > MAX_INDEX_BLOB_BYTES) {
         throw new ImessageMcpError("DECODE_FAILED", `search index encountered an attributed-body blob above the ${MAX_ATTRIBUTED_BODY_LABEL} decoder limit`, {
           max_blob_bytes: estimate.max_blob_bytes,
@@ -1023,9 +1164,14 @@ export class MemorySearchIndex {
           limit_bytes: this.memoryLimit(),
         });
       }
-      const signatures = sourceSignatures(request);
+      const signatures = await sourceSignatures(request);
       db = this.createIndex();
       await this.populate(request, db, [[0, request.asOf.max_message_id]], allowPartial, false);
+      await this.recordAllRowStates(request, db);
+      setMetaValue(db, "log_id", newLogId());
+      const rows = identityRows(request.db);
+      setMetaValue(db, "db_id_rows", JSON.stringify(rows));
+      setMetaValue(db, "db_id", archiveIdentity(request.db, rows) ?? "");
       this.finalizeIndex(db);
       this.enforceMemoryLimit(db);
       const previous = this.index;
@@ -1035,6 +1181,7 @@ export class MemorySearchIndex {
       this.signatures = signatures;
       this.recountPartialRows(this.index);
       previous?.close();
+      this.checkpoint(request);
     } catch (error) {
       throw this.indexTooLarge(error);
     } finally {
@@ -1054,7 +1201,7 @@ export class MemorySearchIndex {
     const index = this.index as Database.Database;
     const previous = this.signatures as SourceSignatures;
     assertMessageConversationIntegrity(request);
-    const next = sourceSignatures(request);
+    const next = await sourceSignatures(request);
     const changed = new Set<number>();
     for (const [bucket, signature] of next.buckets) {
       if (previous.buckets.get(bucket) !== signature) changed.add(bucket);
@@ -1115,6 +1262,14 @@ export class MemorySearchIndex {
         .map(([first, last]): [number, number] => [Math.max(0, first - 1), Math.min(last, target)])
         .filter(([after, upTo]) => after < upTo);
       await this.populate(request, index, populateRanges, allowPartial, true);
+      const deleteStates = index.prepare("DELETE FROM row_state WHERE rowid BETWEEN ? AND ?");
+      for (const [first, last] of ranges) {
+        const before = storedRowStates(index, first, last);
+        const after = readRowStates(request, Math.max(0, first - 1), Math.min(last, target));
+        recordChanges(index, diffRowStates(before, after));
+        deleteStates.run(first, last);
+        writeRowStates(index, after);
+      }
       index.exec("COMMIT");
     } catch (error) {
       if (index.inTransaction) index.exec("ROLLBACK");
@@ -1123,15 +1278,70 @@ export class MemorySearchIndex {
     this.indexedWatermark = request.asOf;
     this.signatures = next;
     this.recountPartialRows(index);
+    if (changed.size > REFRESH_NOTICE_BUCKETS || Date.now() - this.lastCheckpoint > CHECKPOINT_INTERVAL_MS) {
+      this.checkpoint(request);
+    }
   }
 
-  async ensure(allowPartial: boolean): Promise<void> {
-    if (this.building) await this.building;
+  private async recordAllRowStates(request: DatabaseRequest, db: Database.Database): Promise<void> {
+    const target = request.asOf.max_message_id;
+    for (let after = 0; after < target; after += ROW_STATE_CHUNK) {
+      writeRowStates(db, readRowStates(request, after, Math.min(target, after + ROW_STATE_CHUNK)));
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+  }
+
+  // The change log for sync_messages, current as of the last ensure().
+  changeLog(): { logId: string; databaseId: string; latestSeq: number; oldestSeq: number; read(afterSeq: number, limit: number): Array<ChangeRow & { seq: number }> } {
+    const index = this.index;
+    if (!index) throw new ImessageMcpError("INDEX_BUILDING", "the change log is not built yet; try again in a few seconds", { retry_after_seconds: 5 });
+    const bounds = index.prepare("SELECT COALESCE(MIN(seq), 0) AS oldest, COALESCE(MAX(seq), 0) AS latest FROM changes").get() as { oldest: number; latest: number };
+    const latest = Math.max(Number(bounds.latest), Number(metaValue(index, "seq_floor") ?? 0));
+    return {
+      logId: metaValue(index, "log_id") ?? "",
+      databaseId: metaValue(index, "db_id") ?? "",
+      latestSeq: latest,
+      oldestSeq: Number(bounds.oldest) || latest + 1,
+      read: (afterSeq, limit) => index.prepare("SELECT * FROM changes WHERE seq > ? ORDER BY seq LIMIT ?").all(afterSeq, limit) as Array<ChangeRow & { seq: number }>,
+    };
+  }
+
+  // Calls are serialized: the background build, a search, and a refresh each
+  // hold the index connection's read snapshot while they run.
+  ensure(allowPartial: boolean): Promise<void> {
+    const run = this.ensuring.then(() => this.ensureOnce(allowPartial));
+    this.ensuring = run.catch(() => undefined);
+    return run;
+  }
+
+  // Resolves true once no build is running, or false after waitMs.
+  async waitForBuild(waitMs: number): Promise<boolean> {
+    const current = this.building;
+    if (!current) return true;
+    let timer: NodeJS.Timeout | undefined;
+    const settled = await Promise.race([
+      current.then(() => true, () => true),
+      new Promise<false>((resolve) => { timer = setTimeout(() => resolve(false), waitMs); timer.unref(); }),
+    ]);
+    clearTimeout(timer);
+    return settled;
+  }
+
+  private async ensureOnce(allowPartial: boolean): Promise<void> {
+    if (!this.index && !this.cacheTried) {
+      this.cacheTried = true;
+      const request = this.context.request({ connection: "index" });
+      try {
+        this.restore(request);
+      } finally {
+        request.close();
+      }
+    }
     if (!this.index || !this.signatures) {
       await this.track(this.build(allowPartial));
       return;
     }
-    const request = this.context.request();
+    const request = this.context.request({ connection: "index" });
     try {
       if (this.indexedWatermark?.data_version !== request.asOf.data_version) {
         await this.track(this.refresh(allowPartial, request));
@@ -1270,7 +1480,7 @@ export class MemorySearchIndex {
     });
     let decodedCursor: IndexCursor | null = null;
     if (input.cursor) {
-      const decoded = decodeReference(this.context.referenceKey, this.context.lineage, "page", input.cursor).value as unknown as IndexCursor;
+      const decoded = decodeCursor("page", input.cursor) as unknown as IndexCursor;
       if (
         decoded.query_hash !== hash ||
         !Number.isSafeInteger(decoded.after_rowid) || decoded.after_rowid <= 0 ||
@@ -1356,8 +1566,8 @@ export class MemorySearchIndex {
       const chatIds = chatIdArray(String(row.chat_ids));
       const filenames = stringArray(String(row.filenames), MAX_INDEX_RELATIONS_PER_MESSAGE, "indexed filename");
       return {
-        message_ref: encodeReference(this.context.referenceKey, this.context.lineage, "message", { rowid: Number(row.rowid), guid: row.guid }),
-        conversation_ref: encodeReference(this.context.referenceKey, this.context.lineage, "conversation", { chat_ids: chatIds }),
+        message_id: Number(row.rowid),
+        chat_id: chatIds[0],
         timestamp: appleTimestampToIso(row.date_token),
         service_family: serviceFamily(row.service),
         sender: sender.identity,
@@ -1372,7 +1582,7 @@ export class MemorySearchIndex {
     });
     const last = page.at(-1);
     const nextCursor = hasMore && last
-      ? encodeReference(this.context.referenceKey, this.context.lineage, "page", {
+      ? encodeCursor("page", {
           query_hash: hash,
           frozen,
           after_date: sqliteIntegerToken(last.date_token, "search cursor timestamp"),

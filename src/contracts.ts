@@ -1,4 +1,4 @@
-export const API_VERSION = "2.0" as const;
+export const API_VERSION = "3.0" as const;
 
 export type PrivacyMode = "full" | "redacted" | "aggregate";
 export type Completeness = "complete" | "partial";
@@ -14,6 +14,7 @@ export type ErrorReason =
   | "UNSUPPORTED_SCHEMA"
   | "DECODE_FAILED"
   | "INDEX_TOO_LARGE"
+  | "INDEX_BUILDING"
   | "QUERY_BUDGET_EXCEEDED";
 
 export interface Warning {

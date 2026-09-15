@@ -24,9 +24,9 @@ jobs:
       fail-fast: false
       matrix:
         os-version: [14, 15, 26]
-        node-version: [22, 24, 25, 26]
+        node-version: [22, 24, 26]
     runs-on: macos-${{ matrix.os-version }}
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -35,19 +35,32 @@ jobs:
           cache: npm
           package-manager-cache: true
       - run: npm ci
-      # tests/mcpb.test.ts skips its content checks unless the bundle is on
-      # disk, so one cell packs it first and gates the shipped artifact.
+      # Node 22 lacks node:sqlite serialize(); these cells prove it is refused
+      # before any import, with the upgrade message instead of a stack trace.
+      - if: matrix.node-version == 22
+        name: node 22 is refused with the upgrade message
+        shell: bash
+        run: |
+          npx --no-install tsc
+          set +e
+          OUTPUT=$(node bin/imessage-mcp.js --version 2>&1)
+          STATUS=$?
+          set -e
+          test "$STATUS" -eq 1
+          grep -q "needs Node 24.16 or newer" <<< "$OUTPUT"
+      # One cell packs the desktop bundle first, so the end-to-end suite also
+      # unpacks and launches the artifact that ships.
       - if: matrix.os-version == 26 && matrix.node-version == 24
         run: npm run build:mcpb
-      - run: npm run verify
-      # verify never launches the bundle; this cell built one, so launch it here.
-      - if: matrix.os-version == 26 && matrix.node-version == 24
-        run: npm run test:mcpb -- --require
+      - if: matrix.node-version != 22
+        run: npm run verify
+        env:
+          IMESSAGE_E2E_REQUIRE_BUNDLE: ${{ matrix.os-version == 26 && matrix.node-version == 24 && '1' || '0' }}
 
   intel-package-smoke:
     name: macos 26 intel package smoke
     runs-on: macos-26-intel
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -56,16 +69,15 @@ jobs:
           cache: npm
           package-manager-cache: true
       - run: npm ci
-      - run: npm run build
-      - run: npm run test:installed
-      # the desktop bundle carries one sqlite binary per chip; this is the Intel launch.
       - run: npm run build:mcpb
-      - run: npm run test:mcpb -- --require
+      - run: npm run e2e
+        env:
+          IMESSAGE_E2E_REQUIRE_BUNDLE: "1"
 
   performance:
     name: million-message performance (macos 14, node 24)
     runs-on: macos-14
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -74,5 +86,4 @@ jobs:
           cache: npm
           package-manager-cache: true
       - run: npm ci
-      - run: npm run build
-      - run: npm run test:performance
+      - run: npm run perf

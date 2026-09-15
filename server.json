@@ -1,62 +1,61 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.anipotts/imessage-mcp",
-  "title": "iMessage MCP",
-  "description": "Read-only MCP for iMessage, SMS, MMS, and RCS history already present in Apple Messages on Mac.",
+  "title": "iMessage History",
+  "description": "Search and read your Apple Messages history from any MCP client. Read-only, local.",
   "icons": [
     {
-      "src": "https://raw.githubusercontent.com/anipotts/imessage-mcp/v2.2.0/assets/icon.svg",
+      "src": "https://raw.githubusercontent.com/anipotts/imessage-mcp/v3.0.0/assets/icon.svg",
       "mimeType": "image/svg+xml",
-      "sizes": ["any"]
+      "sizes": [
+        "any"
+      ]
     },
     {
-      "src": "https://raw.githubusercontent.com/anipotts/imessage-mcp/v2.2.0/assets/icon-512.png",
+      "src": "https://raw.githubusercontent.com/anipotts/imessage-mcp/v3.0.0/assets/icon-512.png",
       "mimeType": "image/png",
-      "sizes": ["512x512"]
+      "sizes": [
+        "512x512"
+      ]
     }
   ],
   "repository": {
     "url": "https://github.com/anipotts/imessage-mcp",
     "source": "github"
   },
-  "version": "2.2.0",
+  "version": "3.0.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "imessage-mcp",
-      "version": "2.2.0",
+      "version": "3.0.0",
       "transport": {
         "type": "stdio"
       },
       "environmentVariables": [
         {
-          "name": "IMESSAGE_DB",
-          "description": "Absolute path to a live or faithfully copied Mac chat.db. Defaults to the current user's Messages database.",
+          "name": "IMESSAGE_PRIVACY",
+          "description": "Most any caller can see: full (default for stdio), redacted, or aggregate.",
           "isRequired": false
         },
         {
           "name": "IMESSAGE_CONTACTS",
-          "description": "Use the authorized live unified contact store or handles only. Values: live, none. Privacy-first setup uses none; the live database runtime default is live.",
+          "description": "live (default) names handles from Contacts; none shows handles only.",
           "isRequired": false
         },
         {
-          "name": "IMESSAGE_PRIVACY",
-          "description": "Startup disclosure ceiling. Values: full, redacted, aggregate. Privacy-first setup uses redacted; stdio runtime defaults to full and HTTP to redacted.",
+          "name": "IMESSAGE_DB",
+          "description": "Path to a copy of chat.db instead of this Mac's Messages database.",
           "isRequired": false
         },
         {
-          "name": "IMESSAGE_ATTACHMENT_PATHS",
-          "description": "Set to 1 to permit explicit full-mode attachment-path requests.",
+          "name": "IMESSAGE_CACHE",
+          "description": "Set to 0 to keep the search index in memory only.",
           "isRequired": false
         },
         {
-          "name": "IMESSAGE_REFERENCE_KEY_FILE",
-          "description": "Optional. The opaque-reference key is generated on first run in the state directory; set this to pin it to an operator-owned 0600 regular file of at least 32 random bytes.",
-          "isRequired": false
-        },
-        {
-          "name": "IMESSAGE_DATABASE_ID_FILE",
-          "description": "Optional. The database-lineage identity is generated on first run in the state directory; set this to pin a copy to the original lineage through an operator-owned 0600 regular file.",
+          "name": "IMESSAGE_UPDATE_CHECK",
+          "description": "Set to 0 to turn off the npm version check.",
           "isRequired": false
         }
       ],

@@ -1,47 +1,48 @@
-# privacy policy
+# Privacy policy
 
-Effective 2026-09-14. This policy covers the `imessage-mcp` server in every form it ships: the npm package, the Claude Code plugin, and the Claude Desktop extension (`imessage-mcp.mcpb`).
+Effective 2026-09-15. This policy covers `imessage-mcp` in every form it ships: the npm package, the Claude Code plugin, and the Claude Desktop extension (`imessage-mcp.mcpb`).
 
 imessage-mcp is open source software that runs entirely on your Mac. It has no accounts, no servers, and no analytics. The author receives none of your data.
 
-## what it reads
+## What it reads
 
-- **Messages history** in the Messages database on your Mac, read-only, when an assistant calls one of its tools. That can include message text, timestamps, handles (phone numbers and email addresses), conversation names, and attachment metadata such as filenames.
-- **Contact names** from the Contacts app, only when contact names are on (`--contacts live`, the default). Contacts are used to put names on handles and are never modified.
+- **Messages history** in the Messages database on your Mac, read-only, when an assistant calls one of its tools: message text, timestamps, handles (phone numbers and email addresses), conversation names, reactions, receipts, and attachment metadata.
+- **Attachment content**, one file at a time, only when an assistant calls `get_attachment` at the `full` privacy mode. Images have location and camera metadata removed before they are returned.
+- **Contact names** from the database Contacts.app keeps on your Mac, when contact names are on (`--contacts live`, the default). They are used only to put names on handles and are never modified.
 
-macOS decides whether any of this is readable: Full Disk Access gates Messages, and the Contacts permission gates Contacts. The server cannot grant itself either.
+macOS Full Disk Access, granted by you to the app that runs the server, gates all of it. The server cannot grant itself access.
 
-## how it uses that data
+## How it uses that data
 
-Only to answer the tool call that asked for it: searching messages, reading a conversation, resolving a contact, computing counts, or reporting server status. The privacy ceiling you choose (`full`, `redacted`, or `aggregate`) limits what a result may contain. It cannot send, edit, or delete messages.
+Only to answer the tool call that asked for it. The privacy mode you choose (`full`, `redacted`, or `aggregate`) limits what a result can contain. The server cannot send, edit, or delete messages.
 
-## where it is stored
+## Where it is stored
 
-- **Search index:** decoded message text for search is kept in memory while the server runs and is discarded when it stops. No message index is written to disk.
-- **Two key files** under `~/Library/Application Support/imessage-mcp/` (owner-only permissions). They encrypt the conversation references the server hands out. They contain no message data.
-- **No logs of your data:** diagnostics go to the launching app's log and contain tool names, durations, counts, and error codes, never queries, names, handles, paths, or message text.
+- **Search index.** Built from your messages and cached, encrypted, in `~/Library/Caches/imessage-mcp` so the next start is fast. The key comes from your Messages database itself, so only an app that can already read your messages can open it.
+- **Nothing else.** No logs of your data are kept. Diagnostics contain tool names, durations, and error codes, never queries, names, handles, paths, or message text.
 
-## who it is shared with
+## Who it is shared with
 
-- **Your MCP client and its model provider.** Results go to the app that launched the server (for example Claude Desktop, Claude Code, Codex, or Cursor), which may send them to its model provider and keep them under that provider's own policy. This is the purpose of the server, and it is the one place your data leaves this process. Use `redacted` or `aggregate` mode to limit what that app receives.
-- **The public npm registry, for update checks only.** When `server_status` or `doctor` runs, the server may make one anonymous request to `https://registry.npmjs.org/imessage-mcp/latest` to learn the newest version number, at most about twice a day. It sends no message data, contact data, or identifiers; like any web request, the registry can see your IP address. Set `IMESSAGE_UPDATE_CHECK=0` to turn this off.
+- **Your MCP client and its model provider.** Results go to the app that launched the server (for example Claude, Codex, Cursor, or VS Code), which may send them to its model provider and keep them under that provider's policy. This is the purpose of the server. Use `redacted` or `aggregate` mode to limit what that app receives.
+- **The public npm registry, for version checks only.** When `server_status` or `doctor` runs, the server may request `https://registry.npmjs.org/imessage-mcp/latest` to learn the newest version number, at most about twice a day. It sends no message data, contact data, or identifiers. Like any web request, the registry sees your IP address. Set `IMESSAGE_UPDATE_CHECK=0`, or turn off "Check for updates" in Claude Desktop, to stop it.
 - **No one else.** There is no telemetry, crash reporting, advertising, or sale of data.
 
-## retention
+## Retention
 
-The author retains nothing, because nothing is collected. The in-memory index lasts only as long as the server process. The two key files remain until you remove them with `npx -y imessage-mcp@2 uninstall --client <client> --purge --yes` or delete the folder. Data returned to your MCP client is retained according to that client's and its model provider's policies.
+The author retains nothing, because nothing is collected. The search index cache stays until you delete `~/Library/Caches/imessage-mcp` or macOS clears caches; the server rebuilds it when needed. Data returned to your MCP client is retained under that client's and its model provider's policies.
 
-## your choices
+## Your choices
 
-- Pick a stricter privacy ceiling or turn contact names off in the extension settings or with `--privacy` and `--contacts`.
-- Revoke Full Disk Access or Contacts access in System Settings at any time.
-- Uninstall from Claude Desktop Settings, Extensions, or with the `uninstall` command.
+- Choose a stricter privacy mode, or turn contact names off, with `--privacy` and `--contacts` or in the Claude Desktop extension settings.
+- Keep the index in memory only with `IMESSAGE_CACHE=0`.
+- Revoke Full Disk Access in System Settings at any time.
+- Uninstall by removing the server from your client and deleting `~/Library/Caches/imessage-mcp`.
 
-## changes
+## Changes
 
-Changes to this policy are published in this file and noted in [CHANGELOG.md](CHANGELOG.md), with history in the repository.
+Changes to this policy are published in this file and noted in [CHANGELOG.md](CHANGELOG.md).
 
-## contact
+## Contact
 
 - Questions and privacy requests: [open an issue](https://github.com/anipotts/imessage-mcp/issues). Do not include message contents, handles, or contact names in a public issue.
 - Security or privacy vulnerabilities: [report privately](https://github.com/anipotts/imessage-mcp/security/advisories/new).
