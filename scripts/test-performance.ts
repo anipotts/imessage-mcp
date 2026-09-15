@@ -13,6 +13,8 @@ import type { CallToolResult } from "@modelcontextprotocol/server";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { LocalToolRuntime } from "../src/tool-local.js";
 
+// Status timing measures local work, not the npm registry.
+process.env.IMESSAGE_UPDATE_CHECK = "0";
 const REFERENCE_MESSAGES = 1_000_000;
 const REFRESH_CEILING_MS = 30_000;
 
