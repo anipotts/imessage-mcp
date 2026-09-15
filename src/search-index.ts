@@ -16,6 +16,19 @@ import { columnSql, serviceFamilyCase, serviceFamilyPredicate, serviceSql } from
 import { validateSender } from "./sender.js";
 import type { DateBounds } from "./time.js";
 import { MAX_ATTRIBUTED_BODY_BYTES, MAX_ATTRIBUTED_BODY_LABEL } from "./limits.js";
+import { databaseIdentity } from "./cache.js";
+import {
+  CHANGE_LOG_SQL,
+  diffRowStates,
+  metaValue,
+  newLogId,
+  readRowStates,
+  recordChanges,
+  setMetaValue,
+  storedRowStates,
+  writeRowStates,
+  type ChangeRow,
+} from "./changes.js";
 import {
   appleTimestampBoundary,
   appleTimestampBoundarySql,
@@ -82,6 +95,7 @@ interface IndexEstimate {
 
 const MIB = 1024 * 1024;
 const SOURCE_BATCH_SIZE = 200;
+const ROW_STATE_CHUNK = 2_000;
 const BUILD_STEP_MS = 40;
 const SOURCE_BATCH_BYTES = 8 * MIB;
 const MAX_INDEX_TEXT_BYTES = 3 * MIB;
@@ -160,20 +174,22 @@ function sourceSignatures(request: DatabaseRequest): SourceSignatures {
     }
     return hash;
   };
+  // Every row counts, not only searchable ones: reactions, group events and
+  // receipt state feed the sync change log.
   const messageFields = [
     exact("m.guid"),
     "QUOTE(m.date)",
     "QUOTE(m.is_from_me)",
     "QUOTE(m.handle_id)",
     exact("h.id"),
-    exact(columnSql(request, "message", "m", "service", "NULL")),
-    exact(columnSql(request, "message", "m", "text", "NULL")),
-    exact(columnSql(request, "message", "m", "attributedBody", "NULL")),
+    ...["service", "text", "attributedBody", "associated_message_guid"].map((name) => exact(columnSql(request, "message", "m", name, "NULL"))),
+    ...["associated_message_type", "item_type", "is_system_message", "date_retracted", "date_edited", "is_read", "date_read", "is_delivered", "date_delivered"]
+      .map((name) => `QUOTE(${columnSql(request, "message", "m", name, "NULL")})`),
   ];
   const messages = request.db.prepare(
     `SELECT m.ROWID, ${messageFields.join(" || ',' || ")}
      FROM message m LEFT JOIN handle h ON h.ROWID = m.handle_id
-     WHERE m.ROWID <= @target AND ${eligibleMessageSql(request)}
+     WHERE m.ROWID <= @target
      ORDER BY m.ROWID`,
   ).raw().iterate({ target }) as Iterable<[number, string]>;
   for (const [rowid, fields] of messages) {
@@ -469,6 +485,7 @@ export class MemorySearchIndex {
     db.pragma("temp_store = MEMORY");
     const pageSize = Number(db.pragma("page_size", { simple: true })) || 4096;
     db.pragma(`max_page_count = ${Math.max(1, Math.floor(this.memoryLimit() / pageSize))}`);
+    db.exec(CHANGE_LOG_SQL);
     db.exec(`
       CREATE TABLE message_text (
         rowid INTEGER PRIMARY KEY,
@@ -1043,6 +1060,9 @@ export class MemorySearchIndex {
       const signatures = sourceSignatures(request);
       db = this.createIndex();
       await this.populate(request, db, [[0, request.asOf.max_message_id]], allowPartial, false);
+      await this.recordAllRowStates(request, db);
+      setMetaValue(db, "log_id", newLogId());
+      setMetaValue(db, "db_id", databaseIdentity(request.db));
       this.finalizeIndex(db);
       this.enforceMemoryLimit(db);
       const previous = this.index;
@@ -1132,6 +1152,14 @@ export class MemorySearchIndex {
         .map(([first, last]): [number, number] => [Math.max(0, first - 1), Math.min(last, target)])
         .filter(([after, upTo]) => after < upTo);
       await this.populate(request, index, populateRanges, allowPartial, true);
+      const deleteStates = index.prepare("DELETE FROM row_state WHERE rowid BETWEEN ? AND ?");
+      for (const [first, last] of ranges) {
+        const before = storedRowStates(index, first, last);
+        const after = readRowStates(request, Math.max(0, first - 1), Math.min(last, target));
+        recordChanges(index, diffRowStates(before, after));
+        deleteStates.run(first, last);
+        writeRowStates(index, after);
+      }
       index.exec("COMMIT");
     } catch (error) {
       if (index.inTransaction) index.exec("ROLLBACK");
@@ -1140,6 +1168,29 @@ export class MemorySearchIndex {
     this.indexedWatermark = request.asOf;
     this.signatures = next;
     this.recountPartialRows(index);
+  }
+
+  private async recordAllRowStates(request: DatabaseRequest, db: Database.Database): Promise<void> {
+    const target = request.asOf.max_message_id;
+    for (let after = 0; after < target; after += ROW_STATE_CHUNK) {
+      writeRowStates(db, readRowStates(request, after, Math.min(target, after + ROW_STATE_CHUNK)));
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+  }
+
+  // The change log for sync_messages, current as of the last ensure().
+  changeLog(): { logId: string; databaseId: string; latestSeq: number; oldestSeq: number; read(afterSeq: number, limit: number): Array<ChangeRow & { seq: number }> } {
+    const index = this.index;
+    if (!index) throw new ImessageMcpError("INDEX_BUILDING", "the change log is not built yet; try again in a few seconds", { retry_after_seconds: 5 });
+    const bounds = index.prepare("SELECT COALESCE(MIN(seq), 0) AS oldest, COALESCE(MAX(seq), 0) AS latest FROM changes").get() as { oldest: number; latest: number };
+    const latest = Math.max(Number(bounds.latest), Number(metaValue(index, "seq_floor") ?? 0));
+    return {
+      logId: metaValue(index, "log_id") ?? "",
+      databaseId: metaValue(index, "db_id") ?? "",
+      latestSeq: latest,
+      oldestSeq: Number(bounds.oldest) || latest + 1,
+      read: (afterSeq, limit) => index.prepare("SELECT * FROM changes WHERE seq > ? ORDER BY seq LIMIT ?").all(afterSeq, limit) as Array<ChangeRow & { seq: number }>,
+    };
   }
 
   // Calls are serialized: the background build, a search, and a refresh each

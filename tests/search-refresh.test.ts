@@ -96,12 +96,20 @@ describe("search index refresh", () => {
     fixture.cleanup();
   });
 
-  it("ignores writes that search never reads without rebuilding or re-indexing", async () => {
-    writer.prepare("UPDATE message SET is_read = 1, date_read = ? WHERE ROWID = 1").run(appleNanoseconds("2026-04-02T00:00:00Z"));
+  it("ignores writes that neither search nor sync reads without rebuilding or re-indexing", async () => {
+    writer.prepare("UPDATE message SET other_handle = 7 WHERE ROWID = 1").run();
     writer.prepare("UPDATE chat SET state = 3 WHERE ROWID = 1").run();
     expect((await search("hello literal")).total).toBe(1);
     expect(onBuild).toHaveBeenCalledTimes(1);
     expect(populated).toEqual([]);
+  });
+
+  it("re-indexes only the bucket of a message whose receipt changed, for the sync change log", async () => {
+    writer.prepare("UPDATE message SET is_read = 1, date_read = ? WHERE ROWID = 600").run(appleNanoseconds("2026-04-02T00:00:00Z"));
+    expect((await search("third bucket seed")).total).toBe(1);
+    expect(onBuild).toHaveBeenCalledTimes(1);
+    expect(populated).toEqual([[511, 600]]);
+    expect(internals(index).index.prepare("SELECT type, rowid FROM changes").all()).toEqual([{ type: "receipt_changed", rowid: 600 }]);
   });
 
   it("re-indexes only the bucket holding an edited message", async () => {

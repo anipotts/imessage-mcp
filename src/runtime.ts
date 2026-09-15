@@ -20,12 +20,12 @@ import {
   type ConversationFilters,
 } from "./repositories/conversations.js";
 import { getConversationEvents, type TimelineEventType } from "./repositories/messages.js";
-import { prepareCopiedDatabaseSync, syncMessages } from "./repositories/sync.js";
 import { serviceFamilyCase } from "./schema-sql.js";
 import { MemorySearchIndex } from "./search-index.js";
 import { checkForUpdate } from "./update-check.js";
 import { readAttachmentContent } from "./attachments.js";
-import { positiveId } from "./references.js";
+import { decodeCursor, encodeCursor, MAX_SYNC_CURSOR_LENGTH, positiveId } from "./references.js";
+import { assertCursorLog, materializeChanges } from "./changes.js";
 import { compileDateBounds } from "./time.js";
 
 const dirnameHere = dirname(fileURLToPath(import.meta.url));
@@ -88,7 +88,6 @@ export class LocalToolRuntime {
   }
 
   async prepare(): Promise<void> {
-    await prepareCopiedDatabaseSync(this.database);
     const request = this.database.request();
     try {
       this.detectedServices(request);
@@ -464,24 +463,44 @@ export class LocalToolRuntime {
   }
 
   private async syncMessages(params: ToolParams, privacy: PrivacyMode): Promise<CallToolResult> {
-    const result = await syncMessages({
-      context: this.database,
-      contacts: this.contacts,
-      decoder: this.decoder,
-      cursor: optionalString(params, "cursor"),
-      limit: Number(params.limit ?? 50),
-      allowPartial: Boolean(params.allow_partial),
-      privacy,
-      catalog: this.conversationCatalog,
-    });
+    await this.search.ensure(true);
+    const log = this.search.changeLog();
+    const cursorFor = (seq: number) => encodeCursor("sync", { v: 3, seq, log: log.logId, db: log.databaseId });
+    const cursor = optionalString(params, "cursor");
+    if (cursor === undefined) {
+      return successResult({
+        tool: "sync_messages",
+        privacy,
+        maskingKey: this.maskingKey,
+        effectiveScope: { privacy_mode: privacy },
+        data: { changes: [], cursor: cursorFor(log.latestSeq) },
+        page: { next_cursor: null, has_more: false, as_of: log.logId },
+      });
+    }
+    const afterSeq = assertCursorLog(decodeCursor("sync", cursor, MAX_SYNC_CURSOR_LENGTH), log.logId, log.databaseId, log.oldestSeq);
+    const limit = Number(params.limit ?? 50);
+    const rows = log.read(afterSeq, limit + 1);
+    const hasMore = rows.length > limit;
+    const page = rows.slice(0, limit);
+    const request = this.database.request();
+    let changes: Awaited<ReturnType<typeof materializeChanges>>;
+    try {
+      changes = await materializeChanges({ request, contacts: this.contacts, decoder: this.decoder, rows: page });
+    } finally {
+      request.close();
+    }
+    const partial = changes.filter((change) => change.row_status === "partial").length;
+    const next = cursorFor(page.at(-1)?.seq ?? afterSeq);
     return successResult({
       tool: "sync_messages",
       privacy,
       maskingKey: this.maskingKey,
       effectiveScope: { privacy_mode: privacy },
-      data: { changes: result.changes, cursor: result.cursor },
-      page: { next_cursor: result.hasMore ? result.cursor : null, has_more: result.hasMore, as_of: result.asOf },
-      warnings: result.warnings,
+      data: { changes, cursor: next },
+      page: { next_cursor: hasMore ? next : null, has_more: hasMore, as_of: log.logId },
+      warnings: partial > 0
+        ? [{ code: "PARTIAL_ROWS", message: "some changed rows could not be fully read (undecodable body, unknown sender, or a message deleted since)", skipped_count: partial }]
+        : [],
     });
   }
 
