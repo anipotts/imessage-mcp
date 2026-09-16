@@ -34,7 +34,8 @@
     "live-parity": "tsx scripts/live-parity.ts",
     "verify": "npm run typecheck && npm test && npm run e2e && npm audit --audit-level=high && npm pack --dry-run",
     "prepublishOnly": "npm run verify",
-    "preflight": "npm run verify && npm run perf && npm run build:mcpb && npm run e2e && npm run live-parity"
+    "preflight": "npm run verify && npm run perf && npm run build:mcpb && npm run e2e && npm run live-parity",
+    "demo": "npm run build && vhs assets/demo.tape"
   },
   "dependencies": {
     "@modelcontextprotocol/server": "2.0.0",
