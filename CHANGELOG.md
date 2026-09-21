@@ -2,6 +2,13 @@
 
 this file follows [keep a changelog](https://keepachangelog.com/en/1.1.0/), and this project follows semantic versioning.
 
+## 3.0.2
+
+### fixed
+
+- in Claude Desktop, choosing `catch_up`, `draft_reply`, or `recap` failed with "Failed to attach prompt", because the desktop bundle's manifest did not declare them and Desktop refuses undeclared prompts. The manifest now lists all three, and a test keeps it in step with the server.
+- the stdio server answers the client's handshake before opening the Messages database or restoring the search index, so a slow start, such as many servers launching together with Claude Desktop, no longer trips the client's 60-second connect timeout.
+
 ## 3.0.1
 
 ### fixed

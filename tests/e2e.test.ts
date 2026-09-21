@@ -227,6 +227,12 @@ describe("stdio handshake", () => {
       expect(prompt.arguments ?? [], `${prompt.name} must take no arguments`).toEqual([]);
     }
 
+    // Claude Desktop refuses any tool or prompt its bundle manifest does not declare.
+    const manifest = JSON.parse(readFileSync(path.join(repoRoot, "manifest.json"), "utf8")) as { tools: Array<{ name: string }>; prompts?: Array<{ name: string; text?: string }> };
+    expect(manifest.tools.map((tool) => tool.name).sort()).toEqual(TOOL_NAMES);
+    expect((manifest.prompts ?? []).map((prompt) => prompt.name).sort()).toEqual(prompts.prompts.map((prompt) => prompt.name).sort());
+    for (const prompt of manifest.prompts ?? []) expect(prompt.text, `${prompt.name} needs manifest text`).toBeTruthy();
+
     const resources = await client.listResources();
     expect(resources.resources.map((resource) => resource.uri)).toContain("imessage://conversations");
 
@@ -575,16 +581,24 @@ describe("concurrency during the first search-index build", () => {
       { IMESSAGE_WARM_SEARCH: undefined },
     );
 
+    // The build starts once the first call finishes; wait until it is running.
+    const indexState = async () => (structuredData(await client.callTool({ name: "server_status", arguments: {} })) as {
+      index_state: { state: string };
+    }).index_state.state;
+    let state = await indexState();
+    for (let attempt = 0; state === "cold" && attempt < 50; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      state = await indexState();
+    }
+    expect(["building", "ready"]).toContain(state);
+
+    // A date filter bypasses the conversation cache, so this is a real query
+    // racing the build on the shared process.
     const started = Date.now();
-    const listed = await client.callTool({ name: "list_conversations", arguments: { limit: 10 } });
+    const listed = await client.callTool({ name: "list_conversations", arguments: { limit: 10, date_from: "2000-01-01" } });
     const elapsed = Date.now() - started;
     expect(listed.isError).toBeUndefined();
     expect(elapsed, "list_conversations must stay fast while the index builds").toBeLessThan(2_000);
-
-    const status = structuredData(await client.callTool({ name: "server_status", arguments: {} })) as {
-      index_state: { state: string };
-    };
-    expect(["building", "ready"]).toContain(status.index_state.state);
   }, 60_000);
 });
 
