@@ -281,6 +281,7 @@ function invokeTool(runtime: ToolRuntime, tool: string, params: unknown): CallTo
   return runtime.call(tool, params as Record<string, unknown>);
 }
 
+const WARM_IDLE_MS = 3_000;
 const BUILD_WAIT_MS = 15_000;
 
 // One process per client. Tool calls run one at a time because they share the
@@ -290,6 +291,8 @@ export class ToolRuntime {
   private local: LocalToolRuntime | null = null;
   private queue: Promise<unknown> = Promise.resolve();
   private readonly fallbackMaskingKey = randomBytes(32);
+  private warmTimer: NodeJS.Timeout | null = null;
+  private warmStarted = false;
 
   constructor(readonly config: RuntimeConfig) {}
 
@@ -300,7 +303,18 @@ export class ToolRuntime {
     void sweepAttachmentTemp().catch(() => undefined);
     const local = this.open();
     await local.prepare();
-    if (process.env.IMESSAGE_WARM_SEARCH !== "0") void local.warmSearch().catch(() => undefined);
+    // The build's setup is briefly synchronous, so it waits for the first call
+    // to finish, or a few idle seconds, instead of racing the client's first
+    // request right after the handshake.
+    this.warmTimer = setTimeout(() => this.warm(), WARM_IDLE_MS);
+  }
+
+  private warm(): void {
+    if (this.warmTimer) clearTimeout(this.warmTimer);
+    this.warmTimer = null;
+    if (this.warmStarted || !this.local || process.env.IMESSAGE_WARM_SEARCH === "0") return;
+    this.warmStarted = true;
+    void this.local.warmSearch().catch(() => undefined);
   }
 
   private open(): LocalToolRuntime {
@@ -331,6 +345,7 @@ export class ToolRuntime {
       result = errorResult(tool, error, privacy, this.local?.maskingKey ?? this.fallbackMaskingKey);
     }
     diagnostic(tool, started, result);
+    if (this.warmTimer) setImmediate(() => this.warm());
     return result;
   }
 
@@ -347,6 +362,8 @@ export class ToolRuntime {
   }
 
   close(): void {
+    if (this.warmTimer) clearTimeout(this.warmTimer);
+    this.warmTimer = null;
     this.local?.close();
     this.local = null;
   }
