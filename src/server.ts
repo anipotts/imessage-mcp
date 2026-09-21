@@ -638,21 +638,24 @@ export function createMcpServer(runtime: ToolRuntime): McpServer {
 
 export async function startStdio(config: RuntimeConfig): Promise<void> {
   const runtime = new ToolRuntime(config);
-  try {
-    await runtime.initialize();
-  } catch (error) {
-    // Without Full Disk Access, or before Messages has created its database, an
-    // exiting server surfaces in the client as a bare disconnect. Serving anyway
-    // lets every call return the fix, and access granted later needs no restart.
-    if (!(error instanceof ImessageMcpError) || error.reason !== "DATABASE_UNAVAILABLE") throw error;
-    runtime.close();
-    process.stderr.write(`${JSON.stringify({ transport: "stdio", status: "degraded", reason: error.reason })}\n`);
-  }
+  // Answer the handshake first: clients such as Claude Desktop give up on a
+  // server that is not ready within their timeout, and opening the database
+  // or restoring the index can be slow while many servers start at once.
   const handle = serveStdio(() => createMcpServer(runtime), {
     legacy: "serve",
     maxSubscriptions: 0,
     transport: new StdioServerTransport(process.stdin, process.stdout, { maxBufferSize: 1024 * 1024 }),
     onerror: (error) => process.stderr.write(JSON.stringify({ transport: "stdio", status: "error", reason: error.name }) + "\n"),
+  });
+  setImmediate(() => {
+    runtime.initialize().catch((error: unknown) => {
+      // Without Full Disk Access, or before Messages has created its database,
+      // the server keeps serving so every call returns the fix, and access
+      // granted later needs no restart.
+      runtime.close();
+      const reason = error instanceof ImessageMcpError ? error.reason : "INTERNAL";
+      process.stderr.write(`${JSON.stringify({ transport: "stdio", status: "degraded", reason })}\n`);
+    });
   });
   let closing = false;
   const shutdown = async () => {

@@ -227,6 +227,12 @@ describe("stdio handshake", () => {
       expect(prompt.arguments ?? [], `${prompt.name} must take no arguments`).toEqual([]);
     }
 
+    // Claude Desktop refuses any tool or prompt its bundle manifest does not declare.
+    const manifest = JSON.parse(readFileSync(path.join(repoRoot, "manifest.json"), "utf8")) as { tools: Array<{ name: string }>; prompts?: Array<{ name: string; text?: string }> };
+    expect(manifest.tools.map((tool) => tool.name).sort()).toEqual(TOOL_NAMES);
+    expect((manifest.prompts ?? []).map((prompt) => prompt.name).sort()).toEqual(prompts.prompts.map((prompt) => prompt.name).sort());
+    for (const prompt of manifest.prompts ?? []) expect(prompt.text, `${prompt.name} needs manifest text`).toBeTruthy();
+
     const resources = await client.listResources();
     expect(resources.resources.map((resource) => resource.uri)).toContain("imessage://conversations");
 
