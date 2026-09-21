@@ -1,96 +1,91 @@
 #!/usr/bin/env node
-// Drives the real, built server against a fictional demo database and
-// prints each question and its actual answer, typewriter-paced for a
-// terminal recording (see assets/demo.tape). Nothing here is canned:
-// every line comes from a live doctor run or a live tool call, including
-// the mid-recording message insert that sync_messages picks up.
+// Records the README demo against the real Messages database on this Mac:
+// real message text, real contact names, readable times. Phone numbers and
+// email addresses are starred out everywhere, including inside message text.
+// Nothing here writes to the Messages database.
+//
+//   DEMO_QUERY="dinner" npm run demo
+//
+// The query picks the story: the newest match, the conversation around it,
+// and how fast each side replies in that chat. Review assets/demo.gif frame
+// by frame before committing it; it shows whatever that conversation holds.
 
 import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
-import { execFileSync } from "node:child_process";
-import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildDemoDatabase } from "./build-demo-database.mjs";
+
+const query = process.env.DEMO_QUERY;
+if (!query) {
+  process.stderr.write('set DEMO_QUERY, for example DEMO_QUERY="dinner" npm run demo\n');
+  process.exit(1);
+}
 
 const repoRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const binPath = path.join(repoRoot, "bin", "imessage-mcp.js");
 
+const PHONE = /\+?\d[\d\s().-]{6,}\d/gu;
+const EMAIL = /[\w.+-]+@[\w-]+\.[\w.-]+/gu;
+const starDigits = (value) => value.replace(/\d(?=(?:\D*\d){2})/gu, "*");
+const scrub = (value) => String(value ?? "").replace(EMAIL, (m) => `${m[0]}***@***`).replace(PHONE, starDigits);
+const who = (sender, direction) => direction === "outgoing" ? "me" : scrub(sender?.name?.split(" ")[0] ?? sender?.handle ?? "?");
+const when = (iso) => new Date(iso).toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+const clip = (value, max = 64) => { const text = scrub(value).replace(/\s+/gu, " ").trim(); return text.length > max ? `${text.slice(0, max - 1)}…` : text; };
+const minutes = (seconds) => seconds == null ? "n/a" : seconds < 3600 ? `${Math.round(seconds / 60)} min` : `${(seconds / 3600).toFixed(1)} hr`;
+
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const type = async (line) => {
-  process.stdout.write("$ ");
-  for (const char of line) {
-    process.stdout.write(char);
-    await sleep(18);
-  }
+  process.stdout.write("\x1b[36m›\x1b[0m ");
+  for (const char of line) { process.stdout.write(char); await sleep(28); }
   process.stdout.write("\n");
-  await sleep(300);
+  await sleep(350);
 };
-const say = async (line, delay = 550) => {
-  process.stdout.write(`${line}\n`);
-  await sleep(delay);
-};
+const say = async (line, delay = 450) => { process.stdout.write(`${line}\n`); await sleep(delay); };
+const dim = (text) => `\x1b[2m${text}\x1b[0m`;
 
 async function main() {
-  const databasePath = buildDemoDatabase();
-
-  await type("npx imessage-mcp doctor");
-  const doctor = execFileSync(
-    process.execPath,
-    [binPath, "--database", databasePath, "--contacts", "none", "doctor"],
-    { encoding: "utf8" },
-  );
-  for (const line of doctor.trim().split("\n").slice(0, 5)) await say(`  ${line}`, 250);
-  await say("", 500);
-
   const transport = new StdioClientTransport({
     command: process.execPath,
-    args: [binPath, "--database", databasePath, "--contacts", "none"],
+    args: [binPath],
     cwd: repoRoot,
-    env: { ...process.env, IMESSAGE_UPDATE_CHECK: "0", IMESSAGE_CACHE: "0" },
+    env: { ...process.env, IMESSAGE_UPDATE_CHECK: "0" },
     stderr: "ignore",
   });
   const client = new Client({ name: "imessage-mcp-demo", version: "1.0.0" });
   await client.connect(transport);
+  const call = async (name, args) => {
+    const result = await client.callTool({ name, arguments: args });
+    if (result.isError) throw new Error(`${name}: ${result.content?.[0]?.text}`);
+    return result.structuredContent.data;
+  };
 
-  await type('search_messages "reservation"');
-  const search = await client.callTool({
-    name: "search_messages",
-    arguments: { query: "reservation", scopes: ["text"], limit: 5 },
-  });
-  const searchData = search.structuredContent.data;
-  await say(`  ${searchData.total_matches} match: "${searchData.results[0].snippet}"`, 900);
+  await say(dim("# ask your AI about your texts. read-only, runs on your Mac."), 900);
 
-  await type('get_conversation "Book Club"');
-  const conversation = await client.callTool({
-    name: "get_conversation",
-    arguments: { query: "Book Club", limit: 10 },
-  });
-  for (const event of conversation.structuredContent.data.events) {
-    if (event.event_type !== "message") continue;
-    const who = event.direction === "outgoing" ? "me" : "them";
-    const edited = (event.edit?.timestamps?.length ?? 0) > 0 ? " (edited)" : "";
-    await say(`  [${who}] ${event.text}${edited}`, 380);
+  await type(`find the message about "${query}"`);
+  const search = await call("search_messages", { query, limit: 3 });
+  const hit = search.results[0];
+  if (!hit) throw new Error(`no match for ${query}`);
+  await say(dim(`  search_messages · ${search.total_matches} matches, newest first`), 400);
+  for (const result of search.results) {
+    await say(`  ${dim(when(result.timestamp))}  ${who(result.sender, result.sender?.name === "Me" ? "outgoing" : "incoming")}: ${clip(result.snippet)}`, 350);
   }
+  await sleep(700);
 
-  await sleep(400);
-  await type("sync_messages");
-  const firstSync = await client.callTool({ name: "sync_messages", arguments: { limit: 20 } });
-  const cursor = firstSync.structuredContent.data.cursor;
-  await say(`  0 changes yet, cursor saved`, 700);
+  await type("show me that conversation");
+  const conversation = await call("get_conversation", { chat_id: hit.chat_id, around_message_id: hit.message_id, limit: 7, event_types: ["message"] });
+  await say(dim("  get_conversation · around that message"), 400);
+  for (const event of conversation.events) {
+    const edited = (event.edit?.timestamps?.length ?? 0) > 0 ? dim(" (edited)") : "";
+    const reactions = event.reactions?.length ? ` ${event.reactions.map((r) => r.emoji ?? r.type).join("")}` : "";
+    await say(`  ${dim(when(event.timestamp))}  ${who(event.sender, event.direction)}: ${clip(event.text)}${edited}${reactions}`, 330);
+  }
+  await sleep(700);
 
-  // A message arrives while the cursor is open, exactly like a live Mac.
-  const live = new DatabaseSync(databasePath);
-  const at = (Date.parse("2026-09-15T09:00:00Z") - Date.parse("2001-01-01T00:00:00Z")) * 1_000_000;
-  live.exec(`INSERT INTO message(ROWID, guid, text, handle_id, date, service) VALUES (9, 'd8', 'actually let''s do Saturday instead', 2, ${at}, 'iMessage')`);
-  live.exec("INSERT INTO chat_message_join(chat_id, message_id, message_date) VALUES (2, 9, " + at + ")");
-  live.close();
-
-  await say("  (a new message arrives)", 900);
-  await type("sync_messages --cursor <same cursor>");
-  const nextSync = await client.callTool({ name: "sync_messages", arguments: { limit: 20, cursor } });
-  const change = nextSync.structuredContent.data.changes[0];
-  await say(`  1 change: message_created — "${change.text}"\n`, 1200);
+  await type("who replies faster in that chat?");
+  const speed = await call("analyze_communication", { metric: "response_time", scope: "conversation", chat_id: hit.chat_id });
+  await say(dim("  analyze_communication · response_time"), 400);
+  await say(`  you reply in ~${minutes(speed.overall.my_average_seconds)}, they reply in ~${minutes(speed.overall.their_average_seconds)}`, 700);
+  await say(dim(`  across ${speed.overall.samples} back-and-forths`), 1600);
 
   await client.close();
 }
