@@ -2,6 +2,27 @@
 
 this file follows [keep a changelog](https://keepachangelog.com/en/1.1.0/), and this project follows semantic versioning.
 
+## 3.1.0
+
+Built from the tool traces of real Claude Code sessions, where a catch-up took up to a minute and a half.
+
+### added
+
+- `list_conversations` includes each conversation's latest message, so "who is waiting on me" takes one call instead of one `get_conversation` per thread. In `redacted` mode the text is removed like any other message body.
+- `list_conversations` takes `order: "most_messages"` to rank who you text the most.
+- `analyze_communication` with `message_count` adds `by_hour` and `by_weekday` in your timezone. Without these, an assistant asked "when am I most active" fell back to querying the Messages database directly, outside every privacy mode.
+
+### fixed
+
+- a contact saved twice, for example once per synced account, made every lookup by name ambiguous. Cards with the same name and a shared phone number or email now count as one person. Two people who share a landline stay separate.
+- the ambiguity error from `get_conversation` pointed at a `contact` argument that tool does not take. It now says to pass a handle as `query`, or a `chat_id`.
+- a result too large for the client's tool window, such as `get_conversation` with limit 200, is now trimmed to fit with a `RESULT_TRIMMED` warning and a cursor for the rest. Claude Code used to move such results to a file the model had to dig through.
+
+### changed
+
+- conversation events leave out fields with nothing to say: `text_status` when the body decoded, `edit` for an unedited message, and empty `reactions` and `attachments`. All were already optional in the schema. On a synthetic 50-message page this cut the result by about a quarter.
+- the `catch_up`, `draft_reply`, and `recap` prompts use the latest message and the new ordering and breakdowns, so each needs one or two calls.
+
 ## 3.0.2
 
 ### fixed
