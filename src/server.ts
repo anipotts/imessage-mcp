@@ -258,6 +258,7 @@ const syncMessagesOutput = successSchema(z.looseObject({
       "message_created",
       "message_edited",
       "message_retracted",
+      "message_deleted",
       "reaction_added",
       "reaction_removed",
       "receipt_changed",
