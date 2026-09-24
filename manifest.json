@@ -94,7 +94,7 @@
     },
     {
       "name": "server_status",
-      "description": "Version, update availability, access, and index state."
+      "description": "Version, update availability, index state, and Contacts access."
     }
   ],
   "prompts": [
