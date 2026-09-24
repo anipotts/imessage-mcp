@@ -784,6 +784,37 @@ describe("2.0 data and query core", () => {
     }
   });
 
+  it("reads the one-to-one chat when a person in a group chat too is named", async () => {
+    const isolated = createFixture();
+    const runtime = new LocalToolRuntime(runtimeConfig({ transport: "stdio", databasePath: isolated.databasePath, contacts: "none" }));
+    try {
+      const result = await runtime.call("get_conversation", { query: "+15550000001", limit: 5, privacy_mode: "full" });
+      expect(result.isError).toBeUndefined();
+      const data = (result.structuredContent as { data: { conversation: { kind: string; handle?: string } } }).data;
+      expect(data.conversation).toMatchObject({ kind: "direct", handle: "+15550000001" });
+    } finally {
+      runtime.close();
+      isolated.cleanup();
+    }
+  });
+
+  it("names each search hit's conversation and masks an unnamed handle when redacted", async () => {
+    const isolated = createFixture();
+    const runtime = new LocalToolRuntime(runtimeConfig({ transport: "stdio", databasePath: isolated.databasePath, contacts: "none" }));
+    try {
+      type Hits = { data: { results: Array<{ snippet?: string; conversation?: { name: string | null; kind: string; handle?: string } }> } };
+      const group = (await runtime.call("search_messages", { query: "group hello", mode: "substring", scopes: ["text"], order: "newest", limit: 5, privacy_mode: "full" })).structuredContent as Hits;
+      expect(group.data.results[0].conversation).toEqual({ name: "Synthetic Group", kind: "group" });
+      const direct = (await runtime.call("search_messages", { query: "reply one", mode: "substring", scopes: ["text"], order: "newest", limit: 5, privacy_mode: "full" })).structuredContent as Hits;
+      expect(direct.data.results[0].conversation).toEqual({ name: null, kind: "direct", handle: "+15550000001" });
+      const redacted = (await runtime.call("search_messages", { query: "reply one", mode: "substring", scopes: ["text"], order: "newest", limit: 5, privacy_mode: "redacted" })).structuredContent as Hits;
+      expect(redacted.data.results[0].conversation?.handle).toMatch(/^\[masked:/u);
+    } finally {
+      runtime.close();
+      isolated.cleanup();
+    }
+  });
+
   it("trims a large page to the result budget and keeps the cursor working", async () => {
     const isolated = createFixture();
     const db = new Database(isolated.databasePath);
@@ -801,7 +832,7 @@ describe("2.0 data and query core", () => {
       const result = await runtime.call("get_conversation", { chat_id: 1, limit: 200, privacy_mode: "full" });
       expect(result.isError).toBeUndefined();
       const text = (result.content[0] as { text: string }).text;
-      expect(text.length).toBeLessThanOrEqual(60_000);
+      expect(Buffer.byteLength(text, "utf8")).toBeLessThanOrEqual(40_000);
       const structured = result.structuredContent as { warnings?: Array<{ code: string }>; page?: { next_cursor?: string } };
       expect(structured.warnings?.map((warning) => warning.code)).toContain("RESULT_TRIMMED");
       expect(JSON.parse(text)).toEqual(structured);

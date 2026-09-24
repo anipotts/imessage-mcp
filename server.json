@@ -5,14 +5,14 @@
   "description": "Search and read your Apple Messages history from any MCP client. Read-only, local.",
   "icons": [
     {
-      "src": "https://raw.githubusercontent.com/anipotts/imessage-mcp/v3.1.0/assets/icon.svg",
+      "src": "https://raw.githubusercontent.com/anipotts/imessage-mcp/v3.2.0/assets/icon.svg",
       "mimeType": "image/svg+xml",
       "sizes": [
         "any"
       ]
     },
     {
-      "src": "https://raw.githubusercontent.com/anipotts/imessage-mcp/v3.1.0/assets/icon-512.png",
+      "src": "https://raw.githubusercontent.com/anipotts/imessage-mcp/v3.2.0/assets/icon-512.png",
       "mimeType": "image/png",
       "sizes": [
         "512x512"
@@ -23,12 +23,12 @@
     "url": "https://github.com/anipotts/imessage-mcp",
     "source": "github"
   },
-  "version": "3.1.0",
+  "version": "3.2.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "imessage-mcp",
-      "version": "3.1.0",
+      "version": "3.2.0",
       "transport": {
         "type": "stdio"
       },

@@ -2,6 +2,19 @@
 
 this file follows [keep a changelog](https://keepachangelog.com/en/1.1.0/), and this project follows semantic versioning.
 
+## 3.2.0
+
+From another recorded session, where the assistant told the user "Chat 12 is the 1:1 DM, 1727 looks like a group".
+
+### added
+
+- search results and `get_conversation` name their conversation the way you would: a group's title, a contact's name for a DM, or up to three members of an untitled group. A DM with no saved contact carries its `handle` instead, which privacy modes mask. The server's instructions also tell assistants to use names, not ids, when talking to you.
+
+### fixed
+
+- `get_conversation` with a person's name, such as "Kapil", failed as ambiguous when that person was also in a group chat with you. It now reads your one-to-one chat, and asks only when there is no single one.
+- the result budget is now 40,000 bytes, measured in bytes. Claude Code moves results over about 50 KB to a file, which the 60,000-character budget did not always stay under.
+
 ## 3.1.0
 
 Built from the tool traces of real Claude Code sessions, where a catch-up took up to a minute and a half.

@@ -542,6 +542,53 @@ function publicSummary(
   };
 }
 
+export interface ConversationLabel {
+  name: string | null;
+  kind: "direct" | "group";
+  handle?: string;
+}
+
+// How a person would name each conversation: a group's title, a DM's contact
+// name, or up to three members of an untitled group. A DM with no saved
+// contact gets a handle field instead of a name, so privacy modes mask it.
+export function labelConversations(input: {
+  context: DatabaseContext;
+  contacts: UnifiedContactResolver;
+  catalog?: ConversationCatalog;
+  chatIds: number[];
+}): Map<number, ConversationLabel> {
+  const labels = new Map<number, ConversationLabel>();
+  const wanted = new Set(input.chatIds);
+  if (wanted.size === 0) return labels;
+  const request = input.context.request();
+  try {
+    const bounds = { timezone: "UTC" } as DateBounds;
+    const rows = input.catalog?.rows(request, { bounds }, request.asOf) ?? loadRaw(request, { bounds }, request.asOf.max_message_id);
+    for (const row of rows) {
+      if (!row.chatIds.some((id) => wanted.has(id))) continue;
+      const summary = publicSummary(row, request, input.contacts);
+      let label: ConversationLabel;
+      if (summary.kind === "direct") {
+        const person = summary.participants[0];
+        label = summary.display_name
+          ? { name: summary.display_name, kind: "direct" }
+          : { name: null, kind: "direct", ...(person ? { handle: person.handle } : {}) };
+      } else {
+        const named = summary.participants.map((person) => person.name).filter((name): name is string => Boolean(name));
+        const others = summary.participants.length - Math.min(named.length, 3);
+        const members = named.length
+          ? `${named.slice(0, 3).join(", ")}${others > 0 ? ` and ${others} other${others === 1 ? "" : "s"}` : ""}`
+          : null;
+        label = { name: summary.display_name ?? members, kind: "group" };
+      }
+      for (const id of row.chatIds) labels.set(id, label);
+    }
+    return labels;
+  } finally {
+    request.close();
+  }
+}
+
 export function listConversations(input: {
   context: DatabaseContext;
   contacts: UnifiedContactResolver;
