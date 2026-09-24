@@ -608,7 +608,6 @@ function receiptFor(row: MessageRow, request: DatabaseRequest): TimelineEvent["r
       direction,
       state: "delivered",
       delivered_at: appleTimestampToIso(row.date_delivered),
-      read_at: null,
     };
   }
   return {
@@ -801,12 +800,14 @@ async function materialize(input: {
       direction: sender.direction,
       sender: sender.identity,
       ...(text !== undefined ? { text } : {}),
-      text_status: textStatus,
+      // Only what is true of this message: a decoded body, an unedited
+      // message, and empty lists are the default and are left out.
+      ...(textStatus !== "decoded" ? { text_status: textStatus } : {}),
       ...(retracted ? { retraction: { state: "retracted" as const, at: appleTimestampToIso(row.date_retracted) } } : {}),
-      edit,
-      reactions: currentReactions,
+      ...(edit.timestamps.length > 0 || (edit.count ?? 0) > 0 ? { edit } : {}),
+      ...(currentReactions.length ? { reactions: currentReactions } : {}),
       receipt: receiptFor(row, input.request),
-      attachments: retracted ? [] : attachments.get(row.rowid) ?? [],
+      ...(!retracted && attachments.get(row.rowid)?.length ? { attachments: attachments.get(row.rowid) } : {}),
       ...(row.reply_to_guid && replyRowid
         ? { reply_to_message_id: replyRowid }
         : {}),

@@ -124,6 +124,8 @@ function baseCte(request: DatabaseRequest, scope: AnalyticsScope, bounds: DateBo
   };
 }
 
+const WEEKDAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
+
 function messageCount(
   request: DatabaseRequest,
   scope: AnalyticsScope,
@@ -149,7 +151,19 @@ function messageCount(
              SUM(CASE WHEN item_type <> 0 OR is_system_message = 1 THEN 1 ELSE 0 END) AS system_events
       FROM base GROUP BY service_family ORDER BY service_family`)
     .all(...base.bindings) as AnalyticsResult["service_partitions"];
-  return { overall, service_partitions: service };
+  // When am I most active: user messages by local hour and weekday.
+  const slots = request.db
+    .prepare(`${base.sql}
+      SELECT local_slot(unix_time) AS slot, COUNT(*) AS messages
+      FROM base WHERE is_user_message = 1 GROUP BY slot`)
+    .all(...base.bindings) as Array<{ slot: number; messages: number }>;
+  const byHour = Array.from({ length: 24 }, () => 0);
+  const byWeekday: Record<string, number> = Object.fromEntries(WEEKDAYS.map((day) => [day, 0]));
+  for (const { slot, messages } of slots) {
+    byHour[Number(slot) % 24] += Number(messages);
+    byWeekday[WEEKDAYS[Math.floor(Number(slot) / 24)]] += Number(messages);
+  }
+  return { overall: { ...overall, by_hour: byHour, by_weekday: byWeekday }, service_partitions: service };
 }
 
 function responseTime(
@@ -373,6 +387,20 @@ export function analyze(input: {
         formatter.formatToParts(new Date(iso)).map((part) => [part.type, part.value]),
       );
       return `${parts.year}-${parts.month}-${parts.day}`;
+    });
+    // Offsets are whole quarter hours in every zone, so one lookup per UTC
+    // quarter hour gives the exact local hour and weekday for any message.
+    const slotFormatter = new Intl.DateTimeFormat("en-US", { timeZone: input.bounds.timezone, weekday: "short", hour: "numeric", hourCycle: "h23" });
+    const slotCache = new Map<number, number>();
+    request.db.function("local_slot", { deterministic: true }, (unixSeconds: number) => {
+      const quarter = Math.floor(Number(unixSeconds) / 900);
+      let slot = slotCache.get(quarter);
+      if (slot === undefined) {
+        const parts = Object.fromEntries(slotFormatter.formatToParts(new Date(quarter * 900_000)).map((part) => [part.type, part.value]));
+        slot = WEEKDAYS.indexOf(String(parts.weekday).toLowerCase() as (typeof WEEKDAYS)[number]) * 24 + Number(parts.hour);
+        slotCache.set(quarter, slot);
+      }
+      return slot;
     });
     const canonicalChats = assertMessageConversationIntegrity(request);
     request.db.function("mcp_canonical_chat", { deterministic: true }, (chatId: number) => {

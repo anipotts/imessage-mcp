@@ -24,6 +24,7 @@ export interface ConversationFilters {
   kind?: "direct" | "group";
   replied?: boolean;
   bounds: DateBounds;
+  order?: "recent" | "most_messages";
 }
 
 export interface ConversationSummary {
@@ -59,6 +60,7 @@ interface PageCursor {
   frozen: Watermark;
   after_date: string;
   after_chat: number;
+  offset?: number;
 }
 
 const MAX_CATALOG_MESSAGES = 10_000_000;
@@ -188,6 +190,7 @@ function filterFingerprint(filters: ConversationFilters): string {
       kind: filters.kind,
       replied: filters.replied,
       bounds: filters.bounds,
+      order: filters.order ?? "recent",
     }))
     .digest("hex")
     .slice(0, 20);
@@ -547,40 +550,50 @@ export function listConversations(input: {
   cursor?: string;
   privacy: PrivacyMode;
   catalog?: ConversationCatalog;
-}): { conversations: ConversationSummary[]; hasMore: boolean; nextCursor: string | null; asOf: string } {
+}): { conversations: ConversationSummary[]; chatIds: number[][]; hasMore: boolean; nextCursor: string | null; asOf: string } {
   const budget = makeBudget(30_000, 200_000);
   const request = input.context.request();
   try {
     const fingerprint = filterFingerprint(input.filters);
     let frozen = request.asOf;
-    // Apple nanosecond timestamps are larger than Number.MAX_SAFE_INTEGER.
-    // Infinity is only the in-process first-page sentinel; persisted cursors
-    // always contain an observed database value.
+    const byVolume = input.filters.order === "most_messages";
+    // Apple nanosecond timestamps are larger than Number.MAX_SAFE_INTEGER, so
+    // the recency cursor keeps them as strings.
     let afterDate: string | null = null;
     let afterChat = Number.MAX_SAFE_INTEGER;
+    let offset = 0;
     if (input.cursor) {
       const decoded = decodeCursor("page", input.cursor) as unknown as PageCursor;
-      if (
-        decoded.filters !== fingerprint ||
-        !Number.isSafeInteger(decoded.after_chat) || decoded.after_chat <= 0
-      ) {
+      const validPosition = byVolume
+        ? Number.isSafeInteger(decoded.offset) && (decoded.offset as number) > 0
+        : Number.isSafeInteger(decoded.after_chat) && decoded.after_chat > 0;
+      if (decoded.filters !== fingerprint || !validPosition) {
         throw new ImessageMcpError("INVALID_INPUT", "cursor filters or position do not match this query");
       }
       frozen = parseWatermark(decoded.frozen);
       assertFrozenTraversal(frozen, request.asOf);
-      try {
-        afterDate = sqliteIntegerToken(decoded.after_date, "conversation cursor timestamp");
-      } catch {
-        throw new ImessageMcpError("INVALID_INPUT", "cursor contains an invalid conversation position");
+      if (byVolume) {
+        offset = decoded.offset as number;
+      } else {
+        try {
+          afterDate = sqliteIntegerToken(decoded.after_date, "conversation cursor timestamp");
+        } catch {
+          throw new ImessageMcpError("INVALID_INPUT", "cursor contains an invalid conversation position");
+        }
+        afterChat = decoded.after_chat;
       }
-      afterChat = decoded.after_chat;
     }
     request.guard(budget);
-    const rows = (input.catalog?.rows(request, input.filters, frozen) ?? loadRaw(request, input.filters, frozen.max_message_id))
-      .filter((row) => matches(row, input.filters))
-      .sort((a, b) => compareSqliteIntegers(b.lastDate, a.lastDate) || minimumChatId(b.chatIds) - minimumChatId(a.chatIds))
-      .filter((row) => afterDate === null || compareSqliteIntegers(row.lastDate, afterDate) < 0 ||
-        (row.lastDate === afterDate && minimumChatId(row.chatIds) < afterChat));
+    const all = (input.catalog?.rows(request, input.filters, frozen) ?? loadRaw(request, input.filters, frozen.max_message_id))
+      .filter((row) => matches(row, input.filters));
+    // Most messages first answers "who do I text the most"; the frozen snapshot
+    // keeps the order stable, so an offset is a safe cursor for it.
+    const rows = byVolume
+      ? all.sort((a, b) => b.messageCount - a.messageCount || minimumChatId(a.chatIds) - minimumChatId(b.chatIds)).slice(offset)
+      : all
+          .sort((a, b) => compareSqliteIntegers(b.lastDate, a.lastDate) || minimumChatId(b.chatIds) - minimumChatId(a.chatIds))
+          .filter((row) => afterDate === null || compareSqliteIntegers(row.lastDate, afterDate) < 0 ||
+            (row.lastDate === afterDate && minimumChatId(row.chatIds) < afterChat));
     request.guard(budget, rows.length);
     const selected = rows.slice(0, input.limit + 1);
     const hasMore = selected.length > input.limit;
@@ -592,10 +605,12 @@ export function listConversations(input: {
           frozen,
           after_date: last.lastDate,
           after_chat: minimumChatId(last.chatIds),
+          ...(byVolume ? { offset: offset + page.length } : {}),
         })
       : null;
     return {
       conversations: page.map((row) => publicSummary(row, request, input.contacts)),
+      chatIds: page.map((row) => row.chatIds),
       hasMore,
       nextCursor,
       asOf: watermarkToken(frozen),

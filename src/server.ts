@@ -142,6 +142,14 @@ const listConversationsOutput = successSchema(z.looseObject({
     replied: z.boolean().optional(),
     first_activity_at: z.string().nullable().optional(),
     last_activity_at: z.string().nullable().optional(),
+    latest_message: z.looseObject({
+      message_id: z.number().optional(),
+      timestamp: z.string().nullable().optional(),
+      direction: directionSchema.optional(),
+      sender: partySchema.optional(),
+      text: z.string().optional(),
+      attachment_count: z.number().optional(),
+    }).optional(),
   })).optional(),
   conversation_count: z.number().optional(),
   by_kind: countsSchema.optional(),
@@ -408,12 +416,13 @@ export function registerTools(server: McpServer, runtime: ToolRuntime): void {
     "list_conversations",
     {
       title: "List conversations",
-      description: "List direct and group chats, including incoming-only and unknown-sender chats, with contact, service, reply, local-date filters, and frozen keyset pagination.",
+      description: "List direct and group chats, including incoming-only and unknown-sender chats, with contact, service, reply, and local-date filters. Each conversation includes its latest message, so one call shows who is waiting on a reply. Newest activity first by default; order \"most_messages\" ranks who you text the most.",
       inputSchema: recoverInvalidInput(z.object({
         contact: querySchema.optional(),
         service_family: serviceSchema.optional(),
         kind: z.enum(["direct", "group"]).optional(),
         replied: z.boolean().optional(),
+        order: z.enum(["recent", "most_messages"]).default("recent"),
         ...dateFields,
         limit: z.number().int().min(1).max(200).default(50),
         cursor: cursorSchema.optional(),
@@ -576,7 +585,7 @@ export function registerPrompts(server: McpServer): void {
       title: "Catch me up",
       description: "Who is waiting on you across your recent conversations, and what they need.",
     },
-    () => textPrompt(`${READ_ONLY_NOTE} Catch me up on my messages. Call list_conversations with kind "direct" and date_from ${daysAgoIsoDate(3)}, limit 25. For each conversation with recent activity, call get_conversation with limit 20 and check whether the latest message came from someone else and asks for or needs a reply. Skip verification codes, delivery notices, and other automated senders. Then tell me, most urgent first, who is waiting on me and what they need, one short line each, quoting only what the line needs. If I named a person, focus on them instead, using resolve_contact. If nothing is waiting, say so plainly.`),
+    () => textPrompt(`${READ_ONLY_NOTE} Catch me up on my messages. Call list_conversations once with date_from ${daysAgoIsoDate(3)} and limit 30: each conversation includes its latest_message. Anyone whose latest message is incoming and needs a reply is waiting on me; skip verification codes, delivery notices, and other automated senders. Read a thread with get_conversation only when the latest message alone does not say what they need. Then tell me, most urgent first, who is waiting on me and what they need, one short line each. If I named a person, focus on them instead, using resolve_contact. If nothing is waiting, say so plainly.`),
   );
 
   server.registerPrompt(
@@ -585,7 +594,7 @@ export function registerPrompts(server: McpServer): void {
       title: "Draft a reply",
       description: "A reply in your own texting style to whoever is waiting on you. It is never sent.",
     },
-    () => textPrompt(`${READ_ONLY_NOTE} Draft a reply for me. If I named a person, find them with resolve_contact. Otherwise call list_conversations with kind "direct" and date_from ${daysAgoIsoDate(3)}, and pick the most recent conversation whose latest message came from someone else. Read it with get_conversation, and learn my texting style from my own outgoing messages in that thread: length, capitalization, punctuation, and emoji. If I said what I want to say, keep that meaning. Return one draft only, with no preamble, and remind me in one short line that I have to send it myself because this server cannot send messages.`),
+    () => textPrompt(`${READ_ONLY_NOTE} Draft a reply for me. If I named a person, find them with resolve_contact. Otherwise call list_conversations with kind "direct" and date_from ${daysAgoIsoDate(3)}, and pick the most recent conversation whose latest_message is incoming. Read it with get_conversation, limit 30, and learn my texting style from my own outgoing messages in that thread: length, capitalization, punctuation, and emoji. If I said what I want to say, keep that meaning. Return one draft only, with no preamble, and remind me in one short line that I have to send it myself because this server cannot send messages.`),
   );
 
   server.registerPrompt(
@@ -594,7 +603,7 @@ export function registerPrompts(server: McpServer): void {
       title: "Recap my week",
       description: "This week in messages: volume, busiest conversations, and anyone still waiting.",
     },
-    () => textPrompt(`${READ_ONLY_NOTE} Recap my last seven days of messages. Call analyze_communication with metric "message_count", scope "global", and date_from ${daysAgoIsoDate(7)}, then call list_conversations with the same date_from and limit 10. Tell me how many messages I sent and received, my busiest conversations by message count, and any conversation where the latest message is from someone else, which you can confirm with get_conversation. Keep it to a few short lines and do not quote message text.`),
+    () => textPrompt(`${READ_ONLY_NOTE} Recap my last seven days of messages. Call analyze_communication with metric "message_count", scope "global", and date_from ${daysAgoIsoDate(7)}; it includes by_hour and by_weekday. Then call list_conversations with the same date_from, order "most_messages", and limit 10. Tell me how many messages I sent and received, when I was most active, my busiest conversations, and anyone whose latest_message is incoming and still needs a reply. Keep it to a few short lines and do not quote message text.`),
   );
 }
 
