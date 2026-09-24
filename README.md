@@ -183,14 +183,14 @@ Clients that attach resources can use `imessage://conversations` and `imessage:/
 
 | tool | what it does |
 | --- | --- |
-| `search_messages` | Search by substring, exact text, token, or phrase, in message text, conversation names, or attachment names |
-| `get_conversation` | Read a conversation by `chat_id` or by a contact or group name, with edits, reactions, receipts, replies, and attachments |
+| `search_messages` | Search by substring, exact text, token, or phrase. Message text by default; conversation names and attachment filenames are opt-in. Filter by service, sent or received, and date |
+| `get_conversation` | Read a conversation by `chat_id` or by a contact or group name, with edits, reactions, receipts, replies, group events, and attachments. The cursor pages to older events |
 | `list_conversations` | Find conversations by contact, service, kind, reply state, or date, each with its latest message, newest first or by who you text most |
-| `get_attachment` | Show one attachment: images as a JPEG with metadata removed, text files as text |
+| `get_attachment` | Show one attachment from `get_conversation`: images as a JPEG with location and camera metadata removed, text files as text. Needs the `full` privacy mode |
 | `sync_messages` | Pull every change since a cursor: new, edited, unsent, and deleted messages, reactions, and receipts |
 | `analyze_communication` | Message counts by hour and weekday, response times, streaks, and who starts conversations |
-| `resolve_contact` | Match a name, phone number, or email to a contact, and report ambiguity rather than guess |
-| `server_status` | Version, update availability, access, index state, and schema support |
+| `resolve_contact` | Match a name, phone number, or email to a contact in your Mac's Address Book, and report ambiguity rather than guess |
+| `server_status` | Version, update availability, privacy mode, index state, schema support, and Contacts access |
 
 Every tool is read-only and marked `readOnlyHint`. Results use plain ids (`message_id`, `chat_id`, `attachment_id`) you can pass between tools.
 
