@@ -6,14 +6,14 @@
 
 Search and read your Messages history from Claude, Codex, Cursor, VS Code, and any other MCP client.
 
+![Claude Code catching up on a real conversation about a hackathon through imessage-mcp](assets/demo.gif)
+
 Read-only. Runs on your Mac. No accounts, no cloud service, nothing to compile.
 
 - Finds messages by words, exact text, or phrase across iMessage, SMS, MMS, and RCS
 - Reads whole conversations with edits, unsent messages, reactions, replies, and read receipts
 - Shows photos people sent you, with location data removed
 - Keeps up with new messages through a change feed, and answers counts and response-time questions
-
-![imessage-mcp answering questions about synthetic Messages history](assets/demo.gif)
 
 ## Install
 
