@@ -185,10 +185,10 @@ Clients that attach resources can use `imessage://conversations` and `imessage:/
 | --- | --- |
 | `search_messages` | Search by substring, exact text, token, or phrase, in message text, conversation names, or attachment names |
 | `get_conversation` | Read a conversation by `chat_id` or by a contact or group name, with edits, reactions, receipts, replies, and attachments |
-| `list_conversations` | Find conversations by contact, service, kind, reply state, or date |
+| `list_conversations` | Find conversations by contact, service, kind, reply state, or date, each with its latest message, newest first or by who you text most |
 | `get_attachment` | Show one attachment: images as a JPEG with metadata removed, text files as text |
 | `sync_messages` | Pull every change since a cursor: new, edited, unsent, and deleted messages, reactions, and receipts |
-| `analyze_communication` | Message counts, activity, response times, and who starts conversations |
+| `analyze_communication` | Message counts by hour and weekday, response times, streaks, and who starts conversations |
 | `resolve_contact` | Match a name, phone number, or email to a contact, and report ambiguity rather than guess |
 | `server_status` | Version, update availability, access, index state, and schema support |
 

@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "imessage-mcp",
   "display_name": "iMessage History",
-  "version": "3.0.1",
+  "version": "3.2.0",
   "description": "Search and read your Apple Messages history. Read-only, runs on your Mac.",
   "author": {
     "name": "Ani Potts",
@@ -97,8 +97,27 @@
       "description": "Version, update availability, access, and index state."
     }
   ],
+  "prompts": [
+    {
+      "name": "catch_up",
+      "description": "Who is waiting on you across your recent conversations, and what they need.",
+      "text": "This iMessage server is read-only: it cannot send, react, or mark anything read. Catch me up on my messages from the last three days. Call list_conversations once; each conversation includes its latest_message. Anyone whose latest message is incoming and needs a reply is waiting on me; skip verification codes and automated senders. Read a thread with get_conversation only when the latest message does not say what they need. Tell me, most urgent first, who is waiting on me and what they need, one short line each. If nothing is waiting, say so plainly."
+    },
+    {
+      "name": "draft_reply",
+      "description": "A reply in your own texting style to whoever is waiting on you. It is never sent.",
+      "text": "This iMessage server is read-only: it cannot send, react, or mark anything read. Draft a reply for me to the most recent conversation from the last three days whose latest_message is incoming, or to the person I name, found with resolve_contact. Read it with get_conversation and match my own texting style in that thread. Return one draft only, and remind me in one short line that I have to send it myself."
+    },
+    {
+      "name": "recap",
+      "description": "This week in messages: volume, busiest conversations, and anyone still waiting.",
+      "text": "This iMessage server is read-only: it cannot send, react, or mark anything read. Recap my last seven days of messages. Use analyze_communication with metric message_count, which includes by_hour and by_weekday, and list_conversations with order most_messages: how many I sent and received, when I was most active, my busiest conversations, and anyone whose latest message still needs a reply. Keep it to a few short lines and do not quote message text."
+    }
+  ],
   "compatibility": {
-    "platforms": ["darwin"],
+    "platforms": [
+      "darwin"
+    ],
     "runtimes": {
       "node": ">=24.16"
     }

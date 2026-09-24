@@ -2,6 +2,47 @@
 
 this file follows [keep a changelog](https://keepachangelog.com/en/1.1.0/), and this project follows semantic versioning.
 
+## 3.2.0
+
+From another recorded session, where the assistant told the user "Chat 12 is the 1:1 DM, 1727 looks like a group".
+
+### added
+
+- search results and `get_conversation` name their conversation the way you would: a group's title, a contact's name for a DM, or up to three members of an untitled group. A DM with no saved contact carries its `handle` instead, which privacy modes mask. The server's instructions also tell assistants to use names, not ids, when talking to you.
+
+### fixed
+
+- `get_conversation` with a person's name, such as "Kapil", failed as ambiguous when that person was also in a group chat with you. It now reads your one-to-one chat, and asks only when there is no single one.
+- the result budget is now 40,000 bytes, measured in bytes. Claude Code moves results over about 50 KB to a file, which the 60,000-character budget did not always stay under.
+
+## 3.1.0
+
+Built from the tool traces of real Claude Code sessions, where a catch-up took up to a minute and a half.
+
+### added
+
+- `list_conversations` includes each conversation's latest message, so "who is waiting on me" takes one call instead of one `get_conversation` per thread. In `redacted` mode the text is removed like any other message body.
+- `list_conversations` takes `order: "most_messages"` to rank who you text the most.
+- `analyze_communication` with `message_count` adds `by_hour` and `by_weekday` in your timezone. Without these, an assistant asked "when am I most active" fell back to querying the Messages database directly, outside every privacy mode.
+
+### fixed
+
+- a contact saved twice, for example once per synced account, made every lookup by name ambiguous. Cards with the same name and a shared phone number or email now count as one person. Two people who share a landline stay separate.
+- the ambiguity error from `get_conversation` pointed at a `contact` argument that tool does not take. It now says to pass a handle as `query`, or a `chat_id`.
+- a result too large for the client's tool window, such as `get_conversation` with limit 200, is now trimmed to fit with a `RESULT_TRIMMED` warning and a cursor for the rest. Claude Code used to move such results to a file the model had to dig through.
+
+### changed
+
+- conversation events leave out fields with nothing to say: `text_status` when the body decoded, `edit` for an unedited message, and empty `reactions` and `attachments`. All were already optional in the schema. On a synthetic 50-message page this cut the result by about a quarter.
+- the `catch_up`, `draft_reply`, and `recap` prompts use the latest message and the new ordering and breakdowns, so each needs one or two calls.
+
+## 3.0.2
+
+### fixed
+
+- in Claude Desktop, choosing `catch_up`, `draft_reply`, or `recap` failed with "Failed to attach prompt", because the desktop bundle's manifest did not declare them and Desktop refuses undeclared prompts. The manifest now lists all three, and a test keeps it in step with the server.
+- the stdio server answers the client's handshake before opening the Messages database or restoring the search index, so a slow start, such as many servers launching together with Claude Desktop, no longer trips the client's 60-second connect timeout.
+
 ## 3.0.1
 
 ### fixed

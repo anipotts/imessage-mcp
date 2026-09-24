@@ -15,6 +15,8 @@ import { analyze, type AnalyticsScope, type Metric } from "./repositories/analyt
 import {
   ConversationCatalog,
   canonicalChatMap,
+  type ConversationLabel,
+  labelConversations,
   listConversations,
   conversationChatIds,
   type ConversationFilters,
@@ -48,6 +50,32 @@ function dateInput(params: ToolParams): { date_from?: string; date_to?: string; 
     date_to: optionalString(params, "date_to"),
     timezone: optionalString(params, "timezone"),
   };
+}
+
+const LATEST_TEXT_CHARS = 280;
+
+function clipText(text: string, max: number): string {
+  const chars = [...text];
+  return chars.length > max ? `${chars.slice(0, max - 1).join("")}…` : text;
+}
+
+const PAGED_TOOLS = new Set(["list_conversations", "get_conversation", "search_messages", "sync_messages"]);
+// Claude Code moves a result over about 50 KB to a file, so stay well under it.
+const RESULT_BUDGET_BYTES = 40_000;
+
+function resultBytes(result: CallToolResult): number {
+  return result.content.reduce((total, block) => total + (block.type === "text" ? Buffer.byteLength(block.text, "utf8") : 0), 0);
+}
+
+// Adds a warning to an already-built result, keeping the JSON text block, which
+// clients that read only content rely on, identical to structuredContent.
+function withWarning(result: CallToolResult, warning: { code: string; message: string }): CallToolResult {
+  const structured = result.structuredContent as { warnings?: unknown[] } | undefined;
+  if (!structured) return result;
+  const updated = { ...structured, warnings: [...(structured.warnings ?? []), warning] };
+  const [first, ...rest] = result.content;
+  const json = first?.type === "text" ? [{ type: "text" as const, text: JSON.stringify(updated) }] : first ? [first] : [];
+  return { ...result, structuredContent: updated, content: [...json, ...rest] };
 }
 
 export class LocalToolRuntime {
@@ -122,13 +150,36 @@ export class LocalToolRuntime {
     return [...values];
   }
 
+  // A paged result larger than the budget is fetched again with a smaller
+  // limit, so it fits in any client's tool-result window and the cursor still
+  // continues where it stopped. Claude Code, for one, moves a larger result to
+  // a file the model then has to dig through.
   async call(tool: string, params: ToolParams): Promise<CallToolResult> {
+    let result = await this.dispatch(tool, params);
+    if (!PAGED_TOOLS.has(tool) || result.isError) return result;
+    const requested = Number(params.limit ?? 50);
+    let limit = requested;
+    for (let attempt = 0; attempt < 4 && limit > 1; attempt += 1) {
+      const size = resultBytes(result);
+      if (size <= RESULT_BUDGET_BYTES) break;
+      limit = Math.max(1, Math.min(limit - 1, Math.floor((limit * RESULT_BUDGET_BYTES * 0.9) / size)));
+      const smaller = await this.dispatch(tool, { ...params, limit });
+      if (smaller.isError) break;
+      result = smaller;
+    }
+    return limit < requested ? withWarning(result, {
+      code: "RESULT_TRIMMED",
+      message: `returned ${limit} of the requested ${requested} to stay under ${RESULT_BUDGET_BYTES} bytes; pass the cursor for more`,
+    }) : result;
+  }
+
+  private async dispatch(tool: string, params: ToolParams): Promise<CallToolResult> {
     let privacy = this.config.privacy_ceiling;
     try {
       privacy = requestedPrivacy(this.config, params);
       if (tool === "server_status") return await this.serverStatus(privacy);
       if (tool === "resolve_contact") return this.resolveContact(params, privacy);
-      if (tool === "list_conversations") return this.listConversations(params, privacy);
+      if (tool === "list_conversations") return await this.listConversations(params, privacy);
       if (tool === "get_conversation") return await this.getConversation(params, privacy);
       if (tool === "search_messages") return await this.searchMessages(params, privacy);
       if (tool === "analyze_communication") return this.analyzeCommunication(params, privacy);
@@ -209,6 +260,7 @@ export class LocalToolRuntime {
         kind: params.kind as "direct" | "group" | undefined,
         replied: params.replied as boolean | undefined,
         bounds: compileDateBounds(dateInput(params)),
+        order: params.order as "recent" | "most_messages" | undefined,
       };
     }
     return {
@@ -216,6 +268,7 @@ export class LocalToolRuntime {
       service: params.service_family as ServiceFamily | undefined,
       kind: params.kind as "direct" | "group" | undefined,
       replied: params.replied as boolean | undefined,
+      order: params.order as "recent" | "most_messages" | undefined,
       bounds: compileDateBounds(dateInput(params)),
     };
   }
@@ -237,30 +290,34 @@ export class LocalToolRuntime {
     if (!query) throw new ImessageMcpError("INVALID_INPUT", "chat_id or a nonempty query is required");
     const contactResolution = this.resolveContactQuery(query);
     if (contactResolution.status === "ambiguous") {
-      throw new ImessageMcpError("AMBIGUOUS_CONTACT", "contact matched more than one person; call resolve_contact with the same query to see them, then pass one of their handles as contact", {
+      throw new ImessageMcpError("AMBIGUOUS_CONTACT", "query matched more than one person; call resolve_contact with the same query to see them, then pass one of their handles as query, or a chat_id from list_conversations", {
         candidates: contactResolution.candidates,
       });
     }
     if (contactResolution.status === "unique") {
-      const found = listConversations({
+      // "My texts with Kapil" means the one-to-one chat; group chats he is in
+      // are only a fallback when there is no single DM.
+      const find = (kind?: "direct") => listConversations({
         context: this.database,
         contacts: this.contacts,
-        filters: { handles: contactResolution.contact.handles, bounds: compileDateBounds({}) },
+        filters: { handles: contactResolution.contact.handles, kind, bounds: compileDateBounds({}) },
         limit: 2,
         privacy: "full",
         catalog: this.conversationCatalog,
-      });
-      if (found.conversations.length === 1) {
+      }).conversations;
+      const direct = find("direct");
+      const found = direct.length === 1 ? direct : find();
+      if (found.length === 1) {
         const request = this.database.request();
         try {
-          return conversationChatIds(request, found.conversations[0].chat_id);
+          return conversationChatIds(request, found[0].chat_id);
         } finally {
           request.close();
         }
       }
-      if (found.conversations.length > 1) {
-        throw new ImessageMcpError("AMBIGUOUS_CONTACT", "contact is in more than one conversation; call list_conversations with the same contact, then pass the chosen chat_id", {
-          match_count: found.conversations.length,
+      if (found.length > 1) {
+        throw new ImessageMcpError("AMBIGUOUS_CONTACT", "this person has no single one-to-one chat and is in several group chats; call list_conversations with the same contact, then pass the chosen chat_id", {
+          match_count: found.length,
         });
       }
     }
@@ -349,7 +406,7 @@ export class LocalToolRuntime {
     });
   }
 
-  private listConversations(params: ToolParams, privacy: PrivacyMode): CallToolResult {
+  private async listConversations(params: ToolParams, privacy: PrivacyMode): Promise<CallToolResult> {
     const filters = this.conversationFilters(params);
     const listed = listConversations({
       context: this.database,
@@ -360,6 +417,34 @@ export class LocalToolRuntime {
       privacy,
       catalog: this.conversationCatalog,
     });
+    // Each conversation carries its latest message, so "who is waiting on me"
+    // takes one call instead of one get_conversation per thread.
+    const conversations = [];
+    for (const [index, conversation] of listed.conversations.entries()) {
+      const latest = await getConversationEvents({
+        context: this.database,
+        contacts: this.contacts,
+        decoder: this.decoder,
+        chatIds: listed.chatIds[index],
+        limit: 1,
+        bounds: compileDateBounds({ timezone: filters.bounds.timezone }),
+        eventFilters: ["message"],
+        allowPartial: true,
+        privacy,
+        includeAttachmentPaths: false,
+      }).then((result) => result.events.at(-1), () => undefined);
+      conversations.push(latest ? {
+        ...conversation,
+        latest_message: {
+          message_id: latest.message_id,
+          timestamp: latest.timestamp,
+          direction: latest.direction,
+          sender: latest.sender,
+          ...(latest.text !== undefined ? { text: clipText(latest.text, LATEST_TEXT_CHARS) } : {}),
+          ...(latest.attachments?.length ? { attachment_count: latest.attachments.length } : {}),
+        },
+      } : conversation);
+    }
     return successResult({
       tool: "list_conversations",
       privacy,
@@ -369,7 +454,7 @@ export class LocalToolRuntime {
         timezone: filters.bounds.timezone,
         service_family: params.service_family ?? "all",
       },
-      data: { conversations: listed.conversations },
+      data: { conversations },
       page: { next_cursor: listed.nextCursor, has_more: listed.hasMore, as_of: listed.asOf },
     });
   }
@@ -401,10 +486,30 @@ export class LocalToolRuntime {
         timezone: bounds.timezone,
         service_family: params.service_family ?? "all",
       },
-      data: { events: result.events },
+      data: { conversation: this.labelFor(chatIds), events: result.events },
       page: { next_cursor: result.nextCursor, has_more: result.hasMore, as_of: result.asOf },
       warnings: result.warnings,
     });
+  }
+
+  // Every result names its conversation the way the user would, so an
+  // assistant never has to describe a chat by its number.
+  private withConversationLabels<T extends { chat_id?: number }>(hits: T[]): Array<T & { conversation?: ConversationLabel }> {
+    const labels = labelConversations({
+      context: this.database,
+      contacts: this.contacts,
+      catalog: this.conversationCatalog,
+      chatIds: hits.map((hit) => hit.chat_id).filter((id): id is number => typeof id === "number"),
+    });
+    return hits.map((hit) => {
+      const label = typeof hit.chat_id === "number" ? labels.get(hit.chat_id) : undefined;
+      return label ? { ...hit, conversation: label } : hit;
+    });
+  }
+
+  private labelFor(chatIds: number[]): ConversationLabel | undefined {
+    const labels = labelConversations({ context: this.database, contacts: this.contacts, catalog: this.conversationCatalog, chatIds });
+    return chatIds.map((id) => labels.get(id)).find(Boolean);
   }
 
   private async searchMessages(params: ToolParams, privacy: PrivacyMode): Promise<CallToolResult> {
@@ -435,7 +540,7 @@ export class LocalToolRuntime {
         service_family: params.service_family ?? "all",
         from_me: typeof params.from_me === "boolean" ? params.from_me : "all",
       },
-      data: { total_matches: result.total, results: result.hits },
+      data: { total_matches: result.total, results: this.withConversationLabels(result.hits) },
       page: { next_cursor: result.nextCursor, has_more: result.hasMore, as_of: result.asOf },
       warnings: result.warnings,
     });

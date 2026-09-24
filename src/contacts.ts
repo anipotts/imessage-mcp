@@ -74,6 +74,26 @@ export function looksLikeHandle(value: string): boolean {
   return /^[+\d\s().-]+$/u.test(cleaned) && (cleaned.match(/\d/gu)?.length ?? 0) >= 3;
 }
 
+// The same person often has several unlinked cards, one per synced account.
+// Cards that share a name and at least one handle are one person; a shared
+// handle alone is not enough, since families share landlines.
+function mergeDuplicateCards<T extends { contact: IndexedContact }>(matches: T[]): T[] {
+  const merged: T[] = [];
+  for (const entry of matches) {
+    const same = merged.find((kept) =>
+      kept.contact.nameKey === entry.contact.nameKey &&
+      [...entry.contact.handleKeys.keys()].some((key) => kept.contact.handleKeys.has(key)));
+    if (!same) {
+      merged.push({ ...entry, contact: { ...entry.contact, handleKeys: new Map(entry.contact.handleKeys) } });
+      continue;
+    }
+    for (const [key, handle] of entry.contact.handleKeys) {
+      if (!same.contact.handleKeys.has(key)) same.contact.handleKeys.set(key, handle);
+    }
+  }
+  return merged;
+}
+
 export class UnifiedContactResolver {
   private loaded = false;
   private unavailable: string | null = null;
@@ -185,7 +205,7 @@ export class UnifiedContactResolver {
         retry: "provide a more specific name or an exact handle",
       });
     }
-    const candidates = matches.map(({ contact, match }) => {
+    const candidates = mergeDuplicateCards(matches).map(({ contact, match }) => {
       const handles = [...contact.handleKeys.values()].sort();
       if (handles.length > MAX_HANDLES_PER_RESULT) {
         throw new ImessageMcpError("QUERY_BUDGET_EXCEEDED", "a contact has too many handles to return safely", {

@@ -202,6 +202,32 @@ describe("2.0 data and query core", () => {
     if (result.status === "ambiguous") expect(result.candidates).toHaveLength(2);
   });
 
+  it("treats duplicate cards with the same name and a shared handle as one person", () => {
+    const resolver = new UnifiedContactResolver(true, [
+      { identifier: "icloud", name: "Sam Rivera", phones: ["+1 555 111 0000"], emails: ["sam@example.test"] },
+      { identifier: "google", name: "Sam Rivera", phones: ["+15551110000"], emails: [] },
+      { identifier: "other", name: "Sam Rivera", phones: ["+1 555 999 0000"], emails: [] },
+    ]);
+    const result = resolver.resolve("Sam Rivera");
+    expect(result.status).toBe("ambiguous");
+    if (result.status === "ambiguous") expect(result.candidates).toHaveLength(2);
+    const twins = new UnifiedContactResolver(true, [
+      { identifier: "icloud", name: "Sam Rivera", phones: ["+1 555 111 0000"], emails: [] },
+      { identifier: "google", name: "Sam Rivera", phones: ["+15551110000"], emails: ["sam@example.test"] },
+    ]);
+    const merged = twins.resolve("Sam");
+    expect(merged.status).toBe("unique");
+    if (merged.status === "unique") expect(merged.contact.handles).toHaveLength(2);
+  });
+
+  it("keeps two people who share a landline apart", () => {
+    const resolver = new UnifiedContactResolver(true, [
+      { identifier: "a", name: "Pat Lee", phones: ["+1 555 222 0000"], emails: [] },
+      { identifier: "b", name: "Jo Lee", phones: ["+1 555 222 0000"], emails: [] },
+    ]);
+    expect(resolver.resolve("Lee").status).toBe("ambiguous");
+  });
+
   it("keeps international phone identities distinct", () => {
     const resolver = new UnifiedContactResolver(true, [
       { identifier: "gb", name: "London", phones: ["+44 20 1234 5678"], emails: [] },
@@ -701,6 +727,124 @@ describe("2.0 data and query core", () => {
     }
   });
 
+  it("ranks conversations by message count and pages through that order", async () => {
+    const isolated = createFixture();
+    const runtime = new LocalToolRuntime(runtimeConfig({ transport: "stdio", databasePath: isolated.databasePath, contacts: "none" }));
+    try {
+      const first = await runtime.call("list_conversations", { order: "most_messages", limit: 1, privacy_mode: "full" });
+      const firstData = first.structuredContent as { data: { conversations: Array<{ chat_id: number; message_count: number }> }; page?: { next_cursor?: string } };
+      const all = await runtime.call("list_conversations", { order: "most_messages", limit: 50, privacy_mode: "full" });
+      const counts = (all.structuredContent as { data: { conversations: Array<{ message_count: number }> } }).data.conversations.map((row) => row.message_count);
+      expect(counts).toEqual([...counts].sort((a, b) => b - a));
+      expect(firstData.data.conversations[0].message_count).toBe(counts[0]);
+      const second = await runtime.call("list_conversations", { order: "most_messages", limit: 1, cursor: firstData.page?.next_cursor, privacy_mode: "full" });
+      const secondRow = (second.structuredContent as { data: { conversations: Array<{ chat_id: number }> } }).data.conversations[0];
+      expect(secondRow.chat_id).not.toBe(firstData.data.conversations[0].chat_id);
+      const mixed = await runtime.call("list_conversations", { order: "recent", limit: 1, cursor: firstData.page?.next_cursor, privacy_mode: "full" });
+      expect((mixed.structuredContent as { error: { reason: string } }).error.reason).toBe("INVALID_INPUT");
+    } finally {
+      runtime.close();
+      isolated.cleanup();
+    }
+  });
+
+  it("lists each conversation with its latest message, text removed when redacted", async () => {
+    const isolated = createFixture();
+    const runtime = new LocalToolRuntime(runtimeConfig({ transport: "stdio", databasePath: isolated.databasePath, contacts: "none" }));
+    try {
+      type Listed = { data: { conversations: Array<{ chat_id: number; latest_message?: { message_id: number; direction: string; text?: string } }> } };
+      const full = (await runtime.call("list_conversations", { limit: 50, privacy_mode: "full" })).structuredContent as Listed;
+      const linked = full.data.conversations.find((row) => row.chat_id === 1);
+      expect(linked?.latest_message).toMatchObject({ message_id: 20, direction: "incoming", text: "the exact phrase lives here" });
+      const redacted = (await runtime.call("list_conversations", { limit: 50, privacy_mode: "redacted" })).structuredContent as Listed;
+      const masked = redacted.data.conversations.find((row) => row.chat_id === 1);
+      expect(masked?.latest_message?.direction).toBe("incoming");
+      expect(masked?.latest_message).not.toHaveProperty("text");
+    } finally {
+      runtime.close();
+      isolated.cleanup();
+    }
+  });
+
+  it("breaks message counts down by local hour and weekday", async () => {
+    const isolated = createFixture();
+    const runtime = new LocalToolRuntime(runtimeConfig({ transport: "stdio", databasePath: isolated.databasePath, contacts: "none" }));
+    try {
+      const result = await runtime.call("analyze_communication", { metric: "message_count", scope: "global", timezone: "UTC", privacy_mode: "full" });
+      const overall = (result.structuredContent as { data: { overall: { messages: number; by_hour: number[]; by_weekday: Record<string, number> } } }).data.overall;
+      expect(overall.by_hour).toHaveLength(24);
+      expect(overall.by_hour.reduce((a, b) => a + b, 0)).toBe(overall.messages);
+      expect(Object.values(overall.by_weekday).reduce((a, b) => a + b, 0)).toBe(overall.messages);
+      // 2026-03-08T06:30Z, the first fixture message, is a Sunday at 6 in UTC.
+      expect(overall.by_hour[6]).toBeGreaterThan(0);
+      expect(overall.by_weekday.sun).toBeGreaterThan(0);
+    } finally {
+      runtime.close();
+      isolated.cleanup();
+    }
+  });
+
+  it("reads the one-to-one chat when a person in a group chat too is named", async () => {
+    const isolated = createFixture();
+    const runtime = new LocalToolRuntime(runtimeConfig({ transport: "stdio", databasePath: isolated.databasePath, contacts: "none" }));
+    try {
+      const result = await runtime.call("get_conversation", { query: "+15550000001", limit: 5, privacy_mode: "full" });
+      expect(result.isError).toBeUndefined();
+      const data = (result.structuredContent as { data: { conversation: { kind: string; handle?: string } } }).data;
+      expect(data.conversation).toMatchObject({ kind: "direct", handle: "+15550000001" });
+    } finally {
+      runtime.close();
+      isolated.cleanup();
+    }
+  });
+
+  it("names each search hit's conversation and masks an unnamed handle when redacted", async () => {
+    const isolated = createFixture();
+    const runtime = new LocalToolRuntime(runtimeConfig({ transport: "stdio", databasePath: isolated.databasePath, contacts: "none" }));
+    try {
+      type Hits = { data: { results: Array<{ snippet?: string; conversation?: { name: string | null; kind: string; handle?: string } }> } };
+      const group = (await runtime.call("search_messages", { query: "group hello", mode: "substring", scopes: ["text"], order: "newest", limit: 5, privacy_mode: "full" })).structuredContent as Hits;
+      expect(group.data.results[0].conversation).toEqual({ name: "Synthetic Group", kind: "group" });
+      const direct = (await runtime.call("search_messages", { query: "reply one", mode: "substring", scopes: ["text"], order: "newest", limit: 5, privacy_mode: "full" })).structuredContent as Hits;
+      expect(direct.data.results[0].conversation).toEqual({ name: null, kind: "direct", handle: "+15550000001" });
+      const redacted = (await runtime.call("search_messages", { query: "reply one", mode: "substring", scopes: ["text"], order: "newest", limit: 5, privacy_mode: "redacted" })).structuredContent as Hits;
+      expect(redacted.data.results[0].conversation?.handle).toMatch(/^\[masked:/u);
+    } finally {
+      runtime.close();
+      isolated.cleanup();
+    }
+  });
+
+  it("trims a large page to the result budget and keeps the cursor working", async () => {
+    const isolated = createFixture();
+    const db = new Database(isolated.databasePath);
+    const insert = db.prepare("INSERT INTO message(ROWID, guid, text, handle_id, date, service) VALUES (?, ?, ?, 1, ?, 'iMessage')");
+    const join = db.prepare("INSERT INTO chat_message_join(chat_id, message_id, message_date) VALUES (1, ?, ?)");
+    for (let i = 0; i < 250; i += 1) {
+      const rowid = 1000 + i;
+      const date = appleNanoseconds("2026-04-01T00:00:00Z") + i * 60_000_000_000;
+      insert.run(rowid, `long-${i}`, `long message ${i} ${"x".repeat(600)}`, date);
+      join.run(rowid, date);
+    }
+    db.close();
+    const runtime = new LocalToolRuntime(runtimeConfig({ transport: "stdio", databasePath: isolated.databasePath, contacts: "none" }));
+    try {
+      const result = await runtime.call("get_conversation", { chat_id: 1, limit: 200, privacy_mode: "full" });
+      expect(result.isError).toBeUndefined();
+      const text = (result.content[0] as { text: string }).text;
+      expect(Buffer.byteLength(text, "utf8")).toBeLessThanOrEqual(40_000);
+      const structured = result.structuredContent as { warnings?: Array<{ code: string }>; page?: { next_cursor?: string } };
+      expect(structured.warnings?.map((warning) => warning.code)).toContain("RESULT_TRIMMED");
+      expect(JSON.parse(text)).toEqual(structured);
+      expect(structured.page?.next_cursor).toBeTruthy();
+      const next = await runtime.call("get_conversation", { chat_id: 1, limit: 20, cursor: structured.page?.next_cursor, privacy_mode: "full" });
+      expect(next.isError).toBeUndefined();
+    } finally {
+      runtime.close();
+      isolated.cleanup();
+    }
+  });
+
   it("tells the caller which tool resolves an ambiguous conversation query", async () => {
     const isolated = createFixture();
     const db = new Database(isolated.databasePath);
@@ -822,10 +966,8 @@ describe("2.0 data and query core", () => {
     expect(retracted?.retraction?.state).toBe("retracted");
     expect(result.events.find((event) => event.text === "thread reply")?.reply_to_message_id).toBe(1);
     expect(result.events.find((event) => event.text === "receipt target")?.receipt?.state).toBe("read");
-    expect(result.events.find((event) => event.text === "green sms")?.edit).toMatchObject({
-      state: "unavailable",
-      count: null,
-    });
+    // An unedited message carries no edit field; SMS edit support lives in server_status.
+    expect(result.events.find((event) => event.text === "green sms")).not.toHaveProperty("edit");
     expect(result.events.find((event) => event.text === "edited current")?.edit).toEqual({
       state: "available",
       count: 1,
@@ -941,7 +1083,8 @@ describe("2.0 data and query core", () => {
         .rejects.toMatchObject({ reason: "UNSUPPORTED_SCHEMA" });
       const partial = await getConversationEvents({ ...input, allowPartial: true });
       const parent = partial.events.find((event) => event.text?.startsWith("hello literal"));
-      expect(parent).toMatchObject({ reactions: [], row_status: "partial" });
+      expect(parent).toMatchObject({ row_status: "partial" });
+      expect(parent).not.toHaveProperty("reactions");
       expect(partial.warnings).toContainEqual(expect.objectContaining({
         code: "UNSUPPORTED_SCHEMA",
         skipped_count: 1,

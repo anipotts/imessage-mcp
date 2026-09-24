@@ -1,6 +1,6 @@
 {
   "name": "imessage-mcp",
-  "version": "3.0.1",
+  "version": "3.2.0",
   "mcpName": "io.github.anipotts/imessage-mcp",
   "description": "Search and read your Apple Messages history from any MCP client. Read-only, runs on your Mac, no native dependencies.",
   "author": "Ani Potts",
@@ -39,14 +39,14 @@
   },
   "dependencies": {
     "@modelcontextprotocol/server": "2.0.0",
-    "zod": "4.6.2"
+    "zod": "4.6.5"
   },
   "devDependencies": {
     "@modelcontextprotocol/client": "2.0.0",
-    "@types/node": "26.5.1",
+    "@types/node": "26.6.1",
     "tsx": "4.23.13",
     "typescript": "7.0.2",
-    "vitest": "4.1.11"
+    "vitest": "5.0.1"
   },
   "engines": {
     "node": ">=24.16.0"
