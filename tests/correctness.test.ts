@@ -820,12 +820,16 @@ describe("2.0 data and query core", () => {
     const db = new Database(isolated.databasePath);
     const insert = db.prepare("INSERT INTO message(ROWID, guid, text, handle_id, date, service) VALUES (?, ?, ?, 1, ?, 'iMessage')");
     const join = db.prepare("INSERT INTO chat_message_join(chat_id, message_id, message_date) VALUES (1, ?, ?)");
-    for (let i = 0; i < 250; i += 1) {
-      const rowid = 1000 + i;
-      const date = appleNanoseconds("2026-04-01T00:00:00Z") + i * 60_000_000_000;
-      insert.run(rowid, `long-${i}`, `long message ${i} ${"x".repeat(600)}`, date);
-      join.run(rowid, date);
-    }
+    // One transaction: 500 autocommits each sync the journal to disk, which alone
+    // pushed this test past its timeout on a busy runner.
+    db.transaction(() => {
+      for (let i = 0; i < 250; i += 1) {
+        const rowid = 1000 + i;
+        const date = appleNanoseconds("2026-04-01T00:00:00Z") + i * 60_000_000_000;
+        insert.run(rowid, `long-${i}`, `long message ${i} ${"x".repeat(600)}`, date);
+        join.run(rowid, date);
+      }
+    })();
     db.close();
     const runtime = new LocalToolRuntime(runtimeConfig({ transport: "stdio", databasePath: isolated.databasePath, contacts: "none" }));
     try {
