@@ -15,6 +15,25 @@ export function appleNanoseconds(iso: string): number {
   return Math.floor((Date.parse(iso) / 1000 - APPLE_EPOCH_UNIX_SECONDS) * 1_000_000_000);
 }
 
+// Archives come from the real Foundation encoder through osascript. Each launch
+// costs tens of milliseconds, and far more on a busy CI runner, so a process
+// builds each distinct archive once. The encoding is deterministic, so a cached
+// archive is byte-identical to a fresh one.
+const archives = new Map<string, string>();
+
+function foundationArchive(script: string, args: string[] = [], input?: string): Buffer {
+  const key = JSON.stringify([script, args, input ?? null]);
+  let encoded = archives.get(key);
+  if (encoded === undefined) {
+    encoded = execFileSync("/usr/bin/osascript", ["-l", "JavaScript", "-e", script, ...args], {
+      encoding: "utf8",
+      ...(input === undefined ? {} : { input, maxBuffer: 64 * 1024 * 1024 }),
+    }).trim();
+    archives.set(key, encoded);
+  }
+  return Buffer.from(encoded, "base64");
+}
+
 export function foundationAttributedBody(text: string): Buffer {
   const script = `ObjC.import("Foundation"); function run(argv) {
     const object = $.NSMutableAttributedString.alloc.init;
@@ -22,7 +41,7 @@ export function foundationAttributedBody(text: string): Buffer {
     const data = $.NSArchiver.archivedDataWithRootObject(object);
     return ObjC.unwrap(data.base64EncodedStringWithOptions(0));
   }`;
-  return Buffer.from(execFileSync("/usr/bin/osascript", ["-l", "JavaScript", "-e", script, text], { encoding: "utf8" }).trim(), "base64");
+  return foundationArchive(script, [text]);
 }
 
 // What Messages stores for app and edited messages without text: an archived
@@ -33,7 +52,7 @@ export function foundationEmptyAttributedBody(mutable = false): Buffer {
     const data = $.NSArchiver.archivedDataWithRootObject($.${className}.alloc.init);
     return ObjC.unwrap(data.base64EncodedStringWithOptions(0));
   }`;
-  return Buffer.from(execFileSync("/usr/bin/osascript", ["-l", "JavaScript", "-e", script], { encoding: "utf8" }).trim(), "base64");
+  return foundationArchive(script);
 }
 
 // Same archive as foundationAttributedBody, with the text on stdin: long pasted
@@ -47,11 +66,7 @@ export function foundationAttributedBodyFromStdin(text: string): Buffer {
     const data = $.NSArchiver.archivedDataWithRootObject(object);
     return ObjC.unwrap(data.base64EncodedStringWithOptions(0));
   }`;
-  return Buffer.from(execFileSync("/usr/bin/osascript", ["-l", "JavaScript", "-e", script], {
-    encoding: "utf8",
-    input: text,
-    maxBuffer: 64 * 1024 * 1024,
-  }).trim(), "base64");
+  return foundationArchive(script, [], text);
 }
 
 export function foundationAttributedBodyWithRuns(text: string): Buffer {
@@ -63,7 +78,7 @@ export function foundationAttributedBodyWithRuns(text: string): Buffer {
     const data = $.NSArchiver.archivedDataWithRootObject(object);
     return ObjC.unwrap(data.base64EncodedStringWithOptions(0));
   }`;
-  return Buffer.from(execFileSync("/usr/bin/osascript", ["-l", "JavaScript", "-e", script, text], { encoding: "utf8" }).trim(), "base64");
+  return foundationArchive(script, [text]);
 }
 
 export function foundationEditSummary(timestamps: number[]): Buffer {
@@ -85,13 +100,10 @@ export function foundationEditSummary(timestamps: number[]): Buffer {
     );
     return ObjC.unwrap(data.base64EncodedStringWithOptions(0));
   }`;
-  return Buffer.from(execFileSync(
-    "/usr/bin/osascript",
-    ["-l", "JavaScript", "-e", script, ...timestamps.map(String)],
-    { encoding: "utf8" },
-  ).trim(), "base64");
+  return foundationArchive(script, timestamps.map(String));
 }
 
+// Archives the current date, so it is never cached.
 export function foundationLegacyDateArchive(): Buffer {
   const script = `ObjC.import("Foundation"); function run() {
     const data = $.NSArchiver.archivedDataWithRootObject($.NSDate.date);
@@ -132,6 +144,10 @@ export function createFixture(): Fixture {
       ROWID INTEGER PRIMARY KEY, guid TEXT, filename TEXT, transfer_name TEXT, mime_type TEXT, total_bytes INTEGER
     );
     CREATE TABLE message_attachment_join (message_id INTEGER, attachment_id INTEGER);
+    -- Messages indexes both joins by message_id, as scripts/perf.ts does. Without
+    -- them every per-message join lookup scans a conversation's rows.
+    CREATE INDEX chat_message_join_message ON chat_message_join(message_id);
+    CREATE INDEX message_attachment_join_message ON message_attachment_join(message_id);
   `);
   db.exec(`
     INSERT INTO handle(ROWID,id) VALUES
@@ -288,7 +304,7 @@ export function foundationKeyedAttributedBody(text: string, mutable = true): Buf
     const data = $.NSKeyedArchiver.archivedDataWithRootObject(object);
     return ObjC.unwrap(data.base64EncodedStringWithOptions(0));
   }`;
-  return Buffer.from(execFileSync("/usr/bin/osascript", ["-l", "JavaScript", "-e", script, text], { encoding: "utf8" }).trim(), "base64");
+  return foundationArchive(script, [text]);
 }
 
 // message_summary_info without an edit collection, which Messages writes for
@@ -300,5 +316,5 @@ export function foundationSummaryWithoutEdits(): Buffer {
     const data = $.NSPropertyListSerialization.dataWithPropertyListFormatOptionsError(root, $.NSPropertyListBinaryFormat_v1_0, 0, Ref());
     return ObjC.unwrap(data.base64EncodedStringWithOptions(0));
   }`;
-  return Buffer.from(execFileSync("/usr/bin/osascript", ["-l", "JavaScript", "-e", script], { encoding: "utf8" }).trim(), "base64");
+  return foundationArchive(script);
 }
