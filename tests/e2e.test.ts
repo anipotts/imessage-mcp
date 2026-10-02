@@ -367,6 +367,29 @@ describe("sync_messages", () => {
     expect(created, "expected a message_created change for the appended message").toBeDefined();
     expect(created!.text).toBe("fresh e2e message");
   });
+
+  // The runtime has always logged deletions; the published output schema did
+  // not list message_deleted, so the SDK rejected the whole batch and the
+  // cursor could never move past it.
+  it("reports a message_deleted change through the published output schema", async () => {
+    const fixture = trackFixture(createFixture());
+    const client = await connectStdio(["--database", fixture.databasePath, "--contacts", "none"]);
+
+    const first = structuredData(await client.callTool({ name: "sync_messages", arguments: { limit: 50 } })) as { cursor: string };
+
+    const writer = new Database(fixture.databasePath);
+    try {
+      writer.prepare("DELETE FROM chat_message_join WHERE message_id = 2").run();
+      writer.prepare("DELETE FROM message WHERE ROWID = 2").run();
+    } finally {
+      writer.close();
+    }
+
+    const second = structuredData(
+      await client.callTool({ name: "sync_messages", arguments: { limit: 50, cursor: first.cursor } }),
+    ) as { changes: Array<Record<string, unknown>> };
+    expect(second.changes).toContainEqual(expect.objectContaining({ change_type: "message_deleted", message_id: 2 }));
+  });
 });
 
 // ---------------------------------------------------------------------------

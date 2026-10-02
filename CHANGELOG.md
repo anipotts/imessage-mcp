@@ -2,6 +2,12 @@
 
 this file follows [keep a changelog](https://keepachangelog.com/en/1.1.0/), and this project follows semantic versioning.
 
+## unreleased
+
+### fixed
+
+- `sync_messages` failed with an output validation error whenever a batch included a deleted message, and every later call from that cursor failed the same way. Deletions now come back as `message_deleted` changes.
+
 ## 3.2.0
 
 From another recorded session, where the assistant told the user "Chat 12 is the 1:1 DM, 1727 looks like a group".
