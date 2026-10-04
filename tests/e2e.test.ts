@@ -180,6 +180,81 @@ async function waitForHttpReady(child: ChildProcessWithoutNullStreams): Promise<
   });
 }
 
+async function connectHttp(databasePath: string): Promise<Client> {
+  const port = await freePort();
+  const token = randomToken();
+  const child = trackChild(spawn(process.execPath, [
+    binPath, "--transport", "http", "--port", String(port),
+    "--database", databasePath, "--contacts", "none", "--privacy", "full",
+  ], {
+    cwd: repoRoot,
+    env: baseEnv({ IMESSAGE_API_TOKEN: token }),
+    stdio: ["ignore", "ignore", "pipe"],
+  }));
+  await waitForHttpReady(child);
+  const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`), {
+    authProvider: { token: async () => token },
+  });
+  const client = trackClient(new Client({ name: "imessage-mcp-e2e-membership-http", version: "1.0.0" }));
+  await client.connect(transport);
+  return client;
+}
+
+// Reproduce issue #65 without copying anyone's personal database: one existing
+// message gains a recorded membership in an unrelated conversation. No Apple
+// lookup identifier links those conversations, so they must stay separate.
+function addSharedMembership(databasePath: string): void {
+  const writer = new Database(databasePath);
+  try {
+    writer.exec(`
+      INSERT INTO chat_message_join(chat_id,message_id,message_date,index_state)
+      SELECT 3, ROWID, date, 0 FROM message WHERE ROWID = 1;
+    `);
+  } finally {
+    writer.close();
+  }
+}
+
+function membershipCalls(allowPartial = false): Array<[string, Record<string, unknown>]> {
+  return [
+    ["server_status", {}],
+    ["resolve_contact", { query: "+15550000001" }],
+    ["list_conversations", { limit: 50 }],
+    ["get_conversation", { chat_id: 4, limit: 200, allow_partial: allowPartial }],
+    ["search_messages", { query: "hello literal", mode: "substring", limit: 50, allow_partial: allowPartial }],
+    ["analyze_communication", { metric: "message_count", scope: "global" }],
+    ["get_attachment", { attachment_id: 1 }],
+    ["sync_messages", { limit: 50 }],
+  ];
+}
+
+function assertAggregateMembershipOutput(value: unknown): void {
+  const visit = (node: unknown): void => {
+    if (Array.isArray(node)) return node.forEach(visit);
+    if (!node || typeof node !== "object") return;
+    for (const [key, child] of Object.entries(node)) {
+      expect(["chat_id", "chat_ids", "previous_chat_ids", "conversation_ids", "message_id", "attachment_id", "parent_message_id", "around_message_id"])
+        .not.toContain(key);
+      visit(child);
+    }
+  };
+  visit(value);
+  const serialized = JSON.stringify(value);
+  for (const needle of [
+    "hello literal", "reply one", "blob exact", "thread reply", "photo.png",
+    "+15550000001", "+15550000002", "unknown@example.test", "Synthetic Group",
+  ]) expect(serialized).not.toContain(needle);
+}
+
+function assertSharedSearch(data: Record<string, unknown>): void {
+  const results = data.results as Array<{ message_id: number; chat_ids?: number[]; chat_id?: number }>;
+  expect(data.total_matches).toBe(1);
+  expect(results).toHaveLength(1);
+  expect(results[0].message_id).toBe(1);
+  expect(results[0].chat_ids).toEqual([1, 3]);
+  expect(results[0]).not.toHaveProperty("chat_id");
+}
+
 function listFilesRecursive(root: string): string[] {
   const out: string[] = [];
   const walk = (dir: string): void => {
@@ -308,6 +383,73 @@ describe("tool outputs at every privacy mode", () => {
         expect(data[key], `aggregate data.${key} must not be a per-record array`).toBeUndefined();
       }
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Shared-message membership regression: real transports, every tool, schema
+// validation, strict/partial reads, and unchanged global message counts.
+// ---------------------------------------------------------------------------
+
+describe("shared conversation memberships over MCP", () => {
+  it.each(["stdio", "http"] as const)("serves every tool over %s when an unrelated conversation shares one message", async (transport) => {
+    const baselineFixture = trackFixture(createFixture());
+    const sharedFixture = trackFixture(createFixture());
+    addSharedMembership(sharedFixture.databasePath);
+    const connect = async (databasePath: string): Promise<Client> => transport === "stdio"
+      ? connectStdio(["--database", databasePath, "--contacts", "none"])
+      : connectHttp(databasePath);
+    const baselineClient = await connect(baselineFixture.databasePath);
+    const baselineCounts = structuredData(await baselineClient.callTool({
+      name: "analyze_communication", arguments: { metric: "message_count", scope: "global" },
+    })).overall;
+    const unrelatedEvents = structuredData(await baselineClient.callTool({
+      name: "get_conversation", arguments: { chat_id: 4, limit: 200 },
+    })).events;
+    const client = await connect(sharedFixture.databasePath);
+    expect(membershipCalls().map(([name]) => name).sort()).toEqual(TOOL_NAMES);
+
+    for (const allowPartial of [false, true]) {
+      const results = new Map<string, Record<string, unknown>>();
+      for (const [name, args] of membershipCalls(allowPartial)) {
+        const result = await client.callTool({ name, arguments: args });
+        expect(result.isError, `${name} must succeed with allow_partial=${allowPartial}`).toBeUndefined();
+        results.set(name, structuredData(result));
+      }
+      expect(results.get("server_status")?.conversation_membership).toEqual({
+        state: "available", total_messages: 20, joined_messages: 20, shared_messages: 1, unlinked_messages: 0,
+      });
+      const conversations = results.get("list_conversations")!.conversations as Array<{ chat_id: number }>;
+      expect(conversations.map((conversation) => conversation.chat_id).sort((a, b) => a - b)).toEqual([1, 3, 4, 5]);
+      expect(results.get("get_conversation")!.events).toEqual(unrelatedEvents);
+      expect(results.get("analyze_communication")!.overall).toEqual(baselineCounts);
+      assertSharedSearch(results.get("search_messages")!);
+      expect(results.get("get_attachment")?.content).toBe("metadata");
+      expect(results.get("sync_messages")?.cursor).toMatch(/^im3_sync_/u);
+
+      // Sharing a message must not merge the rest of either conversation.
+      for (const chatId of [1, 3]) {
+        const events = structuredData(await client.callTool({
+          name: "get_conversation", arguments: { chat_id: chatId, limit: 200, allow_partial: allowPartial },
+        })).events as Array<{ message_id?: number }>;
+        expect(events.some((event) => event.message_id === 1)).toBe(true);
+        if (chatId === 3) expect(events.map((event) => event.message_id).sort((a, b) => Number(a) - Number(b))).toEqual([1, 5]);
+      }
+    }
+
+    // get_attachment has no per-call privacy override and requires full;
+    // aggregate coverage uses the other tools here and all tools in the bundle
+    // test below, whose startup privacy ceiling exercises that restriction.
+    const aggregateResults: unknown[] = [];
+    for (const [name, args] of membershipCalls(true).filter(([name]) => name !== "get_attachment")) {
+      const result = await client.callTool({ name, arguments: { ...args, privacy_mode: "aggregate" } });
+      structuredData(result);
+      aggregateResults.push(result);
+    }
+    assertAggregateMembershipOutput(aggregateResults.map((result) => (result as { structuredContent: unknown }).structuredContent));
+    const aggregateText = JSON.stringify(aggregateResults);
+    expect(aggregateText).not.toContain('\"chat_ids\":');
+    expect(aggregateText).not.toContain("hello literal");
   });
 });
 
@@ -638,11 +780,12 @@ describe("mcpb bundle", () => {
     throw new Error(`IMESSAGE_E2E_REQUIRE_BUNDLE is set but ${bundlePath} does not exist`);
   }
   const testName = hasBundle
-    ? "unzips cleanly, ships no native binaries or sources, and launches at every privacy default"
-    : `unzips cleanly, ships no native binaries or sources, and launches at every privacy default (skipped: no bundle at ${bundlePath}; run npm run build:mcpb first)`;
+    ? "unzips cleanly, ships no native binaries or sources, and reads a shared-membership archive at every privacy default"
+    : `unzips cleanly, ships no native binaries or sources, and reads a shared-membership archive at every privacy default (skipped: no bundle at ${bundlePath}; run npm run build:mcpb first)`;
 
   it.skipIf(!hasBundle)(testName, async () => {
     const fixture = trackFixture(createFixture());
+    addSharedMembership(fixture.databasePath);
     const root = trackDir(mkdtempSync(path.join(tmpdir(), "imessage-mcp-e2e-bundle-")));
     execFileSync("unzip", ["-q", bundlePath, "-d", root]);
 
@@ -685,6 +828,21 @@ describe("mcpb bundle", () => {
       await client.connect(transport);
       const tools = await client.listTools();
       expect(tools.tools.map((tool) => tool.name).sort()).toEqual(TOOL_NAMES);
+      for (const [name, args] of membershipCalls()) {
+        const result = await client.callTool({ name, arguments: args });
+        if (name === "get_attachment" && privacy !== "full") {
+          expect(structuredError(result).reason).toBe("PRIVACY_RESTRICTED");
+        } else {
+          const data = structuredData(result);
+          if (name === "server_status") {
+            expect(data.conversation_membership).toEqual({
+              state: "available", total_messages: 20, joined_messages: 20, shared_messages: 1, unlinked_messages: 0,
+            });
+          }
+          if (name === "search_messages" && privacy !== "aggregate") assertSharedSearch(data);
+        }
+        if (privacy === "aggregate") assertAggregateMembershipOutput(result.structuredContent);
+      }
       await client.close();
       openClients.splice(openClients.indexOf(client), 1);
     }

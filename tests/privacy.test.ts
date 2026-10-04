@@ -100,6 +100,20 @@ describe("privacy ceilings", () => {
     expect(serialized).not.toContain("private");
   });
 
+  it("removes plural membership ids from nested states, scopes and error details in aggregate mode", () => {
+    const identities = { chat_ids: [17, 29], previous_chat_ids: [11], conversation_ids: [5, 7], parent_message_id: 91 };
+    const success = successResult({
+      tool: "sync_messages", privacy: "aggregate", maskingKey,
+      effectiveScope: { privacy_mode: "aggregate", ...identities },
+      data: { current_state: identities, count: 1 },
+    });
+    const failure = errorResult("sync_messages", new ImessageMcpError("INVALID_INPUT", "synthetic failure", identities), "aggregate", maskingKey);
+    for (const result of [success, failure]) {
+      const serialized = JSON.stringify(result.structuredContent);
+      for (const key of Object.keys(identities)) expect(serialized).not.toContain(key);
+    }
+  });
+
   it("summarizes empty results with an explicit zero count", () => {
     const result = successResult({
       tool: "list_conversations",

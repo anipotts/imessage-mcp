@@ -114,18 +114,26 @@ export class Statement {
     } catch (error) {
       throw named(error);
     }
-    for (;;) {
-      let next: IteratorResult<unknown>;
-      try {
-        next = iterator.next();
-      } catch (error) {
-        throw named(error);
+    try {
+      for (;;) {
+        const next = guard(() => iterator.next());
+        if (next.done) return;
+        const converted = row(next.value, this.exact);
+        yield this.plucked ? (converted as unknown[])[0] : converted;
       }
-      if (next.done) return;
-      const converted = row(next.value, this.exact);
-      yield this.plucked ? (converted as unknown[])[0] : converted;
+    } finally {
+      // A consumer can break or throw before the native iterator is exhausted.
+      // Finalize it even then, otherwise its read lock outlives the request.
+      guard(() => iterator.return?.());
     }
   }
+}
+
+// SQLite checkpoint methods are backported independently across Node majors.
+// The supported runtime floor alone does not guarantee their availability.
+export function sqliteCheckpointAvailable(): boolean {
+  return typeof DatabaseSync.prototype.serialize === "function" &&
+    typeof DatabaseSync.prototype.deserialize === "function";
 }
 
 let savepoints = 0;

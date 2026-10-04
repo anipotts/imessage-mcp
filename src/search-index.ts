@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { totalmem } from "node:os";
 import path from "node:path";
-import Database from "./sqlite.js";
+import Database, { sqliteCheckpointAvailable } from "./sqlite.js";
 import type { PrivacyMode, ServiceFamily, Warning, Watermark } from "./contracts.js";
 import { serviceFamily } from "./contracts.js";
 import type { UnifiedContactResolver } from "./contacts.js";
@@ -9,9 +9,9 @@ import type { DatabaseContext, DatabaseRequest } from "./database.js";
 import { assertFrozenTraversal, parseWatermark, watermarkToken } from "./database.js";
 import type { MessageTextDecoder } from "./decoder.js";
 import { populatedMessageText } from "./decoder.js";
-import { ImessageMcpError } from "./errors.js";
+import { asImessageMcpError, ImessageMcpError } from "./errors.js";
 import { decodeCursor, encodeCursor } from "./references.js";
-import { assertMessageConversationIntegrity } from "./repositories/conversations.js";
+import { registerConversationTopology, membershipFields } from "./repositories/conversation-topology.js";
 import { columnSql, serviceFamilyCase, serviceFamilyPredicate, serviceSql } from "./schema-sql.js";
 import { validateSender } from "./sender.js";
 import type { DateBounds } from "./time.js";
@@ -46,7 +46,8 @@ export type SearchOrder = "newest" | "relevance";
 
 export interface SearchHit {
   message_id: number;
-  chat_id: number;
+  chat_id?: number;
+  chat_ids: number[];
   timestamp: string | null;
   service_family: ServiceFamily;
   sender: { name: string | null; handle: string | null };
@@ -70,6 +71,7 @@ interface SourceRow {
   handle: string | null;
   handle_id: number | null;
   chat_ids_json: string;
+  conversation_ids_json: string;
   chat_names_json: string;
   participant_handles_json: string;
   filenames_json: string;
@@ -98,7 +100,7 @@ interface IndexEstimate {
 const MIB = 1024 * 1024;
 const SOURCE_BATCH_SIZE = 200;
 // Bump when the index tables change shape; older checkpoints are then ignored.
-const INDEX_SCHEMA_VERSION = 1;
+const INDEX_SCHEMA_VERSION = 2;
 const CHECKPOINT_INTERVAL_MS = 5 * 60 * 1000;
 const ROW_STATE_CHUNK = 2_000;
 const BUILD_STEP_MS = 40;
@@ -143,7 +145,9 @@ function eligibleMessageSql(request: DatabaseRequest): string {
     AND COALESCE(${itemType}, 0) = 0
     AND COALESCE(${system}, 0) = 0
     AND COALESCE(${retracted}, 0) <= 0
-    AND EXISTS (SELECT 1 FROM chat_message_join eligible_cmj WHERE eligible_cmj.message_id = m.ROWID)`;
+    AND EXISTS (SELECT 1 FROM chat_message_join eligible_cmj
+                JOIN chat eligible_chat ON eligible_chat.ROWID = eligible_cmj.chat_id
+                WHERE eligible_cmj.message_id = m.ROWID)`;
 }
 
 function hashValue(hash: ReturnType<typeof createHash>, value: unknown): void {
@@ -461,8 +465,13 @@ export class MemorySearchIndex {
   private progressTotal = 0;
   private signatures: SourceSignatures | null = null;
 
+  private lastError: { reason: import("./contracts.js").ErrorReason } | null = null;
   private cacheTried = false;
   private lastCheckpoint = 0;
+  private checkpointStatus: {
+    state: "disabled" | "unavailable" | "pending" | "written" | "restored" | "write_failed";
+    reason?: "SQLITE_CHECKPOINT_UNAVAILABLE" | "CACHE_WRITE_FAILED";
+  };
 
   constructor(
     private readonly context: DatabaseContext,
@@ -471,14 +480,22 @@ export class MemorySearchIndex {
     private readonly onBuild?: () => void,
     // Where encrypted checkpoints live; undefined keeps the index in memory only.
     private readonly cacheDirectory?: string,
-  ) {}
+  ) {
+    this.checkpointStatus = !cacheDirectory
+      ? { state: "disabled" }
+      : sqliteCheckpointAvailable()
+        ? { state: "pending" }
+        : { state: "unavailable", reason: "SQLITE_CHECKPOINT_UNAVAILABLE" };
+  }
 
   private cachePath(): string | null {
-    return this.cacheDirectory ? path.join(this.cacheDirectory, `${sourceHash(this.context.canonicalPath)}.index`) : null;
+    return this.cacheDirectory && this.checkpointStatus.state !== "unavailable"
+      ? path.join(this.cacheDirectory, `${sourceHash(this.context.canonicalPath)}.index`)
+      : null;
   }
 
   // Writes the index to its encrypted cache file. Failures only cost a rebuild
-  // on the next start, so they are swallowed.
+  // on the next start; status reports them while reads continue from memory.
   private checkpoint(request: DatabaseRequest): void {
     const file = this.cachePath();
     if (!file || !this.index || !this.signatures || !this.indexedWatermark) return;
@@ -501,8 +518,9 @@ export class MemorySearchIndex {
         sourceHash: sourceHash(this.context.canonicalPath),
       });
       this.lastCheckpoint = Date.now();
+      this.checkpointStatus = { state: "written" };
     } catch {
-      // keep serving from memory
+      this.checkpointStatus = { state: "write_failed", reason: "CACHE_WRITE_FAILED" };
     }
   }
 
@@ -543,6 +561,7 @@ export class MemorySearchIndex {
       // the first ensure() to compare fingerprints with the live archive.
       this.indexedWatermark = { ...(JSON.parse(watermark) as Watermark), data_version: -1 };
       this.recountPartialRows(this.index);
+      this.checkpointStatus = { state: "restored" };
       return true;
     } catch {
       return false;
@@ -552,23 +571,27 @@ export class MemorySearchIndex {
   }
 
   state(): {
-    state: "cold" | "ready" | "partial" | "building";
+    state: "cold" | "ready" | "partial" | "building" | "failed";
+    last_error?: { reason: import("./contracts.js").ErrorReason };
     progress?: number;
     indexed_messages: number;
     memory_used_bytes: number;
     memory_limit_bytes: number;
+    cache_state: MemorySearchIndex["checkpointStatus"];
   } {
     const count = this.index
       ? Number((this.index.prepare("SELECT COUNT(*) AS count FROM message_text").get() as { count: number }).count)
       : 0;
     return {
-      state: this.building ? "building" : !this.index ? "cold" : this.complete ? "ready" : "partial",
+      state: this.building ? "building" : this.lastError ? "failed" : !this.index ? "cold" : this.complete ? "ready" : "partial",
+      ...(this.lastError ? { last_error: this.lastError } : {}),
       ...(this.building && this.progressTotal > 0
         ? { progress: Math.min(1, Math.round((this.progressDone / this.progressTotal) * 100) / 100) }
         : {}),
       indexed_messages: count,
       memory_used_bytes: this.index ? this.memoryFootprint(this.index) : 0,
       memory_limit_bytes: this.memoryLimit(),
+      cache_state: { ...this.checkpointStatus },
     };
   }
 
@@ -607,6 +630,11 @@ export class MemorySearchIndex {
     db.exec(`
       CREATE TABLE signature_bucket (bucket INTEGER PRIMARY KEY, hash TEXT NOT NULL);
       CREATE TABLE signature_conversation (chat_ids TEXT PRIMARY KEY, hash TEXT NOT NULL);
+      CREATE TABLE message_conversation (
+        message_id INTEGER NOT NULL, conversation_id INTEGER NOT NULL,
+        PRIMARY KEY (message_id, conversation_id)
+      ) WITHOUT ROWID;
+      CREATE INDEX message_conversation_lookup ON message_conversation(conversation_id, message_id);
     `);
     db.exec(`
       CREATE TABLE message_text (
@@ -626,6 +654,7 @@ export class MemorySearchIndex {
         handle TEXT,
         handle_id INTEGER,
         chat_ids TEXT NOT NULL,
+        conversation_ids TEXT NOT NULL,
         filenames TEXT NOT NULL,
         row_status TEXT NOT NULL CHECK (row_status IN ('complete', 'partial')),
         body_partial INTEGER NOT NULL,
@@ -699,11 +728,11 @@ export class MemorySearchIndex {
       chatColumns.includes("service_name") ? "LENGTH(CAST(COALESCE(c.service_name, '') AS BLOB))" : "0",
     ];
     const componentCounts = `eligible_components AS (
-      SELECT m.ROWID AS rowid, mcp_canonical_chat(cmj.chat_id) AS conversation_id
+      SELECT DISTINCT m.ROWID AS rowid, mcp_canonical_chat(cmj.chat_id) AS conversation_id
       FROM message m
       JOIN chat_message_join cmj ON cmj.message_id = m.ROWID
+      JOIN chat valid_chat ON valid_chat.ROWID = cmj.chat_id
       WHERE ${eligible}
-      GROUP BY m.ROWID
     ), component_message_counts AS (
       SELECT conversation_id, COUNT(*) AS messages
       FROM eligible_components
@@ -721,7 +750,12 @@ export class MemorySearchIndex {
        SELECT COALESCE(SUM(counts.messages * stats.relations), 0) AS rows,
               COALESCE(SUM(counts.messages * stats.bytes), 0) AS bytes,
               COALESCE(MAX(stats.max_value), 0) AS max_value,
-              COALESCE(MAX(stats.relations), 0) AS max_fanout
+              COALESCE((SELECT MAX(relations) FROM (
+                SELECT eligible.rowid, SUM(component.relations) AS relations
+                FROM eligible_components eligible
+                JOIN component_chat_stats component ON component.conversation_id = eligible.conversation_id
+                GROUP BY eligible.rowid
+              )), 0) AS max_fanout
        FROM component_message_counts counts
        JOIN component_chat_stats stats ON stats.conversation_id = counts.conversation_id`,
     ).get({ target: request.asOf.max_message_id }) as { rows: number; bytes: number; max_value: number; max_fanout: number };
@@ -740,7 +774,15 @@ export class MemorySearchIndex {
        SELECT COALESCE(SUM(counts.messages * stats.relations), 0) AS rows,
               COALESCE(SUM(counts.messages * stats.bytes), 0) AS bytes,
               COALESCE(MAX(stats.max_value), 0) AS max_value,
-              COALESCE(MAX(stats.relations), 0) AS max_fanout
+              COALESCE((SELECT MAX(relations) FROM (
+                SELECT unique_participants.rowid, COUNT(*) AS relations
+                FROM (
+                  SELECT DISTINCT eligible.rowid, participant.id
+                  FROM eligible_components eligible
+                  JOIN distinct_participants participant ON participant.conversation_id = eligible.conversation_id
+                ) unique_participants
+                GROUP BY unique_participants.rowid
+              )), 0) AS max_fanout
        FROM component_message_counts counts
        JOIN component_participant_stats stats ON stats.conversation_id = counts.conversation_id`,
     ).get({ target: request.asOf.max_message_id }) as { rows: number; bytes: number; max_value: number; max_fanout: number };
@@ -874,30 +916,41 @@ export class MemorySearchIndex {
            FROM selected
            JOIN chat_message_join cmj ON cmj.message_id = selected.rowid
            JOIN chat c ON c.ROWID = cmj.chat_id
+         ), message_components AS (
+           SELECT DISTINCT rowid, conversation_id FROM direct_relations
          ), message_conversations AS (
-           SELECT rowid, MIN(conversation_id) AS conversation_id,
+           SELECT rowid,
+                  json_group_array(DISTINCT conversation_id ORDER BY conversation_id) AS conversation_ids_json,
                   CASE WHEN COUNT(DISTINCT ${serviceFamilyCase("service")}) = 1
                        THEN MIN(service) ELSE 'unknown' END AS service
-           FROM direct_relations
-           GROUP BY rowid
-         ), component_relations AS (
+           FROM direct_relations GROUP BY rowid
+         ), component_chats AS MATERIALIZED (
            SELECT mcp_canonical_chat(component_chat.ROWID) AS conversation_id,
-                  json_group_array(DISTINCT component_chat.ROWID) AS chat_ids_json,
-                  json_group_array(DISTINCT ${componentChatName}) FILTER (WHERE ${componentChatName} IS NOT NULL) AS chat_names_json
+                  component_chat.ROWID AS chat_id, ${componentChatName} AS chat_name
            FROM chat component_chat
-           GROUP BY mcp_canonical_chat(component_chat.ROWID)
-         ), component_participants AS (
-           SELECT mcp_canonical_chat(chj.chat_id) AS conversation_id,
-                  json_group_array(DISTINCT participant.id) AS participant_handles_json
-           FROM chat_handle_join chj
-           JOIN handle participant ON participant.ROWID = chj.handle_id
-           GROUP BY mcp_canonical_chat(chj.chat_id)
+         ), message_chats AS (
+           SELECT components.rowid,
+                  json_group_array(DISTINCT chats.chat_id ORDER BY chats.chat_id) AS chat_ids_json,
+                  json_group_array(DISTINCT chats.chat_name ORDER BY chats.chat_name)
+                    FILTER (WHERE chats.chat_name IS NOT NULL) AS chat_names_json
+           FROM message_components components
+           JOIN component_chats chats ON chats.conversation_id = components.conversation_id
+           GROUP BY components.rowid
+         ), component_participants AS MATERIALIZED (
+           SELECT DISTINCT mcp_canonical_chat(chj.chat_id) AS conversation_id, participant.id AS handle
+           FROM chat_handle_join chj JOIN handle participant ON participant.ROWID = chj.handle_id
+         ), message_participants AS (
+           SELECT components.rowid,
+                  json_group_array(DISTINCT participants.handle ORDER BY participants.handle) AS participant_handles_json
+           FROM message_components components
+           JOIN component_participants participants ON participants.conversation_id = components.conversation_id
+           GROUP BY components.rowid
          ), chat_relations AS (
-           SELECT messages.rowid, messages.service, components.chat_ids_json, components.chat_names_json,
+           SELECT messages.rowid, messages.service, messages.conversation_ids_json,
+                  chats.chat_ids_json, chats.chat_names_json,
                   COALESCE(participants.participant_handles_json, '[]') AS participant_handles_json
-           FROM message_conversations messages
-           JOIN component_relations components ON components.conversation_id = messages.conversation_id
-           LEFT JOIN component_participants participants ON participants.conversation_id = messages.conversation_id
+           FROM message_conversations messages JOIN message_chats chats ON chats.rowid = messages.rowid
+           LEFT JOIN message_participants participants ON participants.rowid = messages.rowid
          )
          ${attachmentCte}
          SELECT
@@ -913,6 +966,7 @@ export class MemorySearchIndex {
 	           h.id AS handle,
 	           selected.handle_id,
            chat_relations.chat_ids_json,
+           chat_relations.conversation_ids_json,
            chat_relations.chat_names_json,
            chat_relations.participant_handles_json,
            ${filenames} AS filenames_json
@@ -968,10 +1022,11 @@ export class MemorySearchIndex {
       `INSERT INTO message_text(
          rowid, guid, text, normalized_text, conversation_text, normalized_conversation,
          normalized_conversation_values, attachment_text, normalized_attachments,
-         normalized_attachment_values, date, is_from_me, service, handle, handle_id, chat_ids, filenames, row_status,
+         normalized_attachment_values, date, is_from_me, service, handle, handle_id, chat_ids, conversation_ids, filenames, row_status,
          body_partial, sender_partial
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
+    const insertMembership = db.prepare("INSERT INTO message_conversation(message_id, conversation_id) VALUES (?, ?)");
     const insertFts = updateIndexes
       ? db.prepare(
           "INSERT INTO message_fts(rowid, normalized_text, normalized_conversation, normalized_attachments) VALUES (?, ?, ?, ?)",
@@ -1077,11 +1132,13 @@ export class MemorySearchIndex {
             sender.identity.handle,
             row.handle_id,
             JSON.stringify(chatIdArray(row.chat_ids_json)),
+            JSON.stringify(chatIdArray(row.conversation_ids_json)),
             JSON.stringify(filenames),
             bodyPartial || !sender.complete ? "partial" : "complete",
             bodyPartial ? 1 : 0,
             sender.complete ? 0 : 1,
           );
+          for (const id of chatIdArray(row.conversation_ids_json)) insertMembership.run(row.rowid, id);
           insertFts?.run(row.rowid, normalizedText, normalizedConversation, normalizedAttachments);
           insertTrigram?.run(row.rowid, normalizedText);
         }
@@ -1133,7 +1190,7 @@ export class MemorySearchIndex {
     const request = existing ?? this.context.request({ connection: "index" });
     let db: Database.Database | null = null;
     try {
-      assertMessageConversationIntegrity(request);
+      registerConversationTopology(request);
       const estimate = this.estimate(request, allowPartial);
       this.progressDone = 0;
       this.progressTotal = estimate.rows;
@@ -1200,7 +1257,7 @@ export class MemorySearchIndex {
   private async refresh(allowPartial: boolean, request: DatabaseRequest): Promise<void> {
     const index = this.index as Database.Database;
     const previous = this.signatures as SourceSignatures;
-    assertMessageConversationIntegrity(request);
+    registerConversationTopology(request);
     const next = await sourceSignatures(request);
     const changed = new Set<number>();
     for (const [bucket, signature] of next.buckets) {
@@ -1212,10 +1269,21 @@ export class MemorySearchIndex {
     const changedConversations = [...new Set([...previous.conversations.keys(), ...next.conversations.keys()])]
       .filter((key) => previous.conversations.get(key) !== next.conversations.get(key));
     if (changedConversations.length > 0) {
+      // A shared message can reference several components. Invalidate through
+      // the normalized membership relation, not an exact JSON-array match.
+      const ids = [...new Set(changedConversations.map((key) => chatIdArray(key)[0]))];
       const rows = index.prepare(
-        `SELECT DISTINCT rowid / ${SIGNATURE_BUCKET_ROWS} AS bucket FROM message_text
-         WHERE chat_ids IN (SELECT value FROM json_each(@keys))`,
-      ).all({ keys: JSON.stringify(changedConversations) }) as Array<{ bucket: number }>;
+        `SELECT DISTINCT message_id / ${SIGNATURE_BUCKET_ROWS} AS bucket FROM message_conversation
+         WHERE conversation_id IN (SELECT value FROM json_each(@ids))`,
+      ).all({ ids: JSON.stringify(ids) }) as Array<{ bucket: number }>;
+      // The sync state includes non-searchable rows (reactions, unsends, system
+      // events and unlinked records), so lookup relinking also revisits them.
+      const stateRows = index.prepare(
+        `SELECT DISTINCT rowid / ${SIGNATURE_BUCKET_ROWS} AS bucket FROM row_state,
+           json_each(row_state.chat_ids_json) membership
+         WHERE membership.value IN (SELECT value FROM json_each(@ids))`,
+      ).all({ ids: JSON.stringify(ids) }) as Array<{ bucket: number }>;
+      for (const row of stateRows) changed.add(Number(row.bucket));
       for (const row of rows) changed.add(Number(row.bucket));
     }
     if (changed.size === 0) {
@@ -1250,12 +1318,14 @@ export class MemorySearchIndex {
         )
       : null;
     const deleteRows = index.prepare("DELETE FROM message_text WHERE rowid BETWEEN ? AND ?");
+    const deleteMemberships = index.prepare("DELETE FROM message_conversation WHERE message_id BETWEEN ? AND ?");
     index.exec("BEGIN");
     try {
       for (const [first, last] of ranges) {
         deleteFts.run(first, last);
         deleteTrigram?.run(first, last);
         deleteRows.run(first, last);
+        deleteMemberships.run(first, last);
       }
       const target = request.asOf.max_message_id;
       const populateRanges = ranges
@@ -1309,7 +1379,17 @@ export class MemorySearchIndex {
   // Calls are serialized: the background build, a search, and a refresh each
   // hold the index connection's read snapshot while they run.
   ensure(allowPartial: boolean): Promise<void> {
-    const run = this.ensuring.then(() => this.ensureOnce(allowPartial));
+    const run = this.ensuring.then(async () => {
+      try {
+        await this.ensureOnce(allowPartial);
+        this.lastError = null;
+      } catch (error) {
+        // Keep only the stable public reason, never raw SQLite error text or
+        // private values, so an idle failed build remains diagnosable.
+        this.lastError = { reason: asImessageMcpError(error).reason };
+        throw error;
+      }
+    });
     this.ensuring = run.catch(() => undefined);
     return run;
   }
@@ -1563,11 +1643,11 @@ export class MemorySearchIndex {
         handle_id: row.handle_id,
         handle: row.handle,
       }, this.contacts);
-      const chatIds = chatIdArray(String(row.chat_ids));
+      const chatIds = chatIdArray(String(row.conversation_ids));
       const filenames = stringArray(String(row.filenames), MAX_INDEX_RELATIONS_PER_MESSAGE, "indexed filename");
       return {
         message_id: Number(row.rowid),
-        chat_id: chatIds[0],
+        ...membershipFields(chatIds),
         timestamp: appleTimestampToIso(row.date_token),
         service_family: serviceFamily(row.service),
         sender: sender.identity,

@@ -98,13 +98,26 @@ const serverStatusOutput = successSchema(z.looseObject({
     // Aggregate mode drops the `handle` table key; redacted mode masks its column names.
     tables: z.record(z.string(), z.array(z.string())),
   }),
+  conversation_membership: z.looseObject({
+    state: z.enum(["available", "unavailable"]),
+    total_messages: z.number().optional(),
+    joined_messages: z.number().optional(),
+    shared_messages: z.number().optional(),
+    unlinked_messages: z.number().optional(),
+    reason: z.string().optional(),
+  }).optional(),
   contacts: z.looseObject({ state: z.enum(["available", "unavailable"]), count: z.number() }).optional(),
   index_state: z.looseObject({
-    state: z.enum(["cold", "ready", "partial", "building"]),
+    state: z.enum(["cold", "ready", "partial", "building", "failed"]),
+    last_error: z.looseObject({ reason: z.string() }).optional(),
     progress: z.number().optional(),
     indexed_messages: z.number(),
     memory_used_bytes: z.number(),
     memory_limit_bytes: z.number(),
+    cache_state: z.looseObject({
+      state: z.enum(["disabled", "unavailable", "pending", "written", "restored", "write_failed"]),
+      reason: z.string().optional(),
+    }).optional(),
   }),
   as_of: z.string(),
   update: z.object({
@@ -225,6 +238,8 @@ const searchMessagesOutput = successSchema(z.looseObject({
   results: z.array(z.looseObject({
     message_id: z.number().optional(),
     chat_id: z.number().optional(),
+    chat_ids: z.array(z.number()).optional(),
+    conversations: z.array(z.looseObject({ chat_id: z.number().optional(), ...conversationLabelSchema.shape })).optional(),
     timestamp: z.string().nullable().optional(),
     service_family: serviceSchema,
     sender: partySchema.optional(),
@@ -259,6 +274,7 @@ const syncMessagesOutput = successSchema(z.looseObject({
       "message_edited",
       "message_retracted",
       "message_deleted",
+      "message_membership_changed",
       "reaction_added",
       "reaction_removed",
       "receipt_changed",
@@ -267,6 +283,8 @@ const syncMessagesOutput = successSchema(z.looseObject({
     changed_at: z.string().nullable().optional(),
     message_id: z.number().optional(),
     chat_id: z.number().optional(),
+    chat_ids: z.array(z.number()).optional(),
+    previous_chat_ids: z.array(z.number()).optional(),
     parent_message_id: z.number().optional(),
     service_family: serviceSchema,
     direction: directionSchema.optional(),
@@ -401,7 +419,7 @@ export function registerTools(server: McpServer, runtime: ToolRuntime): void {
     "server_status",
     {
       title: "Server status",
-      description: "Check the imessage-mcp server's health: running version and update availability, privacy mode, search-index build state, which Messages features this Mac's chat.db schema supports, and whether Contacts is readable. The update check is one anonymous request to the npm registry, off when IMESSAGE_UPDATE_CHECK=0. If Messages is unreadable, every tool, this one included, returns an error naming the app to grant Full Disk Access.",
+      description: "Check the imessage-mcp server's health: running version and update availability, privacy mode, search-index build state, which Messages features this Mac's chat.db schema supports, recorded conversation memberships, and whether Contacts is readable. The update check is one anonymous request to the npm registry, off when IMESSAGE_UPDATE_CHECK=0. If Messages is unreadable, every tool, this one included, returns an error naming the app to grant Full Disk Access.",
       inputSchema: recoverInvalidInput(z.object({ privacy_mode: privacySchema.optional() }).strict()),
       outputSchema: serverStatusOutput,
       annotations: { ...annotations, openWorldHint: true },
@@ -484,7 +502,7 @@ export function registerTools(server: McpServer, runtime: ToolRuntime): void {
     "search_messages",
     {
       title: "Search messages",
-      description: "Search your iMessage, SMS, MMS, and RCS history by substring, exact text, token, or phrase. Searches message text by default; conversation names and attachment filenames are opt-in scopes. Filter by service, sent or received, and date range. Returns matching messages with message_id and chat_id you can pass to get_conversation. Read-only: never sends, edits, or marks anything read.",
+      description: "Search your iMessage, SMS, MMS, and RCS history by substring, exact text, token, or phrase. Searches message text by default; conversation names and attachment filenames are opt-in scopes. Filter by service, sent or received, and date range. Returns each matching message once with message_id and chat_ids. A single membership also has chat_id; a shared message has separate conversation labels and no guessed owner. Pass a chosen chat_id to get_conversation. Read-only: never sends, edits, or marks anything read.",
       inputSchema: recoverInvalidInput(z.object({
         query: z.string().min(1).max(4096),
         mode: z.enum(["substring", "exact", "token", "phrase"]).default("substring"),
@@ -558,7 +576,7 @@ export function registerTools(server: McpServer, runtime: ToolRuntime): void {
     "sync_messages",
     {
       title: "Sync messages",
-      description: "Pull changes to your Messages database since a saved cursor: new messages, edited and unsent messages, deleted messages, tapback reactions, and read receipts. The first call returns no changes, only the cursor to save. Use it to keep an agent session current without re-reading whole conversations. Read-only change feed: nothing is written back.",
+      description: "Pull changes to your Messages database since a saved cursor: new messages, edited and unsent messages, deleted messages, conversation membership changes, tapback reactions, and read receipts. Membership changes include previous_chat_ids and chat_ids; shared messages have no singular chat_id. The first call returns no changes, only the cursor to save. Use it to keep an agent session current without re-reading whole conversations. Read-only change feed: nothing is written back.",
       inputSchema: recoverInvalidInput(z.object({
         cursor: syncCursorSchema.optional(),
         limit: z.number().int().min(1).max(200).default(50),

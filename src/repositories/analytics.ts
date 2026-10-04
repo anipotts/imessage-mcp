@@ -12,7 +12,7 @@ import {
   appleTimestampToIso,
   appleUnixSecondsExpression,
 } from "../time.js";
-import { assertMessageConversationIntegrity } from "./conversations.js";
+import { registerConversationTopology } from "./conversation-topology.js";
 
 export type Metric = "message_count" | "response_time" | "streaks" | "initiation";
 
@@ -119,6 +119,17 @@ function baseCte(request: DatabaseRequest, scope: AnalyticsScope, bounds: DateBo
              MAX(is_system_message) AS is_system_message, MAX(is_user_message) AS is_user_message
       FROM raw_base
       GROUP BY rowid, conversation_id
+    ), unique_base AS (
+      -- A shared message is a single record even when several conversations
+      -- contain it. Service attribution uses only memberships in this scope.
+      SELECT rowid,
+             MAX(is_from_me) AS is_from_me, MIN(raw_time) AS raw_time, MIN(unix_time) AS unix_time,
+             CASE WHEN COUNT(DISTINCT service_family) = 1
+                  THEN MIN(service_family) ELSE 'unknown' END AS service_family,
+             MAX(reaction_type) AS reaction_type, MAX(item_type) AS item_type,
+             MAX(is_system_message) AS is_system_message, MAX(is_user_message) AS is_user_message
+      FROM raw_base
+      GROUP BY rowid
     )`,
     bindings: [...contactHandles, ...filtered.bindings],
   };
@@ -139,7 +150,7 @@ function messageCount(
              COALESCE(SUM(CASE WHEN is_user_message = 1 AND is_from_me = 0 THEN 1 ELSE 0 END), 0) AS received,
              COALESCE(SUM(CASE WHEN reaction_type BETWEEN 2000 AND 3999 THEN 1 ELSE 0 END), 0) AS reaction_events,
              COALESCE(SUM(CASE WHEN item_type <> 0 OR is_system_message = 1 THEN 1 ELSE 0 END), 0) AS system_events
-      FROM base`)
+      FROM unique_base`)
     .get(...base.bindings) as Record<string, unknown>;
   const service = request.db
     .prepare(`${base.sql}
@@ -149,13 +160,13 @@ function messageCount(
              SUM(CASE WHEN is_user_message = 1 AND is_from_me = 0 THEN 1 ELSE 0 END) AS received,
              SUM(CASE WHEN reaction_type BETWEEN 2000 AND 3999 THEN 1 ELSE 0 END) AS reaction_events,
              SUM(CASE WHEN item_type <> 0 OR is_system_message = 1 THEN 1 ELSE 0 END) AS system_events
-      FROM base GROUP BY service_family ORDER BY service_family`)
+      FROM unique_base GROUP BY service_family ORDER BY service_family`)
     .all(...base.bindings) as AnalyticsResult["service_partitions"];
   // When am I most active: user messages by local hour and weekday.
   const slots = request.db
     .prepare(`${base.sql}
       SELECT local_slot(unix_time) AS slot, COUNT(*) AS messages
-      FROM base WHERE is_user_message = 1 GROUP BY slot`)
+      FROM unique_base WHERE is_user_message = 1 GROUP BY slot`)
     .all(...base.bindings) as Array<{ slot: number; messages: number }>;
   const byHour = Array.from({ length: 24 }, () => 0);
   const byWeekday: Record<string, number> = Object.fromEntries(WEEKDAYS.map((day) => [day, 0]));
@@ -286,7 +297,7 @@ function streaks(
       SELECT service_family, local_day(CAST(raw_time AS TEXT)) AS day,
              MAX(CASE WHEN is_user_message = 1 AND is_from_me = 1 THEN 1 ELSE 0 END) AS sent,
              MAX(CASE WHEN is_user_message = 1 AND is_from_me = 0 THEN 1 ELSE 0 END) AS received
-      FROM base
+      FROM unique_base
       WHERE is_user_message = 1
       GROUP BY service_family, day
       ORDER BY day`)
@@ -402,12 +413,16 @@ export function analyze(input: {
       }
       return slot;
     });
-    const canonicalChats = assertMessageConversationIntegrity(request);
-    request.db.function("mcp_canonical_chat", { deterministic: true }, (chatId: number) => {
-      const numeric = Number(chatId);
-      return canonicalChats.get(numeric) ?? numeric;
-    });
+    registerConversationTopology(request);
     request.db.function("mcp_normalize_handle", { deterministic: true }, normalizeHandle);
+    request.guard(budget);
+    const scopedBase = baseCte(request, input.scope, input.bounds);
+    const shared = request.db.prepare(`${scopedBase.sql}
+      SELECT COUNT(*) AS messages
+      FROM (
+        SELECT rowid FROM raw_base GROUP BY rowid
+        HAVING COUNT(DISTINCT conversation_id) > 1
+      )`).get(...scopedBase.bindings) as { messages: number };
     request.guard(budget);
     const values = input.metric === "message_count"
       ? messageCount(request, input.scope, input.bounds)
@@ -418,9 +433,9 @@ export function analyze(input: {
           : initiation(request, input.scope, input.bounds, input.sessionGapHours);
     request.guard(budget);
     const formula = {
-      message_count: "user message records, including attachment-only messages; reactions and system events reported separately",
+      message_count: "unique user message records with recorded chat membership, including attachment-only messages; reactions and system events reported separately",
       response_time: "direct linked conversations only; collapse consecutive same-sender messages into turns, then measure the last message to the first reply and partition by reply service",
-      streaks: "longest consecutive local-calendar days for any activity and for days containing both sent and received messages",
+      streaks: "unique message records with recorded chat membership; longest consecutive local-calendar days for any activity and for days containing both sent and received messages",
       initiation: "first message after the configured conversation session gap; default gap is eight hours",
     }[input.metric];
     return {
@@ -437,6 +452,15 @@ export function analyze(input: {
       },
       applied_parameters: {
         scope: input.scope.kind,
+        counting_unit: input.metric === "message_count" || input.metric === "streaks"
+          ? "unique_message"
+          : "conversation_membership",
+        shared_membership_policy: input.metric === "message_count" || input.metric === "streaks"
+          ? "deduplicate_within_requested_scope"
+          : "include_once_per_conversation",
+        // Counts records present in more than one canonical conversation after
+        // contact, conversation and date filters, including event records.
+        shared_messages_in_scope: Number(shared.messages),
         ...(input.metric === "initiation" ? { session_gap_hours: input.sessionGapHours } : {}),
       },
       ...values,

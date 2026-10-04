@@ -130,6 +130,9 @@ function createPerformanceDatabase(databasePath: string, messageCount: number): 
         service,
       );
       insertJoin.run(chatId, rowid, date);
+      // Ten percent of records belong to two separate chats. All search
+      // markers are in that cohort, so the gate checks plural memberships.
+      if (rowid % 10 === 2) insertJoin.run((chatId % chatCount) + 1, rowid, date);
       if (attachmentOnly) {
         const attachmentId = rowid / 1000;
         const name = `synthetic-${attachmentId}.bin`;
@@ -193,6 +196,7 @@ async function main(): Promise<void> {
     const cold = open();
     const firstBuild = await timed(() => search(cold.index, "needle4242"));
     assert.equal(firstBuild.value.total, expected);
+    assert.ok(firstBuild.value.hits.every((hit) => hit.chat_ids.length === 2 && hit.chat_id === undefined));
     const state = cold.index.state();
     assert.equal(state.state, "ready");
     const warm = await timed(() => search(cold.index, "needle4242"));
@@ -236,7 +240,7 @@ async function main(): Promise<void> {
       assert.ok(unreadWrite.ms < GATES_MS.refresh && edit.ms < GATES_MS.refresh, `refreshes took ${unreadWrite.ms} and ${edit.ms} ms`);
     }
     process.stdout.write(`${JSON.stringify({
-      fixture: "mixed-service synthetic",
+      fixture: "mixed-service synthetic with 10% shared memberships",
       messages: messageCount,
       fixture_ms: fixture.ms,
       first_build_ms: firstBuild.ms,

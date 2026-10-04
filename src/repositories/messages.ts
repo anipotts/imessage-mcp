@@ -167,9 +167,9 @@ function loadReactions(
     WHEN m.associated_message_guid LIKE 'p:%' THEN SUBSTR(m.associated_message_guid, 3)
     ELSE m.associated_message_guid END`;
   const source = `FROM message m
-       JOIN chat_message_join cmj ON cmj.message_id = m.ROWID
        LEFT JOIN handle h ON h.ROWID = m.handle_id
-       WHERE cmj.chat_id IN (${placeholders(chatIds)})
+       WHERE EXISTS (SELECT 1 FROM chat_message_join cmj
+                     WHERE cmj.message_id = m.ROWID AND cmj.chat_id IN (${placeholders(chatIds)}))
          AND m.ROWID <= ?
          AND m.associated_message_type BETWEEN 2000 AND 3999
          AND m.associated_message_guid IS NOT NULL
