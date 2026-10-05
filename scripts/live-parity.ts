@@ -11,6 +11,7 @@ import { UnifiedContactResolver } from "../src/contacts.js";
 import { columnSql, serviceSql } from "../src/schema-sql.js";
 import { LocalToolRuntime } from "../src/runtime.js";
 import { MAX_ATTRIBUTED_BODY_BYTES } from "../src/limits.js";
+import { assertAggregateParity, ParityFailure, runParitySafely, type MarkParityPhase } from "./live-parity-output.js";
 
 interface ParityRow {
   rowid: number;
@@ -19,11 +20,6 @@ interface ParityRow {
   service: string | null;
 }
 
-const defaultDatabasePath = path.join(homedir(), "Library", "Messages", "chat.db");
-const configuredDatabasePath = process.env.IMESSAGE_PARITY_DB;
-const databasePath = configuredDatabasePath ? path.resolve(configuredDatabasePath) : defaultDatabasePath;
-const sourceMode = configuredDatabasePath ? "copy" : "live";
-const context = new DatabaseContext(databasePath, sourceMode);
 const decoder = new MessageTextDecoder();
 const MAX_SAMPLE = 500;
 const MAX_BATCH_ITEMS = 500;
@@ -39,7 +35,7 @@ function structured(result: { isError?: boolean; structuredContent?: unknown }):
   return result.structuredContent as Record<string, unknown>;
 }
 
-function privateProbe(): { handle: string; search: string } {
+function privateProbe(context: DatabaseContext): { handle: string; search: string } {
   const request = context.request();
   try {
     const handle = request.db.prepare(
@@ -51,15 +47,20 @@ function privateProbe(): { handle: string; search: string } {
     const search = messages
       .map((row) => typeof row.text === "string" ? row.text.match(/[\p{L}\p{N}]{2,64}/u)?.[0] : undefined)
       .find((value): value is string => Boolean(value));
-    assert.equal(typeof handle?.id, "string", "no bounded live handle was available for tool parity");
+    assert.ok(handle && typeof handle.id === "string", "no bounded live handle was available for tool parity");
     assert.ok(search, "no bounded live search token was available for tool parity");
-    return { handle: handle.id as string, search };
+    return { handle: handle.id, search };
   } finally {
     request.close();
   }
 }
 
-async function exerciseTools(): Promise<{
+async function exerciseTools(
+  context: DatabaseContext,
+  databasePath: string,
+  sourceMode: "live" | "copy",
+  markPhase: MarkParityPhase,
+): Promise<{
   tools: number;
   aggregate_leaks: number;
   duration_ms: Record<string, number>;
@@ -74,12 +75,16 @@ async function exerciseTools(): Promise<{
   };
   // The parity run measures a cold build, so it never touches the real cache.
   process.env.IMESSAGE_CACHE = "0";
+  markPhase("tool_setup");
   const runtime = new LocalToolRuntime(config);
   try {
     await runtime.prepare();
-    const probe = privateProbe();
+    const probe = privateProbe(context);
     const durationMs: Record<string, number> = {};
-    const call = async (tool: string, params: Record<string, unknown>) => {
+    type ParityTool = "server_status" | "resolve_contact" | "list_conversations" | "get_conversation"
+      | "analyze_communication" | "sync_messages" | "search_messages";
+    const call = async (tool: ParityTool, params: Record<string, unknown>) => {
+      markPhase(`tool_${tool}`);
       const started = performance.now();
       const result = await runtime.call(tool, params);
       durationMs[tool] = Math.round(performance.now() - started);
@@ -109,7 +114,7 @@ async function exerciseTools(): Promise<{
         session_gap_hours: 8,
         privacy_mode: "aggregate",
       }),
-      await call("sync_messages", { limit: 50, allow_partial: true, privacy_mode: "aggregate" }),
+      await call("sync_messages", { limit: 50, privacy_mode: "aggregate" }),
       await call("search_messages", {
         query: probe.search,
         mode: "substring",
@@ -121,15 +126,14 @@ async function exerciseTools(): Promise<{
       }),
     ] as const;
     for (const [tool, result] of results) {
-      const error = result.structuredContent as { error?: { reason?: string } } | undefined;
-      assert.notEqual(result.isError, true, `${tool} failed parity: ${JSON.stringify(error?.error ?? { reason: "unknown" })}`);
+      markPhase(`tool_${tool}`);
+      if (result.isError === true) throw new ParityFailure("TOOL_FAILED");
     }
+    markPhase("aggregate_privacy");
     const aggregate = results.map(([, result]) => structured(result));
-    const serialized = JSON.stringify(aggregate);
-    const leaks = [probe.handle].filter((value) => serialized.includes(value)).length;
-    assert.equal(leaks, 0, "aggregate tool output retained a private probe value");
-    assert.doesNotMatch(serialized, /"(?:message_id|chat_id|attachment_id)":/u);
-    assert.doesNotMatch(serialized, /"query"\s*:/u);
+    assertAggregateParity(aggregate, probe.handle);
+    const leaks = 0;
+    markPhase("latency");
     assert.ok(durationMs.server_status < 1_000, "server_status exceeded the sub-second metadata budget");
     assert.ok(durationMs.list_conversations < 1_000, "list_conversations exceeded the sub-second metadata budget");
     assert.ok(
@@ -142,7 +146,7 @@ async function exerciseTools(): Promise<{
   }
 }
 
-function sampledRows(): ParityRow[] {
+function sampledRows(context: DatabaseContext): ParityRow[] {
   const request = context.request();
   try {
     const text = columnSql(request, "message", "m", "text", "NULL");
@@ -203,41 +207,53 @@ async function decodeBatches(rows: ParityRow[]): Promise<Array<{ status: string;
   return output;
 }
 
-try {
-  const rows = sampledRows();
-  assert.ok(rows.length > 0, "no bounded attributed-body parity rows were available");
-  const decoded = await decodeBatches(rows);
-  let exact = 0;
-  let mismatch = 0;
-  const mismatchByStatus: Record<string, number> = {};
-  const mismatchByService: Partial<Record<ServiceFamily, number>> = {};
-  const services = new Set<ServiceFamily>();
-  rows.forEach((row, index) => {
-    const expected = populatedMessageText(row.text);
-    const actual = decoded[index];
-    const family = serviceFamily(row.service);
-    services.add(family);
-    if (expected !== null && actual?.status === "decoded" && actual.text === expected) exact += 1;
-    else {
-      mismatch += 1;
-      const status = actual?.status ?? "missing";
-      mismatchByStatus[status] = (mismatchByStatus[status] ?? 0) + 1;
-      mismatchByService[family] = (mismatchByService[family] ?? 0) + 1;
-    }
-  });
-  assert.equal(mismatch, 0, `one or more bounded attributed-body values differed from the populated text column: ${JSON.stringify({ mismatch_by_status: mismatchByStatus, mismatch_by_service: mismatchByService })}`);
-  const contacts = new UnifiedContactResolver(sourceMode === "live").status();
-  const toolParity = await exerciseTools();
-  process.stdout.write(`${JSON.stringify({
-    source: sourceMode === "live" ? "live_mac_chat_db" : "copied_mac_chat_db",
-    readonly: "passed",
-    schema: context.capabilities.required_core,
-    exact_parity: { sampled: rows.length, matched: exact, mismatched: mismatch },
-    service_families: [...services].sort(),
-    contacts: contacts.state,
-    tool_parity: toolParity,
-    private_values_emitted: 0,
-  })}\n`);
-} finally {
-  context.close();
+async function main(markPhase: MarkParityPhase): Promise<Record<string, unknown>> {
+  markPhase("source");
+  const configuredDatabasePath = process.env.IMESSAGE_PARITY_DB;
+  const defaultDatabasePath = path.join(homedir(), "Library", "Messages", "chat.db");
+  const databasePath = configuredDatabasePath ? path.resolve(configuredDatabasePath) : defaultDatabasePath;
+  const sourceMode = configuredDatabasePath ? "copy" : "live";
+  const context = new DatabaseContext(databasePath, sourceMode);
+  try {
+    markPhase("sampling");
+    const rows = sampledRows(context);
+    assert.ok(rows.length > 0, "no bounded attributed-body parity rows were available");
+    markPhase("decoding");
+    const decoded = await decodeBatches(rows);
+    let exact = 0;
+    let mismatch = 0;
+    const services = new Set<ServiceFamily>();
+    rows.forEach((row, index) => {
+      const expected = populatedMessageText(row.text);
+      const actual = decoded[index];
+      const family = serviceFamily(row.service);
+      services.add(family);
+      if (expected !== null && actual?.status === "decoded" && actual.text === expected) exact += 1;
+      else {
+        mismatch += 1;
+      }
+    });
+    if (mismatch !== 0) throw new ParityFailure("DECODE_PARITY_FAILED");
+    markPhase("contacts");
+    const contacts = new UnifiedContactResolver(sourceMode === "live").status();
+    const toolParity = await exerciseTools(context, databasePath, sourceMode, markPhase);
+    markPhase("cleanup");
+    return {
+      source: sourceMode === "live" ? "live_mac_chat_db" : "copied_mac_chat_db",
+      readonly: "passed",
+      schema: context.capabilities.required_core,
+      exact_parity: { sampled: rows.length, matched: exact, mismatched: mismatch },
+      service_families: [...services].sort(),
+      contacts: contacts.state,
+      tool_parity: toolParity,
+      private_values_emitted: 0,
+    };
+  } finally {
+    context.close();
+  }
 }
+
+process.exitCode = await runParitySafely(main, {
+  stdout: (line) => { process.stdout.write(line); },
+  stderr: (line) => { process.stderr.write(line); },
+});

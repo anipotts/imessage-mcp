@@ -4,6 +4,8 @@ this file follows [keep a changelog](https://keepachangelog.com/en/1.1.0/), and 
 
 ## unreleased
 
+## 3.3.0
+
 ### changed
 
 - search and sync expose all canonical `chat_ids`. singular `chat_id` remains for exactly one membership. sync adds `message_membership_changed` and snapshots previous memberships. the new index format rebuilds old caches once and rejects old sync cursors instead of silently remapping history.
