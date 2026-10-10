@@ -17,7 +17,7 @@ Read-only. Runs on your Mac. No accounts, no cloud service, nothing to compile.
 
 ## Install
 
-**Requirements:** macOS 14 or newer. Node.js 24.16 or newer for `npx` installs (Claude Desktop brings its own).
+**Requirements:** macOS 14 or newer. Node.js 24.16 or newer for `npx` installs (Claude Desktop brings its own). Use Node 24 LTS for encrypted cache support. Runtimes without SQLite checkpoint APIs, including Node 25, search in memory and rebuild after a restart; `doctor` reports this.
 
 Standard config, for any client that reads `mcpServers` JSON:
 
@@ -187,12 +187,16 @@ Clients that attach resources can use `imessage://conversations` and `imessage:/
 | `get_conversation` | Read a conversation by `chat_id` or by a contact or group name, with edits, reactions, receipts, replies, group events, and attachments. The cursor pages to older events |
 | `list_conversations` | Find conversations by contact, service, kind, reply state, or date, each with its latest message, newest first or by who you text most |
 | `get_attachment` | Show one attachment from `get_conversation`: images as a JPEG with location and camera metadata removed, text files as text. Needs the `full` privacy mode |
-| `sync_messages` | Pull every change since a cursor: new, edited, unsent, and deleted messages, reactions, and receipts |
+| `sync_messages` | Pull every change since a cursor: new, edited, unsent, and deleted messages, conversation memberships, reactions, and receipts |
 | `analyze_communication` | Message counts by hour and weekday, response times, streaks, and who starts conversations |
 | `resolve_contact` | Match a name, phone number, or email to a contact in your Mac's Address Book, and report ambiguity rather than guess |
-| `server_status` | Version, update availability, privacy mode, index state, schema support, and Contacts access |
+| `server_status` | Version, update availability, privacy mode, index and cache state, schema support, conversation membership counts, and Contacts access |
 
 Every tool is read-only and marked `readOnlyHint`. Results use plain ids (`message_id`, `chat_id`, `attachment_id`) you can pass between tools.
+
+Apple can record the same message in several conversations. Search returns that message once with all canonical `chat_ids` and their `conversations` labels. A single membership also includes `chat_id` and `conversation`; for shared results, pass the relevant id from `chat_ids` to `get_conversation`. Only Apple's explicit lookup evidence combines chat aliases. Shared messages do not combine unrelated conversations.
+
+Global and contact message counts deduplicate shared records within the requested scope. Conversation timelines and sequence metrics retain each recorded membership, so adding per-conversation counts can exceed the global count. Sync includes `chat_ids` on changes and emits `message_membership_changed` with `previous_chat_ids`; its `changed_at` is null because Apple does not timestamp these joins. Logged memberships describe the change when observed; available text, sender and receipt fields describe current source state. Upgrading the index format rebuilds its cache once and invalidates older sync cursors; start a new sync when it returns `DATABASE_CHANGED`.
 
 ## Configuration
 
@@ -213,7 +217,7 @@ Add options to `args`, for example `["-y", "imessage-mcp@latest", "--privacy", "
 - **Read-only.** The server opens the Messages database read-only and has no tool that sends, edits, reacts, or marks anything read.
 - **Local.** No accounts, telemetry, or analytics. The only network request is an optional version check to the npm registry.
 - **Your client sees what you ask for.** Results go to the MCP client you use and its model provider, under their policies. `--privacy redacted` or `aggregate` limits what leaves the server.
-- **Search index.** Built on your Mac and cached encrypted in `~/Library/Caches/imessage-mcp`, with a key derived from your Messages database, so it opens only for an app that can already read your messages. Deleting it is always safe.
+- **Search index.** Built on your Mac and, when SQLite checkpoint APIs are available, cached encrypted in `~/Library/Caches/imessage-mcp`, with a key derived from your Messages database, so it opens only for an app that can already read your messages. Deleting it is always safe. `server_status` reports an unavailable or failed cache while searches continue from memory.
 - **Untrusted content.** Messages can contain text written to manipulate an AI. The server tells clients to treat all message content as data, never as instructions.
 
 Details: [SECURITY.md](SECURITY.md) and [PRIVACY.md](PRIVACY.md).

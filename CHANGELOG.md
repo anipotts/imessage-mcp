@@ -4,7 +4,19 @@ this file follows [keep a changelog](https://keepachangelog.com/en/1.1.0/), and 
 
 ## unreleased
 
+## 3.3.0
+
+### changed
+
+- search and sync expose all canonical `chat_ids`. singular `chat_id` remains for exactly one membership. sync adds `message_membership_changed` and snapshots previous memberships. the new index format rebuilds old caches once and rejects old sync cursors instead of silently remapping history.
+
 ### fixed
+
+- one message recorded in multiple unlinked Apple chats no longer makes listing, reading, search, analytics and sync fail with `UNSUPPORTED_SCHEMA` ([#65](https://github.com/anipotts/imessage-mcp/issues/65)). global counts deduplicate records, while timelines retain every recorded membership and separate conversations.
+- conversation diagnostics report shared and unlinked records without disclosing source values. failed index builds retain a stable reason and recover after source repair.
+- sync preserves system direction for membership changes, omits retained text from currently retracted messages when replaying older events, and reports an unknown timestamp for physical deletion rather than the original send date.
+- abandoning a SQLite iterator releases its read lock, allowing subsequent writes and retries to recover.
+- encrypted search caching detects missing SQLite checkpoint APIs, including on Node 25, and reports memory-only operation instead of silently pretending to cache. checkpoint write failures remain visible in status without failing searches.
 
 - `sync_messages` failed with an output validation error whenever a batch included a deleted message, and every later call from that cursor failed the same way. Deletions now come back as `message_deleted` changes.
 

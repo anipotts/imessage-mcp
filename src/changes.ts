@@ -12,7 +12,7 @@ import type { DatabaseRequest } from "./database.js";
 import type { MessageTextDecoder } from "./decoder.js";
 import { populatedMessageText } from "./decoder.js";
 import { ImessageMcpError } from "./errors.js";
-import { canonicalChatMap } from "./repositories/conversations.js";
+import { membershipFields, registerConversationTopology } from "./repositories/conversation-topology.js";
 import { normalizeReactionParent } from "./repositories/messages.js";
 import { columnSql } from "./schema-sql.js";
 import { validateSender } from "./sender.js";
@@ -24,6 +24,7 @@ export type ChangeType =
   | "message_edited"
   | "message_retracted"
   | "message_deleted"
+  | "message_membership_changed"
   | "reaction_added"
   | "reaction_removed"
   | "receipt_changed"
@@ -33,6 +34,9 @@ export interface RowState {
   rowid: number;
   guid: string;
   chat_id: number | null;
+  // Optional only for callers constructing legacy single-membership states.
+  // Stored states always contain the full canonical membership snapshot.
+  chat_ids_json?: string;
   kind: "message" | "reaction" | "system";
   parent_guid: string | null;
   reaction_type: number;
@@ -48,6 +52,8 @@ export interface ChangeRow {
   rowid: number;
   guid: string;
   chat_id: number | null;
+  chat_ids_json?: string;
+  previous_chat_ids_json?: string | null;
   parent_guid: string | null;
   reaction_type: number;
   changed_at: string;
@@ -56,16 +62,18 @@ export interface ChangeRow {
 // Oldest changes are dropped past this count; a cursor older than the oldest
 // retained change is rejected so a client never silently misses changes.
 export const MAX_RETAINED_CHANGES = 200_000;
+const MAX_MESSAGE_MEMBERSHIPS = 1_000;
 
 export const CHANGE_LOG_SQL = `
   CREATE TABLE row_state (
-    rowid INTEGER PRIMARY KEY, guid TEXT NOT NULL, chat_id INTEGER, kind TEXT NOT NULL, parent_guid TEXT,
+    rowid INTEGER PRIMARY KEY, guid TEXT NOT NULL, chat_id INTEGER, chat_ids_json TEXT NOT NULL, kind TEXT NOT NULL, parent_guid TEXT,
     reaction_type INTEGER NOT NULL, content TEXT NOT NULL, date TEXT NOT NULL, date_edited TEXT NOT NULL,
     date_retracted TEXT NOT NULL, receipt TEXT NOT NULL
   );
   CREATE TABLE changes (
     seq INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT NOT NULL, rowid INTEGER NOT NULL, guid TEXT NOT NULL,
-    chat_id INTEGER, parent_guid TEXT, reaction_type INTEGER NOT NULL, changed_at TEXT NOT NULL
+    chat_id INTEGER, chat_ids_json TEXT NOT NULL, previous_chat_ids_json TEXT,
+    parent_guid TEXT, reaction_type INTEGER NOT NULL, changed_at TEXT NOT NULL
   );
   CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 `;
@@ -87,12 +95,42 @@ function contentHash(text: unknown, body: unknown): string {
   return hash.digest("base64url").slice(0, 22);
 }
 
+// Memberships are sorted sets at read time and in the durable change log. A
+// historical snapshot must never be interpreted through today's chat_lookup.
+function membershipIds(state: Pick<RowState, "chat_id" | "chat_ids_json">): number[] {
+  const value = state.chat_ids_json;
+  if (value === undefined) {
+    return membershipIds({ chat_id: null, chat_ids_json: JSON.stringify(state.chat_id === null ? [] : [state.chat_id]) });
+  }
+  if (Buffer.byteLength(value, "utf8") > 32 * 1024) {
+    throw new ImessageMcpError("QUERY_BUDGET_EXCEEDED", "message conversation membership exceeds its bounded size");
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw new ImessageMcpError("UNSUPPORTED_SCHEMA", "message conversation membership contains invalid JSON");
+  }
+  if (!Array.isArray(parsed) || parsed.some((id) => !Number.isSafeInteger(id) || Number(id) <= 0)) {
+    throw new ImessageMcpError("UNSUPPORTED_SCHEMA", "message conversation membership contains invalid chat identifiers");
+  }
+  if (parsed.length > MAX_MESSAGE_MEMBERSHIPS) {
+    throw new ImessageMcpError("QUERY_BUDGET_EXCEEDED", "message belongs to more than 1000 conversations");
+  }
+  return [...new Set(parsed as number[])].sort((a, b) => a - b);
+}
+
 // Reads the state of every message row with after < ROWID <= target.
 export function readRowStates(request: DatabaseRequest, after: number, target: number): RowState[] {
+  registerConversationTopology(request);
   const column = (name: string, fallback = "NULL") => columnSql(request, "message", "m", name, fallback);
   const rows = request.db.prepare(
     `SELECT m.ROWID AS rowid, m.guid AS guid,
-            (SELECT MIN(j.chat_id) FROM chat_message_join j WHERE j.message_id = m.ROWID) AS chat_id,
+            (SELECT json_group_array(chat_id) FROM (
+              SELECT DISTINCT mcp_canonical_chat(j.chat_id) AS chat_id
+              FROM chat_message_join j JOIN chat c ON c.ROWID = j.chat_id
+              WHERE j.message_id = m.ROWID ORDER BY chat_id LIMIT ${MAX_MESSAGE_MEMBERSHIPS + 1}
+            )) AS chat_ids_json,
             COALESCE(${column("associated_message_type", "0")}, 0) AS associated_type,
             ${column("associated_message_guid")} AS associated_guid,
             COALESCE(${column("item_type", "0")}, 0) AS item_type,
@@ -111,10 +149,12 @@ export function readRowStates(request: DatabaseRequest, after: number, target: n
     const associated = Number(row.associated_type) || 0;
     const reaction = associated >= 2000 && associated < 4000;
     const system = !reaction && (Number(row.item_type) !== 0 || Number(row.is_system) !== 0);
+    const ids = membershipIds({ chat_id: null, chat_ids_json: String(row.chat_ids_json) });
     return {
       rowid: Number(row.rowid),
       guid: String(row.guid),
-      chat_id: row.chat_id === null || row.chat_id === undefined ? null : Number(row.chat_id),
+      chat_id: ids.length === 1 ? ids[0] : null,
+      chat_ids_json: JSON.stringify(ids),
       kind: reaction ? "reaction" : system ? "system" : "message",
       parent_guid: reaction && typeof row.associated_guid === "string" ? normalizeReactionParent(row.associated_guid) : null,
       reaction_type: reaction ? associated : 0,
@@ -127,12 +167,15 @@ export function readRowStates(request: DatabaseRequest, after: number, target: n
   });
 }
 
-function change(type: ChangeType, state: RowState, changedAt: string): ChangeRow {
+function change(type: ChangeType, state: RowState, changedAt: string, previousIds?: number[]): ChangeRow {
+  const ids = membershipIds(state);
   return {
     type,
     rowid: state.rowid,
     guid: state.guid,
-    chat_id: state.chat_id,
+    chat_id: ids.length === 1 ? ids[0] : null,
+    chat_ids_json: JSON.stringify(ids),
+    ...(previousIds ? { previous_chat_ids_json: JSON.stringify(previousIds) } : {}),
     parent_guid: state.parent_guid,
     reaction_type: state.reaction_type,
     changed_at: changedAt,
@@ -146,8 +189,10 @@ function created(state: RowState): ChangeRow | null {
 }
 
 function removed(state: RowState): ChangeRow | null {
-  if (state.kind === "message") return change("message_deleted", state, state.date);
-  if (state.kind === "reaction" && state.reaction_type < 3000) return change("reaction_removed", state, state.date);
+  // An absent row supplies no deletion timestamp. Its original date describes
+  // creation, unlike a newly recorded 3000-series reaction-removal event.
+  if (state.kind === "message") return change("message_deleted", state, "0");
+  if (state.kind === "reaction" && state.reaction_type < 3000) return change("reaction_removed", state, "0");
   return null;
 }
 
@@ -174,15 +219,24 @@ export function diffRowStates(before: RowState[], after: RowState[]): ChangeRow[
     } else if (a && b && a.guid !== b.guid) {
       push(removed(a));
       push(created(b));
-    } else if (a && b && b.kind === "message") {
-      if (!sqliteIntegerIsPositive(a.date_retracted) && sqliteIntegerIsPositive(b.date_retracted)) {
-        push(change("message_retracted", b, b.date_retracted));
-      } else if (a.content !== b.content || a.date_edited !== b.date_edited) {
-        push(change("message_edited", b, sqliteIntegerIsPositive(b.date_edited) ? b.date_edited : b.date));
+    } else if (a && b) {
+      const oldIds = membershipIds(a);
+      const nextIds = membershipIds(b);
+      if (JSON.stringify(oldIds) !== JSON.stringify(nextIds)) {
+        // chat_message_join/chat_lookup do not timestamp membership changes.
+        // Use an unknown time, rather than mislabeling the message's send date.
+        push(change("message_membership_changed", b, "0", oldIds));
       }
-      if (a.receipt !== b.receipt) {
-        const [, delivered = "0", , read = "0"] = b.receipt.split(":");
-        push(change("receipt_changed", b, newest(delivered, read)));
+      if (b.kind === "message") {
+        if (!sqliteIntegerIsPositive(a.date_retracted) && sqliteIntegerIsPositive(b.date_retracted)) {
+          push(change("message_retracted", b, b.date_retracted));
+        } else if (a.content !== b.content || a.date_edited !== b.date_edited) {
+          push(change("message_edited", b, sqliteIntegerIsPositive(b.date_edited) ? b.date_edited : b.date));
+        }
+        if (a.receipt !== b.receipt) {
+          const [, delivered = "0", , read = "0"] = b.receipt.split(":");
+          push(change("receipt_changed", b, newest(delivered, read)));
+        }
       }
     }
   }
@@ -191,11 +245,12 @@ export function diffRowStates(before: RowState[], after: RowState[]): ChangeRow[
 
 export function writeRowStates(index: Database, states: RowState[]): void {
   const insert = index.prepare(
-    `INSERT INTO row_state(rowid, guid, chat_id, kind, parent_guid, reaction_type, content, date, date_edited, date_retracted, receipt)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO row_state(rowid, guid, chat_id, chat_ids_json, kind, parent_guid, reaction_type, content, date, date_edited, date_retracted, receipt)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   for (const state of states) {
-    insert.run(state.rowid, state.guid, state.chat_id, state.kind, state.parent_guid, state.reaction_type, state.content,
+    const ids = membershipIds(state);
+    insert.run(state.rowid, state.guid, ids.length === 1 ? ids[0] : null, JSON.stringify(ids), state.kind, state.parent_guid, state.reaction_type, state.content,
       state.date, state.date_edited, state.date_retracted, state.receipt);
   }
 }
@@ -207,9 +262,16 @@ export function storedRowStates(index: Database, first: number, last: number): R
 export function recordChanges(index: Database, changes: ChangeRow[]): void {
   if (changes.length === 0) return;
   const insert = index.prepare(
-    "INSERT INTO changes(type, rowid, guid, chat_id, parent_guid, reaction_type, changed_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    "INSERT INTO changes(type, rowid, guid, chat_id, chat_ids_json, previous_chat_ids_json, parent_guid, reaction_type, changed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
   );
-  for (const row of changes) insert.run(row.type, row.rowid, row.guid, row.chat_id, row.parent_guid, row.reaction_type, row.changed_at);
+  for (const row of changes) {
+    const ids = membershipIds(row);
+    const previous = row.previous_chat_ids_json === null || row.previous_chat_ids_json === undefined
+      ? null
+      : JSON.stringify(membershipIds({ chat_id: null, chat_ids_json: row.previous_chat_ids_json }));
+    insert.run(row.type, row.rowid, row.guid, ids.length === 1 ? ids[0] : null, JSON.stringify(ids), previous,
+      row.parent_guid, row.reaction_type, row.changed_at);
+  }
   const latest = Number((index.prepare("SELECT COALESCE(MAX(seq), 0) AS seq FROM changes").get() as { seq: number }).seq);
   index.prepare("DELETE FROM changes WHERE seq <= ?").run(latest - MAX_RETAINED_CHANGES);
 }
@@ -250,7 +312,9 @@ export interface SyncChange {
   changed_at: string | null;
   message_id?: number;
   parent_message_id?: number;
+  chat_ids: number[];
   chat_id?: number;
+  previous_chat_ids?: number[];
   service_family: ServiceFamily;
   direction?: "incoming" | "outgoing" | "system";
   sender?: { name: string | null; handle: string | null };
@@ -270,11 +334,14 @@ export async function materializeChanges(input: {
   rows: Array<ChangeRow & { seq: number }>;
 }): Promise<SyncChange[]> {
   const { request } = input;
-  const canonical = canonicalChatMap(request);
   const column = (name: string, fallback = "NULL") => columnSql(request, "message", "m", name, fallback);
   const current = request.db.prepare(
     `SELECT m.ROWID AS rowid, m.guid AS guid, m.is_from_me AS is_from_me, m.handle_id AS handle_id, h.id AS handle,
             ${column("service")} AS service, ${column("text")} AS text, ${column("attributedBody")} AS body,
+            COALESCE(${column("associated_message_type", "0")}, 0) AS associated_type,
+            COALESCE(${column("item_type", "0")}, 0) AS item_type,
+            COALESCE(${column("is_system_message", "0")}, 0) AS is_system,
+            CAST(COALESCE(${column("date_retracted", "0")}, 0) AS TEXT) AS date_retracted,
             CAST(COALESCE(${column("date_read", "0")}, 0) AS TEXT) AS date_read,
             CAST(COALESCE(${column("date_delivered", "0")}, 0) AS TEXT) AS date_delivered,
             COALESCE(${column("is_read", "0")}, 0) AS is_read, COALESCE(${column("is_delivered", "0")}, 0) AS is_delivered
@@ -285,12 +352,14 @@ export async function materializeChanges(input: {
   for (const row of input.rows) {
     const live = current.get(row.rowid) as Record<string, unknown> | undefined;
     const present = live && live.guid === row.guid ? live : undefined;
-    const chatId = row.chat_id === null ? undefined : canonical.get(row.chat_id) ?? row.chat_id;
     const base: SyncChange = {
       seq: row.seq,
       change_type: row.type,
       changed_at: appleTimestampToIso(row.changed_at),
-      ...(chatId !== undefined ? { chat_id: chatId } : {}),
+      ...membershipFields(membershipIds(row)),
+      ...(row.type === "message_membership_changed" ? {
+        previous_chat_ids: membershipIds({ chat_id: null, chat_ids_json: row.previous_chat_ids_json ?? "[]" }),
+      } : {}),
       service_family: serviceFamily(present?.service),
       row_status: "complete",
     };
@@ -303,11 +372,22 @@ export async function materializeChanges(input: {
       base.message_id = row.rowid;
     }
     if (present) {
-      const sender = validateSender({ is_from_me: present.is_from_me, handle_id: present.handle_id, handle: present.handle }, input.contacts);
-      base.direction = row.type === "group_event" ? "system" : sender.direction;
-      base.sender = sender.identity;
-      if (!sender.complete && row.type !== "group_event") base.row_status = "partial";
-      if (row.type === "message_created" || row.type === "message_edited") {
+      const associated = Number(present.associated_type) || 0;
+      const reaction = associated >= 2000 && associated < 4000;
+      const system = row.type === "group_event" || (!reaction && (Number(present.item_type) !== 0 || Number(present.is_system) !== 0));
+      if (system) {
+        base.direction = "system";
+      } else {
+        const sender = validateSender({ is_from_me: present.is_from_me, handle_id: present.handle_id, handle: present.handle }, input.contacts);
+        base.direction = sender.direction;
+        base.sender = sender.identity;
+        if (!sender.complete) base.row_status = "partial";
+      }
+      // Memberships describe the logged observation; text and receipts describe
+      // the current row. Retraction suppresses retained text even for an older
+      // creation/edit event, consistently with the current conversation view.
+      const retracted = sqliteIntegerIsPositive(String(present.date_retracted));
+      if (!retracted && (row.type === "message_created" || row.type === "message_edited")) {
         const native = populatedMessageText(present.text);
         if (native !== null) {
           base.text = native;

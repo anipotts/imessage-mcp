@@ -4,8 +4,11 @@ import path from "node:path";
 import type { RuntimeConfig } from "../config.js";
 import { UnifiedContactResolver } from "../contacts.js";
 import { DatabaseContext } from "../database.js";
+import { ImessageMcpError } from "../errors.js";
+import { conversationMembershipSummary } from "../repositories/conversation-topology.js";
 import { findResponsibleApp, fullDiskAccessInstruction } from "../responsible-app.js";
 import { estimateSearchIndexFloor, searchIndexMemoryLimit } from "../search-index.js";
+import { sqliteCheckpointAvailable } from "../sqlite.js";
 import { validateHttpConfiguration } from "../transport.js";
 import { checkForUpdate } from "../update-check.js";
 
@@ -20,6 +23,44 @@ const packageVersion = readFileSync(new URL("../../package.json", import.meta.ur
 
 function formatBytes(value: number): string {
   return value >= MIB ? `${(value / MIB).toFixed(1)} MiB` : `${value} bytes`;
+}
+
+// Keep diagnostic failure codes useful without forwarding database contents,
+// local paths, SQLite messages, or other uncontrolled exception text.
+const DIAGNOSTIC_REASONS = new Set([
+  "DATABASE_UNAVAILABLE", "DATABASE_CHANGED", "UNSUPPORTED_SCHEMA",
+  "QUERY_BUDGET_EXCEEDED", "INDEX_TOO_LARGE",
+]);
+
+function failureDetail(detail: string, error: unknown): string {
+  return error instanceof ImessageMcpError && DIAGNOSTIC_REASONS.has(error.reason)
+    ? `${detail} (${error.reason})`
+    : detail;
+}
+
+function failureStatus(error: unknown): "warn" | "fail" {
+  // These fixed reasons describe errors that prevent the corresponding tools
+  // from running. A summary failure without a known reason stays informational.
+  return error instanceof ImessageMcpError && DIAGNOSTIC_REASONS.has(error.reason) ? "fail" : "warn";
+}
+
+function conversationMembership(database: DatabaseContext): DoctorCheck {
+  const request = database.request();
+  try {
+    const summary = conversationMembershipSummary(request);
+    const unusual = summary.shared_messages > 0 || summary.unlinked_messages > 0;
+    const counts = `${summary.total_messages} total messages; ${summary.joined_messages} linked; ` +
+      `${summary.shared_messages} shared across conversations; ${summary.unlinked_messages} unlinked`;
+    return {
+      name: "conversation_membership",
+      status: unusual ? "warn" : "pass",
+      detail: unusual
+        ? `${counts}; shared memberships are supported, and conversation tools use only recorded memberships`
+        : counts,
+    };
+  } finally {
+    request.close();
+  }
 }
 
 function searchIndexCapacity(database: DatabaseContext, limitBytes: number): DoctorCheck {
@@ -39,6 +80,34 @@ function searchIndexCapacity(database: DatabaseContext, limitBytes: number): Doc
   } finally {
     request.close();
   }
+}
+
+function indexCache(config: RuntimeConfig): DoctorCheck {
+  if (process.env.IMESSAGE_CACHE === "0") {
+    return {
+      name: "index_cache", status: "pass",
+      detail: "encrypted index cache is off (IMESSAGE_CACHE=0); search works in memory and rebuilds after restart",
+    };
+  }
+  if (config.source_mode === "copy") {
+    return {
+      name: "index_cache", status: "pass",
+      detail: "copied databases keep the search index in memory; search rebuilds after restart",
+    };
+  }
+  if (!sqliteCheckpointAvailable()) {
+    return {
+      name: "index_cache", status: "warn",
+      detail: "this Node runtime lacks SQLite checkpoint support; search works in memory and rebuilds after restart",
+    };
+  }
+  const cacheDirectory = path.join(homedir(), "Library/Caches/imessage-mcp");
+  return {
+    name: "index_cache", status: "pass",
+    detail: existsSync(cacheDirectory)
+      ? `encrypted index cache in ${cacheDirectory}; deleting it only costs one rebuild`
+      : "no index cache yet; the first search builds it",
+  };
 }
 
 export async function doctor(
@@ -73,15 +142,21 @@ export async function doctor(
       const supported = database.capabilities.required_core === "available";
       checks.push({ name: "schema", status: supported ? "pass" : "fail", detail: supported ? `supported Messages schema ${database.capabilities.schema_fingerprint.slice(0, 12)}` : "this Messages schema is not supported" });
       try {
+        checks.push(conversationMembership(database));
+      } catch (error) {
+        checks.push({ name: "conversation_membership", status: failureStatus(error), detail: failureDetail("conversation memberships could not be summarized from this archive", error) });
+      }
+      try {
         checks.push(searchIndexCapacity(database, options.searchIndexMemoryLimitBytes ?? searchIndexMemoryLimit()));
-      } catch {
-        checks.push({ name: "search_index_capacity", status: "warn", detail: "the search index size could not be estimated from this archive" });
+      } catch (error) {
+        checks.push({ name: "search_index_capacity", status: failureStatus(error), detail: failureDetail("the search index size could not be estimated from this archive", error) });
       }
     } finally {
       database.close();
     }
-  } catch {
-    checks.push({ name: "schema", status: "fail", detail: "the Messages database could not be opened read-only" });
+  } catch (error) {
+    checks.push({ name: "schema", status: "fail", detail: failureDetail("the Messages database could not be opened or its schema inspected read-only", error) });
+    checks.push({ name: "conversation_membership", status: failureStatus(error), detail: failureDetail("conversation memberships could not be summarized from this archive", error) });
   }
 
   if (config.contacts_mode === "none") {
@@ -97,14 +172,7 @@ export async function doctor(
     });
   }
 
-  const cacheDirectory = path.join(homedir(), "Library/Caches/imessage-mcp");
-  checks.push({
-    name: "index_cache",
-    status: "pass",
-    detail: existsSync(cacheDirectory)
-      ? `encrypted index cache in ${cacheDirectory}; deleting it only costs one rebuild`
-      : "no index cache yet; the first search builds it",
-  });
+  checks.push(indexCache(config));
 
   const legacyState = path.join(homedir(), "Library/Application Support/imessage-mcp");
   if (existsSync(legacyState)) {

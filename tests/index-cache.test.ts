@@ -6,11 +6,14 @@ import { UnifiedContactResolver } from "../src/contacts.js";
 import { DatabaseContext } from "../src/database.js";
 import { MessageTextDecoder } from "../src/decoder.js";
 import { MemorySearchIndex } from "../src/search-index.js";
-import Database from "../src/sqlite.js";
+import { sourceHash, writeCacheFile } from "../src/cache.js";
+import { assertCursorLog } from "../src/changes.js";
+import Database, { sqliteCheckpointAvailable } from "../src/sqlite.js";
+import * as sqlite from "../src/sqlite.js";
 import { compileDateBounds } from "../src/time.js";
 import { appleNanoseconds, createFixture, type Fixture } from "./fixture.js";
 
-describe("encrypted index checkpoint", () => {
+describe.skipIf(!sqliteCheckpointAvailable())("encrypted index checkpoint", () => {
   let fixture: Fixture;
   let cacheDirectory: string;
   const open: Array<{ index: MemorySearchIndex; context: DatabaseContext }> = [];
@@ -56,6 +59,7 @@ describe("encrypted index checkpoint", () => {
     const first = start();
     expect((await search(first.index, "hello literal")).total).toBe(1);
     expect(first.onBuild).toHaveBeenCalledTimes(1);
+    expect(first.index.state().cache_state).toEqual({ state: "written" });
     stop();
     const files = readdirSync(cacheDirectory);
     expect(files).toHaveLength(1);
@@ -64,6 +68,7 @@ describe("encrypted index checkpoint", () => {
     const second = start();
     expect((await search(second.index, "hello literal")).total).toBe(1);
     expect(second.onBuild).not.toHaveBeenCalled();
+    expect(second.index.state().cache_state).toEqual({ state: "restored" });
   });
 
   it("catches up on changes made while no server was running, and keeps sync cursors valid", async () => {
@@ -101,6 +106,32 @@ describe("encrypted index checkpoint", () => {
     expect(second.onBuild).toHaveBeenCalledTimes(1);
   });
 
+  it("rebuilds an old-format checkpoint and rejects a cursor for its previous log", async () => {
+    const context = new DatabaseContext(fixture.databasePath, "copy");
+    const source = context.request();
+    const old = new Database(":memory:");
+    try {
+      old.exec("CREATE TABLE message_text(rowid INTEGER PRIMARY KEY, conversation_id INTEGER); INSERT INTO message_text VALUES(1,1)");
+      const key = sourceHash(context.canonicalPath);
+      writeCacheFile({
+        path: path.join(cacheDirectory, `${key}.index`), plaintext: old.serialize(),
+        source: source.db, schemaVersion: 1, sourceHash: key,
+      });
+    } finally {
+      old.close();
+      source.close();
+      context.close();
+    }
+    const rebuilt = start();
+    expect((await search(rebuilt.index, "hello literal")).total).toBe(1);
+    expect(rebuilt.onBuild).toHaveBeenCalledTimes(1);
+    expect(rebuilt.index.state().cache_state).toEqual({ state: "written" });
+    const current = rebuilt.index.changeLog();
+    expect(() => assertCursorLog({ v: 3, log: "old-format-log", db: current.databaseId, seq: 0 },
+      current.logId, current.databaseId, current.oldestSeq))
+      .toThrowError(expect.objectContaining({ reason: "DATABASE_CHANGED" }));
+  });
+
   it("writes nothing when no cache directory is configured", async () => {
     const context = new DatabaseContext(fixture.databasePath, "copy");
     const index = new MemorySearchIndex(context, new MessageTextDecoder(), new UnifiedContactResolver(false));
@@ -111,5 +142,62 @@ describe("encrypted index checkpoint", () => {
       context.close();
     }
     expect(existsSync(cacheDirectory) ? readdirSync(cacheDirectory) : []).toEqual([]);
+  });
+});
+
+
+describe("optional checkpoint capability", () => {
+  let fixture: Fixture;
+  let cacheDirectory: string;
+  let context: DatabaseContext;
+  let index: MemorySearchIndex | undefined;
+
+  beforeEach(() => {
+    fixture = createFixture();
+    cacheDirectory = mkdtempSync(path.join(tmpdir(), "imessage-mcp-cache-capability-"));
+    context = new DatabaseContext(fixture.databasePath, "copy");
+  });
+
+  afterEach(() => {
+    index?.close();
+    context.close();
+    fixture.cleanup();
+    rmSync(cacheDirectory, { recursive: true, force: true });
+    vi.restoreAllMocks();
+    index = undefined;
+  });
+
+  it("reports unavailable checkpoint APIs and continues searching without trying to serialize", async () => {
+    vi.spyOn(sqlite, "sqliteCheckpointAvailable").mockReturnValue(false);
+    const serialize = vi.spyOn(Database.prototype, "serialize");
+    const deserialize = vi.spyOn(Database.prototype, "deserialize");
+    index = new MemorySearchIndex(context, new MessageTextDecoder(), new UnifiedContactResolver(false), undefined, cacheDirectory);
+    expect(index.state().cache_state).toEqual({ state: "unavailable", reason: "SQLITE_CHECKPOINT_UNAVAILABLE" });
+    const result = await index.search({
+      query: "hello literal", mode: "substring", scopes: ["text"], order: "newest",
+      bounds: compileDateBounds({ timezone: "UTC" }), limit: 50, allowPartial: false, privacy: "full",
+    });
+    expect(result.total).toBe(1);
+    expect(index.state()).toMatchObject({ state: "ready", cache_state: { state: "unavailable" } });
+    expect(serialize).not.toHaveBeenCalled();
+    expect(deserialize).not.toHaveBeenCalled();
+    expect(readdirSync(cacheDirectory)).toEqual([]);
+  });
+
+  it("reports an intentionally disabled cache independently of runtime API support", async () => {
+    vi.spyOn(sqlite, "sqliteCheckpointAvailable").mockReturnValue(false);
+    index = new MemorySearchIndex(context, new MessageTextDecoder(), new UnifiedContactResolver(false));
+    await index.ensure(false);
+    expect(index.state()).toMatchObject({ state: "ready", cache_state: { state: "disabled" } });
+  });
+
+  it.skipIf(!sqliteCheckpointAvailable())("reports a failed checkpoint without exposing its exception or failing search", async () => {
+    vi.spyOn(Database.prototype, "serialize").mockImplementation(() => { throw new Error("private body at /synthetic/private/path"); });
+    index = new MemorySearchIndex(context, new MessageTextDecoder(), new UnifiedContactResolver(false), undefined, cacheDirectory);
+    await index.ensure(false);
+    expect(index.state()).toMatchObject({
+      state: "ready", cache_state: { state: "write_failed", reason: "CACHE_WRITE_FAILED" },
+    });
+    expect(JSON.stringify(index.state())).not.toContain("private");
   });
 });

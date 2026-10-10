@@ -30,6 +30,7 @@ import { decodeCursor, encodeCursor, MAX_SYNC_CURSOR_LENGTH, positiveId } from "
 import { assertCursorLog, materializeChanges } from "./changes.js";
 import { cacheDirectory } from "./cache.js";
 import { compileDateBounds } from "./time.js";
+import { conversationMembershipSummary, type ConversationMembershipSummary } from "./repositories/conversation-topology.js";
 
 const dirnameHere = dirname(fileURLToPath(import.meta.url));
 const packageJson = JSON.parse(readFileSync(join(dirnameHere, "../package.json"), "utf8")) as { version: string };
@@ -86,6 +87,7 @@ export class LocalToolRuntime {
   readonly decoder: MessageTextDecoder;
   readonly search: MemorySearchIndex;
   readonly conversationCatalog: ConversationCatalog;
+  private membershipSummaryCache: { watermark: string; summary: ConversationMembershipSummary } | null = null;
   private detectedServicesCache: { watermark: string; values: ServiceFamily[] } | null = null;
 
   constructor(
@@ -378,6 +380,7 @@ export class LocalToolRuntime {
           source_mode: this.config.source_mode,
           detected_services: detectedServices,
           schema_capabilities: this.database.capabilities,
+          conversation_membership: this.membershipStatus(request),
           contacts: this.contacts.status(),
           index_state: this.search.state(),
           as_of: watermarkToken(request.asOf),
@@ -386,6 +389,19 @@ export class LocalToolRuntime {
       });
     } finally {
       request.close();
+    }
+  }
+
+  private membershipStatus(request: DatabaseRequest): Record<string, unknown> {
+    const watermark = watermarkToken(request.asOf);
+    try {
+      if (this.membershipSummaryCache?.watermark !== watermark) {
+        this.membershipSummaryCache = { watermark, summary: conversationMembershipSummary(request) };
+      }
+      return { state: "available", ...this.membershipSummaryCache.summary };
+    } catch (error) {
+      // Relationship diagnostics must not take down the status tool itself.
+      return { state: "unavailable", reason: error instanceof ImessageMcpError ? error.reason : "DATABASE_UNAVAILABLE" };
     }
   }
 
@@ -494,16 +510,21 @@ export class LocalToolRuntime {
 
   // Every result names its conversation the way the user would, so an
   // assistant never has to describe a chat by its number.
-  private withConversationLabels<T extends { chat_id?: number }>(hits: T[]): Array<T & { conversation?: ConversationLabel }> {
+  private withConversationLabels<T extends { chat_id?: number; chat_ids?: number[] }>(hits: T[]): Array<T & { conversation?: ConversationLabel; conversations?: Array<ConversationLabel & { chat_id: number }> }> {
     const labels = labelConversations({
       context: this.database,
       contacts: this.contacts,
       catalog: this.conversationCatalog,
-      chatIds: hits.map((hit) => hit.chat_id).filter((id): id is number => typeof id === "number"),
+      chatIds: hits.flatMap((hit) => hit.chat_ids ?? (typeof hit.chat_id === "number" ? [hit.chat_id] : [])),
     });
     return hits.map((hit) => {
       const label = typeof hit.chat_id === "number" ? labels.get(hit.chat_id) : undefined;
-      return label ? { ...hit, conversation: label } : hit;
+      if (label) return { ...hit, conversation: label };
+      const conversations = (hit.chat_ids ?? []).flatMap((chat_id) => {
+        const entry = labels.get(chat_id);
+        return entry ? [{ chat_id, ...entry }] : [];
+      });
+      return conversations.length ? { ...hit, conversations } : hit;
     });
   }
 

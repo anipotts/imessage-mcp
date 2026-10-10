@@ -24,7 +24,11 @@ jobs:
       fail-fast: false
       matrix:
         os-version: [14, 15, 26]
-        node-version: [22, 24, 26]
+        node-version: [22, 24, 25, 26]
+        include:
+          # Verify the declared minimum as well as the newest 24.x patch.
+          - os-version: 26
+            node-version: 24.16.0
     runs-on: macos-${{ matrix.os-version }}
     timeout-minutes: 25
     steps:
@@ -35,8 +39,9 @@ jobs:
           cache: npm
           package-manager-cache: true
       - run: npm ci
-      # Node 22 lacks node:sqlite serialize(); these cells prove it is refused
+      # Node 22 is below the runtime floor; these cells prove it is refused
       # before any import, with the upgrade message instead of a stack trace.
+      # Node 25 exercises the explicit memory-only checkpoint fallback.
       - if: matrix.node-version == 22
         name: node 22 is refused with the upgrade message
         shell: bash

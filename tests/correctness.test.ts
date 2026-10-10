@@ -634,7 +634,7 @@ describe("2.0 data and query core", () => {
     }
   });
 
-  it("fails closed instead of merging message relationships Apple did not link", async () => {
+  it("preserves shared message memberships without merging unrelated conversations", async () => {
     const isolated = createFixture();
     const db = new Database(isolated.databasePath);
     db.prepare(
@@ -643,34 +643,20 @@ describe("2.0 data and query core", () => {
     db.close();
     const isolatedContext = new DatabaseContext(isolated.databasePath);
     const isolatedContacts = new UnifiedContactResolver(false);
-    const isolatedDecoder = new MessageTextDecoder();
-    const index = new MemorySearchIndex(isolatedContext, isolatedDecoder, isolatedContacts);
-    const unsupported = { reason: "UNSUPPORTED_SCHEMA" };
+    const index = new MemorySearchIndex(isolatedContext, new MessageTextDecoder(), isolatedContacts);
+    const bounds = compileDateBounds({ timezone: "UTC" });
     try {
-      expect(() => listConversations({
-        context: isolatedContext,
-        contacts: isolatedContacts,
-        filters: { bounds: compileDateBounds({ timezone: "UTC" }) },
-        limit: 50,
-        privacy: "full",
-      })).toThrowError(expect.objectContaining(unsupported));
-      expect(() => analyze({
-        context: isolatedContext,
-        scope: { kind: "global" },
-        metric: "message_count",
-        bounds: compileDateBounds({ timezone: "UTC" }),
-        sessionGapHours: 8,
-      })).toThrowError(expect.objectContaining(unsupported));
-      await expect(index.search({
-        query: "hello",
-        mode: "substring",
-        scopes: ["text"],
-        order: "newest",
-        bounds: compileDateBounds({ timezone: "UTC" }),
-        limit: 50,
-        allowPartial: false,
-        privacy: "full",
-      })).rejects.toMatchObject(unsupported);
+      const listed = listConversations({ context: isolatedContext, contacts: isolatedContacts, filters: { bounds }, limit: 50, privacy: "full" });
+      expect(listed.conversations.map((row) => row.chat_id).sort()).toEqual([1, 3, 4, 5]);
+      expect(listed.conversations.find((row) => row.chat_id === 1)?.message_count).toBe(11);
+      expect(listed.conversations.find((row) => row.chat_id === 3)?.message_count).toBe(2);
+      expect(analyze({ context: isolatedContext, scope: { kind: "global" }, metric: "message_count", bounds, sessionGapHours: 8 }).overall)
+        .toMatchObject({ messages: 15, reaction_events: 3, system_events: 2 });
+      const result = await index.search({ query: "hello literal", mode: "substring", scopes: ["text"], order: "newest", bounds, limit: 50, allowPartial: false, privacy: "full" });
+      expect(result.total).toBe(1);
+      expect(result.hits).toEqual([expect.objectContaining({ message_id: 1, chat_ids: [1, 3], row_status: "complete" })]);
+      expect(result.hits[0]).not.toHaveProperty("chat_id");
+      expect(result.warnings).toEqual([]);
     } finally {
       index.close();
       isolatedContext.close();

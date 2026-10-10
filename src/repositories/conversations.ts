@@ -8,6 +8,8 @@ import { assertFrozenTraversal, parseWatermark, watermarkToken } from "../databa
 import { ImessageMcpError } from "../errors.js";
 import { decodeCursor, encodeCursor, positiveId } from "../references.js";
 import { chatShapeSql, serviceFamilyCase, serviceSql } from "../schema-sql.js";
+import { canonicalChatMap, registerConversationTopology, MAX_CHAT_IDS_PER_CONVERSATION, MAX_IDENTITY_TEXT_BYTES, MAX_PARTICIPANTS_PER_CONVERSATION } from "./conversation-topology.js";
+export { canonicalChatMap, MAX_CHAT_IDS_PER_CONVERSATION } from "./conversation-topology.js";
 import type { DateBounds } from "../time.js";
 import {
   appleTimestampBoundary,
@@ -63,125 +65,6 @@ interface PageCursor {
   offset?: number;
 }
 
-const MAX_CATALOG_MESSAGES = 10_000_000;
-const MAX_CATALOG_CHATS = 250_000;
-const MAX_CATALOG_RELATIONS = 20_000_000;
-const MAX_CATALOG_TEXT_BYTES = 128 * 1024 * 1024;
-const MAX_IDENTITY_TEXT_BYTES = 4096;
-const MAX_LOOKUP_ROWS = 2_000_000;
-const MAX_LOOKUP_FANOUT = 1_000;
-export const MAX_CHAT_IDS_PER_CONVERSATION = 1_000;
-const MAX_PARTICIPANTS_PER_CONVERSATION = 1_000;
-
-function catalogScalar(request: DatabaseRequest, sql: string): number {
-  return Number((request.db.prepare(sql).get() as { value: number } | undefined)?.value ?? 0) || 0;
-}
-
-function assertCatalogBudget(request: DatabaseRequest): void {
-  const messages = catalogScalar(request, "SELECT COUNT(*) AS value FROM message");
-  const chats = catalogScalar(request, "SELECT COUNT(*) AS value FROM chat");
-  const chatMessages = catalogScalar(request, "SELECT COUNT(*) AS value FROM chat_message_join");
-  const chatHandles = catalogScalar(request, "SELECT COUNT(*) AS value FROM chat_handle_join");
-  const handles = catalogScalar(request, "SELECT COUNT(*) AS value FROM handle");
-  const lookups = request.capabilities.chat_lookup === "available"
-    ? catalogScalar(request, "SELECT COUNT(*) AS value FROM chat_lookup")
-    : 0;
-  const chatColumns = request.capabilities.tables.chat ?? [];
-  const messageColumns = request.capabilities.tables.message ?? [];
-  const chatTextColumns = ["display_name", "group_id", "service_name"].filter((column) => chatColumns.includes(column));
-  const chatTextExpression = chatTextColumns.length
-    ? chatTextColumns.map((column) => `COALESCE(LENGTH(CAST(${column} AS BLOB)), 0)`).join(" + ")
-    : "0";
-  const chatBytes = catalogScalar(request, `SELECT COALESCE(SUM(${chatTextExpression}), 0) AS value FROM chat`);
-  const handleBytes = catalogScalar(request, "SELECT COALESCE(SUM(LENGTH(CAST(id AS BLOB))), 0) AS value FROM handle");
-  const messageServiceBytes = messageColumns.includes("service")
-    ? catalogScalar(request, "SELECT COALESCE(SUM(LENGTH(CAST(service AS BLOB))), 0) AS value FROM message")
-    : 0;
-  const lookupBytes = request.capabilities.chat_lookup === "available"
-    ? catalogScalar(request, "SELECT COALESCE(SUM(LENGTH(CAST(identifier AS BLOB)) + LENGTH(CAST(domain AS BLOB))), 0) AS value FROM chat_lookup")
-    : 0;
-  const chatTextLengths = chatTextColumns.map((column) => `COALESCE(LENGTH(CAST(${column} AS BLOB)), 0)`);
-  const maxChatText = chatTextColumns.length
-    ? catalogScalar(request, `SELECT COALESCE(MAX(${chatTextLengths.length === 1 ? chatTextLengths[0] : `MAX(${chatTextLengths.join(", ")})`}), 0) AS value FROM chat`)
-    : 0;
-  const maxHandle = catalogScalar(request, "SELECT COALESCE(MAX(LENGTH(CAST(id AS BLOB))), 0) AS value FROM handle");
-  const maxMessageService = messageColumns.includes("service")
-    ? catalogScalar(request, "SELECT COALESCE(MAX(LENGTH(CAST(service AS BLOB))), 0) AS value FROM message")
-    : 0;
-  const maxLookupText = request.capabilities.chat_lookup === "available"
-    ? catalogScalar(request, "SELECT COALESCE(MAX(MAX(LENGTH(CAST(identifier AS BLOB)), LENGTH(CAST(domain AS BLOB)))), 0) AS value FROM chat_lookup")
-    : 0;
-  const excessiveLookupFanout = request.capabilities.chat_lookup === "available"
-    ? request.db.prepare(
-        `SELECT 1 AS value FROM chat_lookup GROUP BY identifier
-         HAVING COUNT(DISTINCT chat) > @limit LIMIT 1`,
-      ).get({ limit: MAX_LOOKUP_FANOUT }) as { value: number } | undefined
-    : undefined;
-  if (
-    messages > MAX_CATALOG_MESSAGES ||
-    chats > MAX_CATALOG_CHATS ||
-    handles > MAX_CATALOG_CHATS ||
-    chatMessages > MAX_CATALOG_RELATIONS ||
-    chatHandles > MAX_CATALOG_RELATIONS ||
-    lookups > MAX_LOOKUP_ROWS ||
-    chatBytes + handleBytes + messageServiceBytes + lookupBytes > MAX_CATALOG_TEXT_BYTES ||
-    Math.max(maxChatText, maxHandle, maxMessageService, maxLookupText) > MAX_IDENTITY_TEXT_BYTES ||
-    Boolean(excessiveLookupFanout)
-  ) {
-    throw new ImessageMcpError("QUERY_BUDGET_EXCEEDED", "conversation catalog source exceeds its bounded cardinality or identity-text budget", {
-      limits: {
-        messages: MAX_CATALOG_MESSAGES,
-        chats: MAX_CATALOG_CHATS,
-        relations: MAX_CATALOG_RELATIONS,
-        lookup_rows: MAX_LOOKUP_ROWS,
-        lookup_fanout: MAX_LOOKUP_FANOUT,
-        identity_text_bytes: MAX_CATALOG_TEXT_BYTES,
-        single_identity_bytes: MAX_IDENTITY_TEXT_BYTES,
-      },
-    });
-  }
-}
-
-class UnionFind {
-  private parent = new Map<number, number>();
-  private size = new Map<number, number>();
-
-  find(value: number): number {
-    if (!this.parent.has(value)) {
-      this.parent.set(value, value);
-      this.size.set(value, 1);
-    }
-    let root = value;
-    while (this.parent.get(root) !== root) root = this.parent.get(root) as number;
-    let current = value;
-    while (this.parent.get(current) !== root) {
-      const next = this.parent.get(current) as number;
-      this.parent.set(current, root);
-      current = next;
-    }
-    return root;
-  }
-
-  union(left: number, right: number): void {
-    const a = this.find(left);
-    const b = this.find(right);
-    if (a === b) return;
-    const root = Math.min(a, b);
-    const child = Math.max(a, b);
-    const nextSize = (this.size.get(a) ?? 1) + (this.size.get(b) ?? 1);
-    if (nextSize > MAX_CHAT_IDS_PER_CONVERSATION) {
-      throw new ImessageMcpError("QUERY_BUDGET_EXCEEDED", "Apple-linked conversation component exceeds its bounded chat count");
-    }
-    this.parent.set(child, root);
-    this.size.set(root, nextSize);
-    this.size.delete(child);
-  }
-
-  canonicalEntries(): Array<[number, number]> {
-    return [...this.parent.keys()].map((chatId) => [chatId, this.find(chatId)]);
-  }
-}
-
 function filterFingerprint(filters: ConversationFilters): string {
   return createHash("sha256")
     .update(JSON.stringify({
@@ -194,95 +77,6 @@ function filterFingerprint(filters: ConversationFilters): string {
     }))
     .digest("hex")
     .slice(0, 20);
-}
-
-function linkedChats(request: DatabaseRequest): UnionFind {
-  const union = new UnionFind();
-  if (request.capabilities.chat_lookup !== "available") return union;
-  const rows = request.db
-    .prepare(
-      `SELECT domain, identifier, chat
-       FROM chat_lookup
-       ORDER BY identifier, domain, chat
-       LIMIT ${MAX_LOOKUP_ROWS + 1}`,
-    )
-    .iterate() as Iterable<{ domain: string; identifier: string; chat: number }>;
-  let currentIdentifier: string | null = null;
-  let firstChat: number | null = null;
-  let fanoutChats = new Set<number>();
-  let count = 0;
-  for (const row of rows) {
-    count += 1;
-    if (count > MAX_LOOKUP_ROWS) {
-      throw new ImessageMcpError("QUERY_BUDGET_EXCEEDED", "chat lookup exceeds its bounded row count");
-    }
-    const chat = Number(row.chat);
-    if (!Number.isSafeInteger(chat) || chat <= 0) {
-      throw new ImessageMcpError("UNSUPPORTED_SCHEMA", "chat lookup contains an invalid chat reference");
-    }
-    if (
-      typeof row.domain !== "string" || typeof row.identifier !== "string" ||
-      row.domain.length === 0 || row.identifier.length === 0 ||
-      Buffer.byteLength(row.domain, "utf8") > MAX_IDENTITY_TEXT_BYTES ||
-      Buffer.byteLength(row.identifier, "utf8") > MAX_IDENTITY_TEXT_BYTES
-    ) {
-      throw new ImessageMcpError("UNSUPPORTED_SCHEMA", "chat lookup contains an invalid namespace or identifier");
-    }
-    if (row.identifier !== currentIdentifier) {
-      currentIdentifier = row.identifier;
-      firstChat = chat;
-      fanoutChats = new Set([chat]);
-      union.find(chat);
-      continue;
-    }
-    fanoutChats.add(chat);
-    if (fanoutChats.size > MAX_LOOKUP_FANOUT) {
-      throw new ImessageMcpError("QUERY_BUDGET_EXCEEDED", "chat lookup identifier exceeds its bounded fanout");
-    }
-    union.union(firstChat as number, chat);
-  }
-  return union;
-}
-
-function registerCanonicalChat(request: DatabaseRequest, union: UnionFind): void {
-  request.db.function("mcp_canonical_chat", { deterministic: true }, (chatId: number) => union.find(Number(chatId)));
-}
-
-function assertOneCanonicalConversationPerMessage(
-  request: DatabaseRequest,
-  maxMessageId: number,
-): void {
-  const invalid = request.db.prepare(
-    `SELECT 1 AS value
-     FROM chat_message_join cmj
-     JOIN message m ON m.ROWID = cmj.message_id
-     WHERE m.ROWID <= @max_message_id
-     GROUP BY cmj.message_id
-     HAVING COUNT(DISTINCT mcp_canonical_chat(cmj.chat_id)) > 1
-     LIMIT 1`,
-  ).get({ max_message_id: maxMessageId }) as { value: number } | undefined;
-  if (invalid) {
-    throw new ImessageMcpError(
-      "UNSUPPORTED_SCHEMA",
-      "a message belongs to multiple conversations that Apple did not link through chat_lookup",
-    );
-  }
-}
-
-export function canonicalChatMap(request: DatabaseRequest): Map<number, number> {
-  assertCatalogBudget(request);
-  return new Map(linkedChats(request).canonicalEntries());
-}
-
-export function assertMessageConversationIntegrity(
-  request: DatabaseRequest,
-  maxMessageId = request.asOf.max_message_id,
-): Map<number, number> {
-  assertCatalogBudget(request);
-  const union = linkedChats(request);
-  registerCanonicalChat(request, union);
-  assertOneCanonicalConversationPerMessage(request, maxMessageId);
-  return new Map(union.canonicalEntries());
 }
 
 function parseStringArray(value: unknown, maximum: number, label: string): string[] {
@@ -348,10 +142,7 @@ function systemMessagePredicate(request: DatabaseRequest): string {
 }
 
 function loadRaw(request: DatabaseRequest, filters: ConversationFilters, maxMessageId: number): RawConversation[] {
-  assertCatalogBudget(request);
-  const union = linkedChats(request);
-  registerCanonicalChat(request, union);
-  assertOneCanonicalConversationPerMessage(request, maxMessageId);
+  registerConversationTopology(request);
   const where = ["m.ROWID <= @max_message_id"];
   const bindings: Record<string, unknown> = { max_message_id: maxMessageId };
   if (filters.bounds.from_unix_seconds !== undefined) {
@@ -483,14 +274,6 @@ export class ConversationCatalog {
     } finally {
       request.close();
     }
-  }
-
-  assertIntegrity(request: DatabaseRequest, maxMessageId = request.asOf.max_message_id): void {
-    if (
-      maxMessageId === request.asOf.max_message_id &&
-      this.cacheKey === watermarkToken(request.asOf)
-    ) return;
-    assertMessageConversationIntegrity(request, maxMessageId);
   }
 
   rows(request: DatabaseRequest, filters: ConversationFilters, frozen: Watermark): RawConversation[] {
