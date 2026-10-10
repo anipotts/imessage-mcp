@@ -37,15 +37,15 @@
     "preflight": "npm run verify && npm run perf && npm run build:mcpb && npm run e2e && npm run live-parity"
   },
   "dependencies": {
-    "@modelcontextprotocol/server": "2.1.0",
+    "@modelcontextprotocol/server": "2.2.0",
     "zod": "4.6.5"
   },
   "devDependencies": {
-    "@modelcontextprotocol/client": "2.1.0",
-    "@types/node": "26.6.2",
+    "@modelcontextprotocol/client": "2.2.0",
+    "@types/node": "26.6.4",
     "tsx": "4.23.15",
     "typescript": "7.0.2",
-    "vitest": "5.0.2"
+    "vitest": "5.0.3"
   },
   "engines": {
     "node": ">=24.16.0"
