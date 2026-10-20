@@ -233,9 +233,9 @@ npm run perf  # one-million-message performance gates
 
 Tests use synthetic data only. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-Dependency PRs use protected auto-merge. A daily health check detects expiring credentials and stalled updates; see [maintenance and recovery](CONTRIBUTING.md#dependency-updates).
+Dependency PRs use protected auto-merge through a repository-scoped GitHub App, without personal-token renewal. A daily health check detects authentication failures and stalled updates; see [maintenance and recovery](CONTRIBUTING.md#dependency-updates).
 
-- [ ] Before the auto-merge token expires, renew both secret copies or replace the owner-token workflow with a repository-scoped GitHub App.
+- [ ] Retire the unused owner-token copies after the App migration is verified and rollback is no longer needed.
 - [ ] After extended inactivity, verify that GitHub has not disabled scheduled workflows. Dependency merges do not publish a release.
 
 ## License

@@ -13,30 +13,27 @@ imessage-mcp is read-only. Sending or changing messages or contacts, public HTTP
 
 ## Dependency updates
 
-Dependabot pull requests merge themselves once every required check passes and the branch is current with `main`. Two workflows do this with one fine-grained token owned by the repository owner, because GitHub starts no workflow runs for merges made with the built-in token, and Dependabot ignores rebase requests from bots.
+Dependabot pull requests merge themselves once every required check passes and the branch is current with `main`. The private `imessage-mcp-maintenance` GitHub App is installed only on this repository, with Contents, Pull requests, and Workflows write permissions and mandatory Metadata read. It has no account permissions, user OAuth, or webhooks. It must not be added to a branch-protection bypass list.
 
-Create the token at github.com/settings/personal-access-tokens with access to this repository only and these permissions: Contents, Pull requests, and Workflows set to read and write. Then store it twice, once for Dependabot runs and once for scheduled runs. Each command prompts for the value, so it never lands in shell history:
+The runtime configuration is one Actions variable, `MAINTENANCE_APP_CLIENT_ID`, and one Actions secret, `MAINTENANCE_APP_PRIVATE_KEY`. Do not copy the private key into Dependabot secrets. Keep its recovery copy in the approved secret store, never in source or logs. The pinned official `actions/create-github-app-token` action mints a token for only this repository at the start of each job and revokes it at the end. Installation tokens expire after one hour; the App key has no scheduled expiration. No personal-token renewal is needed.
 
-```sh
-gh secret set DEPENDABOT_AUTOMERGE_TOKEN --repo anipotts/imessage-mcp --app dependabot
-gh secret set DEPENDABOT_AUTOMERGE_TOKEN --repo anipotts/imessage-mcp --app actions
-```
+The privileged controllers run only protected `main` code after successful same-repository PR CI, on pushes to main, every three hours, or manually. They never check out PR code or consume PR artifacts with the App key. The two controllers share a concurrency group. Only non-draft Dependabot PRs from this repository targeting `main` are eligible; human PRs and forks are skipped.
 
-Missing or invalid credentials fail visibly. One failing dependency PR does not stop maintenance attempts for the other PRs; the workflow reports the failed PR numbers at the end.
+The App requests protected auto-merge when a PR is current. For a behind branch it uses GitHub's update-branch API with the expected head SHA, then waits for fresh CI. This avoids owner-only bot comment commands. The added merge commits can stop Dependabot's own rebasing, so the App owns subsequent branch synchronization. It cannot resolve dependency/lockfile conflicts; these remain visible failures. Live protection is rechecked before each mutation, and stale heads cannot be overwritten. One failing dependency PR does not stop attempts for the remaining PRs.
 
 For changes to maintenance code or workflows, run `python3 -m unittest discover -s tests/maintenance -v`. These checks use synthetic API responses and a mocked CLI, including failures in the middle of a dependency queue. The required security audit job runs them in CI.
 
-The daily `maintenance health` workflow authenticates the Actions secret even when no dependency PRs are open. It reads the actual expiration from GitHub's response header and fails 14 days before expiry, when repository auto-merge is disabled, or when a Dependabot PR remains open for seven days. It also runs after changes to its source and can be started manually. Its failures and recovery steps appear in the Actions run summary. Enable GitHub Actions failure notifications for this repository in your GitHub account; a failed workflow does not guarantee an email or push notification reaches you.
+The daily `maintenance health` workflow mints a read-only installation token even when no dependency PRs are open. It verifies that the token exposes exactly this repository and fails when authentication or repository scope is wrong, repository auto-merge is disabled, or a Dependabot PR remains open for seven days. It also runs after changes to its source and can be started manually. Its failures and recovery steps appear in the Actions run summary. Enable GitHub Actions failure notifications for this repository in your GitHub account; a failed workflow does not guarantee an email or push notification reaches you.
 
 Recovery:
 
-1. For an expiring/invalid token, regenerate the existing repository-scoped token and update **both** secret copies above. The token cannot safely renew itself. Do not put the value in issues, logs, chat, or source.
-2. Run `gh workflow run maintenance-health.yml --repo anipotts/imessage-mcp --ref main` and `gh workflow run dependabot-rebase.yml --repo anipotts/imessage-mcp --ref main`. Check their actual conclusions, not just successful dispatch.
+1. For authentication failures, verify that the App is still installed only on this repository, the client ID matches, and the Actions private-key secret matches an active App key. A revoked key or uninstalled App requires an authorized repair. Do not put credentials in issues, logs, chat, or source.
+2. Run `gh workflow run maintenance-health.yml --repo anipotts/imessage-mcp --ref main`, `gh workflow run dependabot-rebase.yml --repo anipotts/imessage-mcp --ref main`, and `gh workflow run dependabot-automerge.yml --repo anipotts/imessage-mcp --ref main`. Check their actual conclusions, not just successful dispatch.
 3. For a stalled PR, inspect its current checks and conflicts. Required checks and branch protection stay in force; never bypass them to clear a queue.
 
 ### Limits of unattended maintenance
 
-This is guarded automation, not a guarantee that a forgotten repository stays healthy forever. The owner token still expires. Removing scheduled token renewals requires a dedicated GitHub App installed only on this repository, with Contents, Pull requests, and Workflows write permissions and short-lived installation tokens minted per run. That is a separate access/credential setup; the current workflows still use the owner token.
+This removes scheduled personal-token renewal, not every possible owner action. Revoked App keys, changed permissions, failed checks, merge conflicts, and hosting-policy changes can still require intervention. The previous `DEPENDABOT_AUTOMERGE_TOKEN` copies are unused; they are retained only for rollback until separately retired. Reverting to the previous workflow revision also requires a still-valid owner token in both Actions and Dependabot secrets; retaining an expired value does not provide a working rollback.
 
 GitHub can disable scheduled workflows in a public repository after 60 days without repository activity. A disabled schedule cannot monitor or re-enable itself. Check the workflow state when returning after inactivity, re-enable it through GitHub, and dispatch both maintenance workflows manually. See [GitHub's schedule documentation](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule).
 
