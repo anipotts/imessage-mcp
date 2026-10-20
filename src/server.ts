@@ -22,7 +22,7 @@ const idSchema = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
 const syncCursorSchema = z.string().min(1).max(MAX_SYNC_CURSOR_LENGTH);
 const INVALID_ARGUMENTS = Symbol("imessage-mcp-invalid-arguments");
 const pageLimitSchema = z.number().int().min(1).max(200).default(50)
-  .describe("Maximum results per page: 1 to 200. If has_more is true, pass next_cursor in a subsequent call; do not raise this limit above 200.");
+  .describe("Maximum results per page: 1 to 200. If page.has_more is true, pass the returned page.next_cursor value as cursor in the next call; do not raise the limit above 200.");
 const dateFields = {
   date_from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/u).optional()
     .describe("Inclusive first local calendar day, YYYY-MM-DD, interpreted in timezone. Do not pass a timestamp."),
@@ -450,7 +450,7 @@ export function registerTools(server: McpServer, runtime: ToolRuntime): void {
       description: "Find your iMessage, SMS, MMS, and RCS conversations filtered by contact, service, conversation kind, reply state, or date range. Each result includes the latest message and can be ordered newest-first or by who you text most. Feed any chat_id to get_conversation for the full thread. Read-only.",
       inputSchema: recoverInvalidInput(z.object({
         contact: querySchema.optional()
-          .describe("Name or exact handle. If a name is ambiguous, call resolve_contact once, select the intended person, and use their exact phone number or email here. Results may include multiple distinct conversations for one person; use their chat_ids to read them."),
+          .describe("Name or exact handle. If a name is ambiguous, call resolve_contact once, select the intended person, and use their exact phone number or email here. Results may include multiple distinct conversations for one person; pass the selected result's chat_id to get_conversation."),
         service_family: serviceSchema.optional(),
         kind: z.enum(["direct", "group"]).optional(),
         replied: z.boolean().optional(),
@@ -475,7 +475,7 @@ export function registerTools(server: McpServer, runtime: ToolRuntime): void {
         chat_id: idSchema.optional()
           .describe("Conversation id from list_conversations or search results. Use this to select one conversation when a person has multiple threads. Provide chat_id or query, never both."),
         query: querySchema.optional()
-          .describe("Contact or group name, phone number, or email. One person can have multiple distinct conversations, even for an exact handle. On ambiguity, use resolve_contact if needed, then list_conversations with the chosen exact handle and read the returned chat_ids. Prefer chat_id when known. Provide query or chat_id, never both."),
+          .describe("Contact or group name, phone number, or email. One person can have multiple distinct conversations, even for an exact handle. On ambiguity, use resolve_contact if needed, then list_conversations with the chosen exact handle; pass the selected result's chat_id as chat_id. Prefer chat_id when known. Provide query or chat_id, never both."),
         around_message_id: idSchema.optional(),
         service_family: serviceSchema.optional(),
         event_types: z.array(z.enum([
