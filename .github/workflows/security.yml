@@ -32,6 +32,8 @@ jobs:
           cache: npm
           package-manager-cache: true
       - run: npm ci
+      - name: dependency maintenance regression checks
+        run: python3 -m unittest discover -s tests/maintenance -v
       - run: npm audit --audit-level=high
       - run: npx --no-install vitest run tests/privacy.test.ts tests/security.test.ts
       - run: npm pack --dry-run

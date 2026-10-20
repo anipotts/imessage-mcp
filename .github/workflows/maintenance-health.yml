@@ -1,0 +1,35 @@
+name: maintenance health
+
+on:
+  schedule:
+    - cron: "43 14 * * *"
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/maintenance-health.yml
+      - scripts/dependabot-health.py
+      - CONTRIBUTING.md
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: maintenance-health
+  cancel-in-progress: false
+
+jobs:
+  health:
+    name: dependency automation health
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      # Never check out PR code in a job that receives the owner token.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: check authentication, expiration, and stalled updates
+        env:
+          GH_TOKEN: ${{ secrets.DEPENDABOT_AUTOMERGE_TOKEN }}
+        run: python3 scripts/dependabot-health.py

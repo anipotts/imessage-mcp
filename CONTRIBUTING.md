@@ -22,7 +22,25 @@ gh secret set DEPENDABOT_AUTOMERGE_TOKEN --repo anipotts/imessage-mcp --app depe
 gh secret set DEPENDABOT_AUTOMERGE_TOKEN --repo anipotts/imessage-mcp --app actions
 ```
 
-Without the secret both workflows pass with a warning and change nothing. Renew the token before it expires.
+Missing or invalid credentials fail visibly. One failing dependency PR does not stop maintenance attempts for the other PRs; the workflow reports the failed PR numbers at the end.
+
+For changes to maintenance code or workflows, run `python3 -m unittest discover -s tests/maintenance -v`. These checks use synthetic API responses and a mocked CLI, including failures in the middle of a dependency queue. The required security audit job runs them in CI.
+
+The daily `maintenance health` workflow authenticates the Actions secret even when no dependency PRs are open. It reads the actual expiration from GitHub's response header and fails 14 days before expiry, when repository auto-merge is disabled, or when a Dependabot PR remains open for seven days. It also runs after changes to its source and can be started manually. Its failures and recovery steps appear in the Actions run summary. Enable GitHub Actions failure notifications for this repository in your GitHub account; a failed workflow does not guarantee an email or push notification reaches you.
+
+Recovery:
+
+1. For an expiring/invalid token, regenerate the existing repository-scoped token and update **both** secret copies above. The token cannot safely renew itself. Do not put the value in issues, logs, chat, or source.
+2. Run `gh workflow run maintenance-health.yml --repo anipotts/imessage-mcp --ref main` and `gh workflow run dependabot-rebase.yml --repo anipotts/imessage-mcp --ref main`. Check their actual conclusions, not just successful dispatch.
+3. For a stalled PR, inspect its current checks and conflicts. Required checks and branch protection stay in force; never bypass them to clear a queue.
+
+### Limits of unattended maintenance
+
+This is guarded automation, not a guarantee that a forgotten repository stays healthy forever. The owner token still expires. Removing scheduled token renewals requires a dedicated GitHub App installed only on this repository, with Contents, Pull requests, and Workflows write permissions and short-lived installation tokens minted per run. That is a separate access/credential setup; the current workflows still use the owner token.
+
+GitHub can disable scheduled workflows in a public repository after 60 days without repository activity. A disabled schedule cannot monitor or re-enable itself. Check the workflow state when returning after inactivity, re-enable it through GitHub, and dispatch both maintenance workflows manually. See [GitHub's schedule documentation](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule).
+
+Dependency merges update `main`; they do not publish an npm version or a desktop bundle. Release tags and the existing release verification remain the publication boundary. Breaking dependency upgrades, unsupported runners/Node versions, revoked access, and product or security fixes can still need an owner. This maintenance change does not expand publishing, change branch protection, or disable required checks.
 
 ## Desktop bundle signing
 

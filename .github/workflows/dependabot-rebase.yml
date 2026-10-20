@@ -33,35 +33,52 @@ jobs:
         shell: bash
         run: |
           if [[ -z "$GH_TOKEN" ]]; then
-            echo "::warning title=dependabot rebase::DEPENDABOT_AUTOMERGE_TOKEN is not set as an Actions secret, so behind pull requests are not rebased"
-            exit 0
+            echo "::error title=dependabot rebase::DEPENDABOT_AUTOMERGE_TOKEN is not set as an Actions secret, so behind pull requests are not rebased"
+            exit 1
           fi
           gh pr list --repo "$REPO" --author app/dependabot --state open --limit 50 \
             --json number,url,autoMergeRequest,headRefOid > "$RUNNER_TEMP/prs.json"
-          jq -c '.[]' "$RUNNER_TEMP/prs.json" | while read -r pr; do
-            number=$(jq -r .number <<<"$pr")
-            url=$(jq -r .url <<<"$pr")
-            if [[ "$(jq -r '.autoMergeRequest == null' <<<"$pr")" == "true" ]]; then
-              gh pr merge --auto --merge "$url"
+          # Explicitly handle each command's failure: bash disables errexit inside
+          # a function called from an if condition. One failed PR must not starve
+          # the remaining queue, and failed API reads must not request a rebase.
+          process_pr() {
+            local pr="$1" number="$2" url head behind head_date last needs_merge
+            url=$(jq -r .url <<<"$pr") || return 1
+            needs_merge=$(jq -r '.autoMergeRequest == null' <<<"$pr") || return 1
+            if [[ "$needs_merge" == "true" ]]; then
+              gh pr merge --auto --merge "$url" || return 1
               echo "#${number}: auto-merge enabled"
             fi
             # Ask GitHub how far behind main the head is instead of reading
             # mergeStateStatus, which reads UNKNOWN for a while after every push
             # to main, exactly when this workflow runs.
-            head=$(jq -r .headRefOid <<<"$pr")
-            behind=$(gh api "repos/${REPO}/compare/main...${head}" --jq .behind_by)
+            head=$(jq -r .headRefOid <<<"$pr") || return 1
+            behind=$(gh api "repos/${REPO}/compare/main...${head}" --jq .behind_by) || return 1
             if [[ "$behind" == "0" ]]; then
-              continue
+              return 0
             fi
             # Ask once per head commit: skip when the newest comment already asks
             # for a rebase and was posted after the current head was pushed.
-            head_date=$(gh api "repos/${REPO}/commits/${head}" --jq .commit.committer.date)
+            head_date=$(gh api "repos/${REPO}/commits/${head}" --jq .commit.committer.date) || return 1
             last=$(gh api "repos/${REPO}/issues/${number}/comments?per_page=100" \
-              --jq 'map(select(.body == "@dependabot rebase")) | last | .created_at // ""')
+              --jq 'map(select(.body == "@dependabot rebase")) | last | .created_at // ""') || return 1
             if [[ -n "$last" && "$last" > "$head_date" ]]; then
               echo "#${number}: rebase already requested"
-              continue
+              return 0
             fi
-            gh pr comment "$url" --body "@dependabot rebase"
+            gh pr comment "$url" --body "@dependabot rebase" || return 1
             echo "#${number}: rebase requested"
-          done
+          }
+          jq -c '.[]' "$RUNNER_TEMP/prs.json" > "$RUNNER_TEMP/pr-lines.jsonl"
+          failed=()
+          while read -r pr; do
+            number=$(jq -r .number <<<"$pr")
+            if ! process_pr "$pr" "$number"; then
+              echo "::error title=dependabot rebase::Failed to maintain PR #${number}; continuing with the remaining pull requests"
+              failed+=("#${number}")
+            fi
+          done < "$RUNNER_TEMP/pr-lines.jsonl"
+          if (( ${#failed[@]} )); then
+            echo "::error title=dependabot rebase::Failed pull requests: ${failed[*]}"
+            exit 1
+          fi
