@@ -33,7 +33,7 @@ jobs:
         shell: bash
         run: |
           if [[ -z "$GH_TOKEN" ]]; then
-            echo "::warning title=dependabot auto-merge::DEPENDABOT_AUTOMERGE_TOKEN is not set as a Dependabot secret, so auto-merge stays off for this pull request"
-            exit 0
+            echo "::error title=dependabot auto-merge::DEPENDABOT_AUTOMERGE_TOKEN is not set as a Dependabot secret, so auto-merge stays off for this pull request"
+            exit 1
           fi
           gh pr merge --auto --merge "$PR_URL"
