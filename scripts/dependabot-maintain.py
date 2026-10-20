@@ -40,7 +40,7 @@ def require_protection(rules):
     required = {"pull_request", "required_status_checks", "required_signatures", "deletion", "non_fast_forward"}
     checks = next((rule.get("parameters", {}) for rule in rules if rule["type"] == "required_status_checks"), {})
     if not required.issubset(types) or not checks.get("required_status_checks") or not checks.get("strict_required_status_checks_policy"):
-        raise MaintenanceError("main is missing required PR, signature, strict CI, force-push, or deletion protection; no PRs were changed")
+        raise MaintenanceError("main is missing required PR, signature, strict CI, force-push, or deletion protection; mutation refused")
 
 
 def eligible(pr, repository):
