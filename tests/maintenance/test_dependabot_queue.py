@@ -1,109 +1,123 @@
-"""Exercise the actual workflow shell with synthetic GitHub CLI responses."""
+"""Synthetic API tests of App maintenance, including concurrency boundaries."""
 
-import json
-import os
-from pathlib import Path
-import shutil
-import subprocess
-import tempfile
-import textwrap
+import copy
+import importlib.util
+import pathlib
 import unittest
+from unittest import mock
 
-ROOT = Path(__file__).resolve().parents[2]
-MOCK_GH = r'''#!/usr/bin/env python3
-import json
-import os
-import sys
-
-args = sys.argv[1:]
-with open(os.environ["MOCK_CALLS"], "a") as log:
-    log.write(json.dumps(args) + "\n")
-mode = os.environ["MOCK_MODE"]
-if args[:2] == ["pr", "list"]:
-    if mode == "list-failure":
-        sys.exit(1)
-    print(json.dumps([
-        {"number": n, "url": f"https://example.invalid/pull/{n}",
-         "headRefOid": f"head{n}", "autoMergeRequest": None}
-        for n in range(1, 8)
-    ]))
-elif args[:2] == ["pr", "merge"]:
-    if mode == "mixed-failures" and args[-1].endswith("/1"):
-        sys.exit(1)
-elif args[:2] == ["pr", "comment"]:
-    if mode == "mixed-failures" and args[2].endswith("/6"):
-        sys.exit(1)
-elif args[0] == "api":
-    endpoint = args[1]
-    if "/compare/" in endpoint:
-        if mode == "mixed-failures" and endpoint.endswith("head2"):
-            sys.exit(1)
-        print(0 if endpoint.endswith("head5") else 1)
-    elif "/commits/" in endpoint:
-        print("2026-10-19T10:00:00Z")
-    elif "/comments?" in endpoint:
-        print("2026-10-19T11:00:00Z" if "/3/" in endpoint else "")
-    else:
-        sys.exit("Unexpected mock endpoint")
-else:
-    sys.exit("Unexpected mock command")
-'''
+SPEC = importlib.util.spec_from_file_location("queue", pathlib.Path(__file__).parents[2] / "scripts/dependabot-maintain.py")
+queue = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(queue)
+REPO = "owner/repo"
+HEAD = "a" * 40
+RULES = [{"type": name} for name in ("pull_request", "required_signatures", "deletion", "non_fast_forward")]
+RULES.append({"type": "required_status_checks", "parameters": {
+    "required_status_checks": [{"context": "ci"}], "strict_required_status_checks_policy": True}})
 
 
-@unittest.skipUnless(shutil.which("bash") and shutil.which("jq"), "workflow requires bash and jq")
+def pr(number, **overrides):
+    result = {"number": number, "user": {"login": "dependabot[bot]"},
+              "state": "open", "base": {"ref": "main", "repo": {"full_name": REPO}},
+              "head": {"sha": HEAD, "repo": {"full_name": REPO}}, "auto_merge": None}
+    result.update(overrides)
+    return result
+
+
+class FakeGitHub:
+    def __init__(self, pulls=None, behind=0, fail=None):
+        self.pulls = pulls or []
+        self.behind = behind
+        self.fail = fail
+        self.calls = []
+
+    def api(self, method, path, payload=None):
+        self.calls.append((method, path, payload))
+        if path == self.fail:
+            raise queue.MaintenanceError("synthetic API failure")
+        if "/rules/" in path:
+            return RULES
+        if "/pulls?" in path:
+            return self.pulls
+        if "/compare/" in path:
+            return {"behind_by": self.behind}
+        if method == "PUT":
+            return {"message": "Updating pull request branch"}
+        number = int(path.rsplit("/", 1)[1])
+        return next(p for p in self.pulls if p["number"] == number)
+
+    def command(self, args):
+        self.calls.append(("CLI", args))
+
+
 class DependabotQueueTest(unittest.TestCase):
-    def run_workflow(self, name="dependabot-rebase.yml", mode="healthy", token="synthetic-token"):
-        source = (ROOT / ".github" / "workflows" / name).read_text()
-        script = textwrap.dedent(source.split("        run: |\n", 1)[1])
-        with tempfile.TemporaryDirectory() as directory:
-            temp = Path(directory)
-            gh = temp / "gh"
-            gh.write_text(MOCK_GH)
-            gh.chmod(0o755)
-            workflow = temp / "workflow.sh"
-            workflow.write_text(script)
-            calls = temp / "calls.jsonl"
-            calls.write_text("")
-            env = dict(os.environ, PATH=directory + os.pathsep + os.environ["PATH"],
-                       GH_TOKEN=token, REPO="synthetic/repo", RUNNER_TEMP=directory,
-                       PR_URL="https://example.invalid/pull/1", MOCK_MODE=mode,
-                       MOCK_CALLS=str(calls))
-            result = subprocess.run(
-                [shutil.which("bash"), "--noprofile", "--norc", "-eo", "pipefail", str(workflow)],
-                env=env, capture_output=True, text=True, timeout=20)
-            return result, [json.loads(line) for line in calls.read_text().splitlines()]
+    def test_only_same_repo_bot_prs_to_main_are_eligible(self):
+        self.assertTrue(queue.eligible(pr(1), REPO))
+        for override in ({"user": {"login": "human"}}, {"draft": True}, {"state": "closed"},
+                         {"head": {"repo": {"full_name": "fork/repo"}}},
+                         {"head": {"repo": None}}, {"base": {"ref": "other"}}):
+            self.assertFalse(queue.eligible(pr(1, **override), REPO))
 
-    @staticmethod
-    def comments(calls):
-        return [int(call[2].rsplit("/", 1)[1]) for call in calls if call[:2] == ["pr", "comment"]]
+    def test_branch_update_is_bound_to_current_head_and_waits_for_new_ci(self):
+        github = FakeGitHub([pr(1)], behind=1)
+        self.assertFalse(queue.maintain(github, REPO))
+        puts = [call for call in github.calls if call[0] == "PUT"]
+        self.assertEqual(puts, [("PUT", "repos/owner/repo/pulls/1/update-branch", {"expected_head_sha": HEAD})])
+        self.assertFalse(any(call[0] == "CLI" for call in github.calls))
 
-    def test_missing_token_fails_before_any_github_call(self):
-        for name in ("dependabot-rebase.yml", "dependabot-automerge.yml"):
-            with self.subTest(workflow=name):
-                result, calls = self.run_workflow(name=name, token="")
-                self.assertNotEqual(result.returncode, 0)
-                self.assertIn("::error", result.stdout)
-                self.assertEqual(calls, [])
+    def test_failed_pr_does_not_block_later_pr_and_head_is_checked_at_merge(self):
+        github = FakeGitHub([pr(1), pr(2)], fail="repos/owner/repo/pulls/1")
+        self.assertTrue(queue.maintain(github, REPO))
+        cli = [call for call in github.calls if call[0] == "CLI"]
+        self.assertEqual(cli, [("CLI", ["pr", "merge", "2", "--repo", REPO, "--auto", "--merge", "--match-head-commit", HEAD])])
 
-    def test_failed_prs_do_not_starve_queue_and_summary_lists_exact_failures(self):
-        result, calls = self.run_workflow(mode="mixed-failures")
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("Failed pull requests: #1 #2 #6", result.stdout)
-        self.assertEqual(self.comments(calls), [4, 6, 7])
-        self.assertIn("#7: rebase requested", result.stdout)
-        self.assertNotIn("#6: rebase requested", result.stdout)
+    def test_missing_protection_refuses_mutations(self):
+        for types in ([], RULES[:-1]):
+            with self.assertRaises(queue.MaintenanceError):
+                queue.require_protection(types)
+        rules = copy.deepcopy(RULES)
+        rules[-1]["parameters"]["strict_required_status_checks_policy"] = False
+        with self.assertRaises(queue.MaintenanceError):
+            queue.require_protection(rules)
 
-    def test_healthy_queue_skips_current_and_already_requested_rebases(self):
-        result, calls = self.run_workflow()
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(self.comments(calls), [1, 2, 4, 6, 7])
-        self.assertIn("#3: rebase already requested", result.stdout)
+    def test_existing_automerge_and_nonbot_prs_are_not_mutated(self):
+        github = FakeGitHub([pr(1, auto_merge={"merge_method": "merge"}), pr(2, user={"login": "human"})])
+        self.assertFalse(queue.maintain(github, REPO))
+        self.assertFalse(any(call[0] in ("PUT", "CLI") for call in github.calls))
 
-    def test_failed_list_does_not_attempt_mutations(self):
-        result, calls = self.run_workflow(mode="list-failure")
-        self.assertNotEqual(result.returncode, 0)
-        self.assertEqual(len(calls), 1)
-        self.assertEqual(calls[0][:2], ["pr", "list"])
+    def test_protection_is_rechecked_immediately_before_mutation(self):
+        for behind in (0, 1):
+            github = FakeGitHub([pr(1)], behind=behind)
+            original_api = github.api
+            reads = 0
+            def changed_rules(method, path, payload=None):
+                nonlocal reads
+                if "/rules/" in path:
+                    reads += 1
+                    if reads > 1:
+                        return []
+                return original_api(method, path, payload)
+            github.api = changed_rules
+            self.assertTrue(queue.maintain(github, REPO))
+            self.assertFalse(any(call[0] in ("PUT", "CLI") for call in github.calls))
+
+    def test_failed_list_aborts_before_mutations(self):
+        github = FakeGitHub(fail="repos/owner/repo/pulls?state=open&per_page=100&page=1")
+        with self.assertRaises(queue.MaintenanceError):
+            queue.maintain(github, REPO)
+        self.assertFalse(any(call[0] in ("PUT", "CLI") for call in github.calls))
+
+    def test_missing_token_does_not_call_github(self):
+        with mock.patch.dict(queue.os.environ, {"GH_TOKEN": ""}), mock.patch.object(queue, "GitHub") as github:
+            self.assertEqual(queue.main(), 1)
+            github.assert_not_called()
+
+    def test_cli_errors_do_not_expose_captured_credentials(self):
+        response = mock.Mock(returncode=1, stdout="", stderr="synthetic-secret-value")
+        with mock.patch.object(queue.subprocess, "run", return_value=response):
+            with self.assertRaises(queue.MaintenanceError) as error:
+                queue.GitHub().command(["api", "user"])
+        self.assertNotIn("synthetic-secret-value", str(error.exception))
 
 
 if __name__ == "__main__":

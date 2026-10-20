@@ -1,11 +1,7 @@
 name: dependabot rebase
 
-# Keeps Dependabot pull requests mergeable under the up-to-date rule. After every
-# change to main, and on a schedule as a backstop, it turns on auto-merge where
-# it is missing and asks Dependabot to rebase any pull request that fell behind.
-# Dependabot only accepts that command from an account with push access, which
-# is why this runs with the owner's token rather than GITHUB_TOKEN.
-
+# Keep same-repository Dependabot pull requests current without a personal token.
+# The shared controller preserves required checks and protected integration.
 on:
   push:
     branches: [main]
@@ -17,68 +13,33 @@ permissions:
   contents: read
 
 concurrency:
-  group: dependabot-rebase
+  group: dependabot-maintenance
   cancel-in-progress: false
 
 jobs:
   rebase:
     name: keep dependabot pull requests current
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - name: enable auto-merge and request rebases
+      # Controller code always comes from protected main, never a PR checkout.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+      - name: mint repository-scoped installation token
+        id: app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3
+        with:
+          client-id: ${{ vars.MAINTENANCE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.MAINTENANCE_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-pull-requests: write
+          permission-workflows: write
+      - name: maintain protected Dependabot queue
         env:
-          GH_TOKEN: ${{ secrets.DEPENDABOT_AUTOMERGE_TOKEN }}
-          REPO: ${{ github.repository }}
-        shell: bash
-        run: |
-          if [[ -z "$GH_TOKEN" ]]; then
-            echo "::error title=dependabot rebase::DEPENDABOT_AUTOMERGE_TOKEN is not set as an Actions secret, so behind pull requests are not rebased"
-            exit 1
-          fi
-          gh pr list --repo "$REPO" --author app/dependabot --state open --limit 50 \
-            --json number,url,autoMergeRequest,headRefOid > "$RUNNER_TEMP/prs.json"
-          # Explicitly handle each command's failure: bash disables errexit inside
-          # a function called from an if condition. One failed PR must not starve
-          # the remaining queue, and failed API reads must not request a rebase.
-          process_pr() {
-            local pr="$1" number="$2" url head behind head_date last needs_merge
-            url=$(jq -r .url <<<"$pr") || return 1
-            needs_merge=$(jq -r '.autoMergeRequest == null' <<<"$pr") || return 1
-            if [[ "$needs_merge" == "true" ]]; then
-              gh pr merge --auto --merge "$url" || return 1
-              echo "#${number}: auto-merge enabled"
-            fi
-            # Ask GitHub how far behind main the head is instead of reading
-            # mergeStateStatus, which reads UNKNOWN for a while after every push
-            # to main, exactly when this workflow runs.
-            head=$(jq -r .headRefOid <<<"$pr") || return 1
-            behind=$(gh api "repos/${REPO}/compare/main...${head}" --jq .behind_by) || return 1
-            if [[ "$behind" == "0" ]]; then
-              return 0
-            fi
-            # Ask once per head commit: skip when the newest comment already asks
-            # for a rebase and was posted after the current head was pushed.
-            head_date=$(gh api "repos/${REPO}/commits/${head}" --jq .commit.committer.date) || return 1
-            last=$(gh api "repos/${REPO}/issues/${number}/comments?per_page=100" \
-              --jq 'map(select(.body == "@dependabot rebase")) | last | .created_at // ""') || return 1
-            if [[ -n "$last" && "$last" > "$head_date" ]]; then
-              echo "#${number}: rebase already requested"
-              return 0
-            fi
-            gh pr comment "$url" --body "@dependabot rebase" || return 1
-            echo "#${number}: rebase requested"
-          }
-          jq -c '.[]' "$RUNNER_TEMP/prs.json" > "$RUNNER_TEMP/pr-lines.jsonl"
-          failed=()
-          while read -r pr; do
-            number=$(jq -r .number <<<"$pr")
-            if ! process_pr "$pr" "$number"; then
-              echo "::error title=dependabot rebase::Failed to maintain PR #${number}; continuing with the remaining pull requests"
-              failed+=("#${number}")
-            fi
-          done < "$RUNNER_TEMP/pr-lines.jsonl"
-          if (( ${#failed[@]} )); then
-            echo "::error title=dependabot rebase::Failed pull requests: ${failed[*]}"
-            exit 1
-          fi
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: python3 scripts/dependabot-maintain.py
