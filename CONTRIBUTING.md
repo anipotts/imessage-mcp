@@ -40,6 +40,8 @@ This is guarded automation, not a guarantee that a forgotten repository stays he
 
 GitHub can disable scheduled workflows in a public repository after 60 days without repository activity. A disabled schedule cannot monitor or re-enable itself. Check the workflow state when returning after inactivity, re-enable it through GitHub, and dispatch both maintenance workflows manually. See [GitHub's schedule documentation](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule).
 
+Dependabot can also pause updates when dependency PRs remain untouched for 90 days, and stops automatically rebasing a PR after 30 days. Check its paused-update banner if no new PRs arrive; an empty queue alone does not prove updates are running. See [Dependabot inactivity and recovery](https://docs.github.com/en/code-security/reference/supply-chain-security/troubleshoot-dependabot/dependabot-updates-stopped).
+
 Dependency merges update `main`; they do not publish an npm version or a desktop bundle. Release tags and the existing release verification remain the publication boundary. Breaking dependency upgrades, unsupported runners/Node versions, revoked access, and product or security fixes can still need an owner. This maintenance change does not expand publishing, change branch protection, or disable required checks.
 
 ## Desktop bundle signing
