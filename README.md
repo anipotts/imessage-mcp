@@ -2,7 +2,7 @@
 
 # imessage-mcp
 
-[![npm](https://img.shields.io/npm/v/imessage-mcp?style=flat-square)](https://www.npmjs.com/package/imessage-mcp) [![MCP Registry](https://img.shields.io/badge/MCP_Registry-io.github.anipotts%2Fimessage--mcp-4ade80?style=flat-square)](https://registry.modelcontextprotocol.io/v0/servers?search=imessage-mcp) [![CI](https://img.shields.io/github/actions/workflow/status/anipotts/imessage-mcp/ci.yml?branch=main&style=flat-square&label=ci)](https://github.com/anipotts/imessage-mcp/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
+[![npm](https://img.shields.io/npm/v/imessage-mcp?style=flat-square)](https://www.npmjs.com/package/imessage-mcp) [![MCP Registry](https://img.shields.io/badge/MCP_Registry-io.github.anipottsbuilds%2Fimessage--mcp-4ade80?style=flat-square)](https://registry.modelcontextprotocol.io/v0/servers?search=imessage-mcp) [![CI](https://img.shields.io/github/actions/workflow/status/anipottsbuilds/imessage-mcp/ci.yml?branch=main&style=flat-square&label=ci)](https://github.com/anipottsbuilds/imessage-mcp/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
 
 Search and read your Messages history from Claude, Codex, Cursor, VS Code, and any other MCP client.
 
