@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { runtimeConfig } from "../src/config.js";
 import { UnifiedContactResolver } from "../src/contacts.js";
 import { LocalToolRuntime } from "../src/runtime.js";
+import { ImessageMcpError } from "../src/errors.js";
 import Database from "../src/sqlite.js";
 import { createFixture } from "./fixture.js";
 
@@ -107,7 +108,13 @@ describe("fact-recovery paths", () => {
     try {
       const result = await runtime.call("get_conversation", { query: "+15559999999" });
       expect(result).toMatchObject({ isError: true, structuredContent: { error: { reason: "INVALID_INPUT" } } });
-      expect(JSON.stringify(result.content)).toContain("exact address");
+      expect(JSON.stringify(result.content)).toContain("conversation_names");
+      const found = await runtime.call("search_messages", { query: "+15559999999", scopes: ["conversation_names"], mode: "substring", order: "newest", limit: 5 });
+      expect(found.isError).toBeUndefined();
+      const hits = (found.structuredContent?.data as { results: Array<{ chat_id: number }> }).results;
+      expect(hits[0].chat_id).toBe(3);
+      const selected = await runtime.call("get_conversation", { chat_id: hits[0].chat_id });
+      expect(selected.isError).toBeUndefined();
     } finally { close(); }
   });
 
@@ -131,6 +138,27 @@ describe("fact-recovery paths", () => {
       expect(chosen.structuredContent?.data).toMatchObject({ events: [{ message_id: 19 }] });
     } finally { close(); }
   });
+
+  it.each(["decode", "decodeEditMetadata"] as const)(
+    "offers a partial-read retry when %s throws a decoder failure",
+    async (method) => {
+      const { fixture, runtime, close } = setup();
+      const db = new Database(fixture.databasePath);
+      if (method === "decode") db.exec("UPDATE message SET text=NULL, attributedBody=x'01' WHERE ROWID=19");
+      else db.exec("UPDATE message SET date_edited=date+1000000000, message_summary_info=x'01' WHERE ROWID=19");
+      db.close();
+      vi.spyOn(runtime.decoder, method).mockRejectedValue(new ImessageMcpError("DECODE_FAILED", "synthetic native decoder failure"));
+      try {
+        const args = { chat_id: 1, around_message_id: 19, limit: 1 };
+        const strict = await runtime.call("get_conversation", args);
+        expect(strict).toMatchObject({ isError: true, structuredContent: { error: { reason: "DECODE_FAILED" } } });
+        expect(JSON.stringify(strict.content)).toContain("allow_partial: true");
+        const partial = await runtime.call("get_conversation", { ...args, allow_partial: true });
+        expect(partial.isError).toBeUndefined();
+        expect(partial.structuredContent).toMatchObject({ completeness: "partial", data: { events: [{ message_id: 19, row_status: "partial" }] } });
+      } finally { close(); }
+    },
+  );
 
   it("keeps structural failures strict even when partial reads are requested", async () => {
     const { fixture, runtime, close } = setup();

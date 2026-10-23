@@ -333,7 +333,7 @@ export class LocalToolRuntime {
       }
     }
     if (looksLikeHandle(query)) {
-      throw new ImessageMcpError("INVALID_INPUT", "no conversation matched this exact address; call list_conversations with the same contact or select a known chat_id");
+      throw new ImessageMcpError("INVALID_INPUT", "no conversation matched this exact address; for an address-like group title call search_messages with scopes: [conversation_names], then pass the selected chat_id");
     }
     const request = this.database.request();
     try {

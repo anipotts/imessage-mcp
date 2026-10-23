@@ -680,7 +680,12 @@ async function materialize(input: {
     try {
       decoded = await input.decoder.decode(undecoded.map((row) => row.attributed_body as Buffer));
     } catch (error) {
-      if (!input.allowPartial) throw error;
+      if (!input.allowPartial) {
+        if (error instanceof ImessageMcpError && error.reason === "DECODE_FAILED") {
+          throw incompletePageError(error.reason, error.message);
+        }
+        throw error;
+      }
       decoded = undecoded.map(() => ({ status: "unsupported" }));
     }
   }
@@ -693,7 +698,12 @@ async function materialize(input: {
         editedWithSummary.map((row) => row.summary_info as Buffer),
       );
     } catch (error) {
-      if (!input.allowPartial) throw error;
+      if (!input.allowPartial) {
+        if (error instanceof ImessageMcpError && error.reason === "DECODE_FAILED") {
+          throw incompletePageError(error.reason, error.message);
+        }
+        throw error;
+      }
       editMetadata = editedWithSummary.map(() => ({ status: "unsupported" }));
     }
   }
