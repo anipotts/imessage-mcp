@@ -27,6 +27,18 @@ import {
 import { resolveUniqueMessageGuids } from "./message-integrity.js";
 import { MAX_ATTRIBUTED_BODY_BYTES } from "../limits.js";
 
+function incompletePageError(
+  reason: "UNSUPPORTED_SCHEMA" | "DECODE_FAILED",
+  message: string,
+  skippedCount?: number,
+): ImessageMcpError {
+  const retry = "retry the same call with allow_partial: true for readable events; inspect completeness, warnings, and each row_status before using evidence";
+  return new ImessageMcpError(reason, `${message}; ${retry}`, {
+    ...(skippedCount !== undefined ? { skipped_count: skippedCount } : {}),
+    retry,
+  });
+}
+
 const ACCOUNT_HOME_DIRECTORY = userInfo().homedir;
 
 export type TimelineEventType = "message" | "retraction" | "participant_joined" | "participant_left" | "group_renamed" | "system_change";
@@ -212,7 +224,7 @@ function loadReactions(
     const sender = validateSender(row, contacts);
     if (!sender.complete) {
       if (!allowPartial) {
-        throw new ImessageMcpError(
+        throw incompletePageError(
           "UNSUPPORTED_SCHEMA",
           "a reaction actor could not be identified well enough to fold current reaction state",
         );
@@ -643,9 +655,7 @@ async function materialize(input: {
     if (!sender.complete) unresolvedSenders += 1;
   }
   if (unresolvedSenders > 0 && !input.allowPartial) {
-    throw new ImessageMcpError("UNSUPPORTED_SCHEMA", "an incoming message sender could not be resolved", {
-      skipped_count: unresolvedSenders,
-    });
+    throw incompletePageError("UNSUPPORTED_SCHEMA", "an incoming message sender could not be resolved", unresolvedSenders);
   }
   const unsupportedStorage = input.rows.filter((row) =>
     (row.text_type !== "text" && row.text_type !== "null") ||
@@ -653,9 +663,7 @@ async function materialize(input: {
     (row.summary_info_type !== "blob" && row.summary_info_type !== "null"),
   );
   if (unsupportedStorage.length > 0 && !input.allowPartial) {
-    throw new ImessageMcpError("UNSUPPORTED_SCHEMA", "a selected message uses an unsupported SQLite body storage class", {
-      skipped_count: unsupportedStorage.length,
-    });
+    throw incompletePageError("UNSUPPORTED_SCHEMA", "a selected message uses an unsupported SQLite body storage class", unsupportedStorage.length);
   }
   const undecoded = input.rows.filter((row) => !populatedMessageText(row.text) && row.attributed_body && !sqliteIntegerIsPositive(row.date_retracted));
   let decoded: DecodeResult[] = [];
@@ -695,7 +703,7 @@ async function materialize(input: {
   const editFailures = editedWithSummary.filter((_row, index) => editMetadata[index]?.status !== "decoded").length;
   if (bodyFailures > 0 || editFailures > 0) {
     if (!input.allowPartial) {
-      throw new ImessageMcpError("DECODE_FAILED", "a selected message body or edit record could not be decoded");
+      throw incompletePageError("DECODE_FAILED", "a selected message body or edit record could not be decoded");
     }
     warnings.push({
       code: "DECODE_FAILED",
@@ -717,9 +725,7 @@ async function materialize(input: {
   const replyRows = resolveUniqueMessageGuids(input.request, replyGuids, input.frozen.max_message_id);
   const missingReplies = replyGuids.filter((guid) => !replyRows.has(guid));
   if (missingReplies.length > 0 && !input.allowPartial) {
-    throw new ImessageMcpError("UNSUPPORTED_SCHEMA", "a reply parent could not be resolved uniquely", {
-      skipped_count: missingReplies.length,
-    });
+    throw incompletePageError("UNSUPPORTED_SCHEMA", "a reply parent could not be resolved uniquely", missingReplies.length);
   }
   const relationshipFailures = unresolvedSenders + reactions.skipped + missingReplies.length;
   if (relationshipFailures > 0) {
@@ -816,7 +822,7 @@ async function materialize(input: {
         : { row_status: "complete" as const }),
     };
     if (event.row_status === "partial" && !input.allowPartial) {
-      throw new ImessageMcpError("DECODE_FAILED", "a selected message body could not be decoded");
+      throw incompletePageError("DECODE_FAILED", "a selected message body could not be decoded");
     }
     events.push(event);
   }

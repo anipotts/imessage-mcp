@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
+import { AjvJsonSchemaValidator } from "@modelcontextprotocol/client/validators/ajv";
+import { ImessageMcpError } from "../src/errors.js";
+import { errorResult } from "../src/result.js";
 import { McpServer, type CallToolResult } from "@modelcontextprotocol/server";
 import { API_VERSION } from "../src/contracts.js";
 import { registerTools, type ToolRuntime } from "../src/server.js";
@@ -87,13 +90,12 @@ describe("tool titles and output schemas", () => {
       expect(tool.title).toBe(TOOL_TITLES[tool.name]);
       const outputSchema = tool.outputSchema as Record<string, unknown> | undefined;
       expect(outputSchema?.type).toBe("object");
-      expect([...(outputSchema?.required as string[])].sort()).toEqual([
-        "api_version",
-        "completeness",
-        "data",
-        "effective_scope",
+      const branches = outputSchema?.anyOf as Array<Record<string, unknown>>;
+      expect(branches).toHaveLength(2);
+      expect([...(branches[0].required as string[])].sort()).toEqual([
+        "api_version", "completeness", "data", "effective_scope",
       ]);
-      expect(Object.keys(outputSchema?.properties as Record<string, unknown>)).toContain("data");
+      expect([...(branches[1].required as string[])].sort()).toEqual(["api_version", "error"]);
     }
   });
 
@@ -104,7 +106,7 @@ describe("tool titles and output schemas", () => {
     expect((result.structuredContent as Record<string, unknown>).api_version).toBe(API_VERSION);
   });
 
-  it("passes error results through without output-schema validation", async () => {
+  it("preserves error results and their stable reason", async () => {
     const client = await connect(ERROR);
     const result = await client.callTool({ name: "server_status", arguments: {} });
     expect(result.isError).toBe(true);
@@ -112,5 +114,53 @@ describe("tool titles and output schemas", () => {
     expect(structured.data).toBeUndefined();
     expect((structured.error as { reason: string }).reason).toBe("DATABASE_UNAVAILABLE");
     expect(JSON.stringify(result.content)).not.toMatch(/validation error/iu);
+  });
+});
+
+// Some clients validate every structured result, including isError responses.
+// Validate explicitly here so the SDK's error exemption cannot mask #79.
+describe("strict client error validation (#79)", () => {
+  const argumentsByTool: Record<string, Record<string, unknown>> = {
+    server_status: {}, resolve_contact: { query: "Synthetic Person" },
+    list_conversations: {}, get_conversation: { chat_id: 1 },
+    search_messages: { query: "synthetic" },
+    analyze_communication: { metric: "message_count" },
+    get_attachment: { attachment_id: 1 }, sync_messages: {},
+  };
+
+  it.each(["AMBIGUOUS_CONTACT", "INVALID_INPUT", "INDEX_BUILDING", "DATABASE_UNAVAILABLE", "UNSUPPORTED_SCHEMA", "DECODE_FAILED"] as const)(
+    "preserves %s and its recovery hint through every advertised output schema",
+    async (reason) => {
+      const error = errorResult("get_conversation", new ImessageMcpError(reason,
+        "synthetic failure; call list_conversations with the same contact, then pass the chosen chat_id",
+        { retry: "call list_conversations", match_count: 2, candidates: [{ name: "Private Synthetic Name" }] },
+      ), "aggregate", Buffer.alloc(32));
+      const client = await connect(error);
+      const validator = new AjvJsonSchemaValidator();
+      for (const tool of (await client.listTools()).tools) {
+        const result = await client.callTool({ name: tool.name, arguments: argumentsByTool[tool.name] });
+        const validate = validator.getValidator(tool.outputSchema!);
+        expect(validate(result.structuredContent), tool.name).toMatchObject({ valid: true });
+        expect(result.isError).toBe(true);
+        expect(result.structuredContent).toMatchObject({ error: { reason, details: { retry: "call list_conversations" } } });
+        expect(JSON.stringify(result.content)).toContain("call list_conversations");
+        expect(JSON.stringify(result)).not.toContain("Private Synthetic Name");
+      }
+    },
+  );
+
+  it("still rejects malformed success and error envelopes", async () => {
+    const client = await connect(SUCCESS);
+    const validator = new AjvJsonSchemaValidator();
+    for (const tool of (await client.listTools()).tools) {
+      const validate = validator.getValidator(tool.outputSchema!);
+      for (const malformed of [
+        { api_version: API_VERSION },
+        { api_version: API_VERSION, error: { reason: "INVALID_INPUT" } },
+        { api_version: API_VERSION, error: { message: "missing reason" } },
+        { ...SUCCESS.structuredContent, completeness: "unknown" },
+        { ...SUCCESS.structuredContent, api_version: "wrong" },
+      ]) expect(validate(malformed), tool.name).toMatchObject({ valid: false });
+    }
   });
 });

@@ -41,9 +41,8 @@ function recoverInvalidInput<T extends z.ZodType>(schema: T) {
   return schema.catch(() => INVALID_ARGUMENTS as never);
 }
 
-// Output schemas describe successful results only. The SDK skips output
-// validation for `isError` results, which carry the error envelope from
-// result.ts instead of this success envelope.
+// Both success and error envelopes must satisfy the advertised output schema.
+// Some clients validate structured errors even when isError is true.
 //
 // Every field a privacy mode can remove is optional, and every object stays
 // open, because redacted mode drops bodies and aggregate mode drops
@@ -68,8 +67,17 @@ const warningSchema = z.looseObject({
   skipped_count: z.number().optional(),
 });
 
-function successSchema<T extends z.ZodType>(data: T) {
-  return z.looseObject({
+const errorEnvelopeSchema = z.object({
+  api_version: z.literal(API_VERSION),
+  error: z.object({
+    reason: z.string().min(1),
+    message: z.string(),
+    details: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).optional(),
+  }),
+});
+
+function resultSchema<T extends z.ZodType>(data: T) {
+  const success = z.looseObject({
     api_version: z.literal(API_VERSION),
     effective_scope: z.record(z.string(), z.unknown()),
     completeness: completenessSchema,
@@ -77,9 +85,11 @@ function successSchema<T extends z.ZodType>(data: T) {
     page: pageSchema.optional(),
     warnings: z.array(warningSchema).optional(),
   });
+  // Both branches are objects; retain an object root for older MCP clients.
+  return z.union([success, errorEnvelopeSchema]).meta({ type: "object" });
 }
 
-const serverStatusOutput = successSchema(z.looseObject({
+const serverStatusOutput = resultSchema(z.looseObject({
   api_version: z.string(),
   package_version: z.string(),
   privacy_ceiling: privacySchema,
@@ -139,7 +149,7 @@ const contactCandidateSchema = z.looseObject({
   match: z.enum(["exact_handle", "exact_name", "partial_name"]).optional(),
 });
 
-const resolveContactOutput = successSchema(z.looseObject({
+const resolveContactOutput = resultSchema(z.looseObject({
   status: z.enum(["unique", "ambiguous", "not_found", "unavailable"]),
   contact: contactCandidateSchema.optional(),
   candidates: z.array(contactCandidateSchema).optional(),
@@ -153,7 +163,7 @@ const conversationLabelSchema = z.looseObject({
   handle: z.string().optional(),
 });
 
-const listConversationsOutput = successSchema(z.looseObject({
+const listConversationsOutput = resultSchema(z.looseObject({
   conversations: z.array(z.looseObject({
     chat_id: z.number().optional(),
     display_name: z.string().nullable().optional(),
@@ -179,7 +189,7 @@ const listConversationsOutput = successSchema(z.looseObject({
   by_service: countsSchema.optional(),
 }));
 
-const getConversationOutput = successSchema(z.looseObject({
+const getConversationOutput = resultSchema(z.looseObject({
   conversation: conversationLabelSchema.optional(),
   events: z.array(z.looseObject({
     event_type: z.enum([
@@ -237,7 +247,7 @@ const getConversationOutput = successSchema(z.looseObject({
   by_service: countsSchema.optional(),
 }));
 
-const searchMessagesOutput = successSchema(z.looseObject({
+const searchMessagesOutput = resultSchema(z.looseObject({
   total_matches: z.number().optional(),
   results: z.array(z.looseObject({
     message_id: z.number().optional(),
@@ -258,7 +268,7 @@ const searchMessagesOutput = successSchema(z.looseObject({
   by_service: countsSchema.optional(),
 }));
 
-const analyzeCommunicationOutput = successSchema(z.looseObject({
+const analyzeCommunicationOutput = resultSchema(z.looseObject({
   metric: z.enum(["message_count", "response_time", "streaks", "initiation"]),
   formula: z.string(),
   effective_timezone: z.string(),
@@ -271,7 +281,7 @@ const analyzeCommunicationOutput = successSchema(z.looseObject({
   service_partitions: z.array(z.looseObject({ service_family: serviceSchema })),
 }));
 
-const syncMessagesOutput = successSchema(z.looseObject({
+const syncMessagesOutput = resultSchema(z.looseObject({
   changes: z.array(z.looseObject({
     change_type: z.enum([
       "message_created",
@@ -303,7 +313,7 @@ const syncMessagesOutput = successSchema(z.looseObject({
   by_service: countsSchema.optional(),
 }));
 
-const getAttachmentOutput = successSchema(z.looseObject({
+const getAttachmentOutput = resultSchema(z.looseObject({
   attachment_id: z.number(),
   filename: z.string().nullable().optional(),
   mime_type: z.string().nullable().optional(),
@@ -450,7 +460,7 @@ export function registerTools(server: McpServer, runtime: ToolRuntime): void {
       description: "Find your iMessage, SMS, MMS, and RCS conversations filtered by contact, service, conversation kind, reply state, or date range. Each result includes the latest message and can be ordered newest-first or by who you text most. Feed any chat_id to get_conversation for the full thread. Read-only.",
       inputSchema: recoverInvalidInput(z.object({
         contact: querySchema.optional()
-          .describe("Name or exact handle. If a name is ambiguous, call resolve_contact once, select the intended person, and use their exact phone number or email here. Results may include multiple distinct conversations for one person; pass the selected result's chat_id to get_conversation."),
+          .describe("A name expands to that person's addresses; an exact phone number or email scopes only that address, even when Contacts labels conflict. If a name is ambiguous, call resolve_contact once, select the intended person, and use their exact phone number or email here. Results may include multiple distinct conversations for one person; pass the selected result's chat_id to get_conversation."),
         service_family: serviceSchema.optional(),
         kind: z.enum(["direct", "group"]).optional(),
         replied: z.boolean().optional(),
@@ -475,7 +485,7 @@ export function registerTools(server: McpServer, runtime: ToolRuntime): void {
         chat_id: idSchema.optional()
           .describe("Conversation id from list_conversations or search results. Use this to select one conversation when a person has multiple threads. Provide chat_id or query, never both."),
         query: querySchema.optional()
-          .describe("Contact or group name, phone number, or email. One person can have multiple distinct conversations, even for an exact handle. On ambiguity, use resolve_contact if needed, then list_conversations with the chosen exact handle; pass the selected result's chat_id as chat_id. Prefer chat_id when known. Provide query or chat_id, never both."),
+          .describe("Contact or group name, phone number, or email. An exact phone number or email scopes only that address. One person can have multiple distinct conversations, even for an exact handle. On ambiguity, use resolve_contact if needed, then list_conversations with the chosen exact handle; pass the selected result's chat_id as chat_id. Prefer chat_id when known. Provide query or chat_id, never both."),
         around_message_id: idSchema.optional(),
         service_family: serviceSchema.optional(),
         event_types: z.array(z.enum([
@@ -489,7 +499,8 @@ export function registerTools(server: McpServer, runtime: ToolRuntime): void {
         ...dateFields,
         limit: pageLimitSchema,
         cursor: cursorSchema.optional(),
-        allow_partial: z.boolean().default(false),
+        allow_partial: z.boolean().default(false)
+          .describe("Strict by default. When an error offers this retry, set true to return readable events with completeness: partial and warnings. Inspect each row_status; a complete row does not make the whole response complete. You can also narrow the dates or read around a search result's message_id."),
         privacy_mode: privacySchema.optional(),
       }).strict().superRefine((value, context) => {
         if ((value.chat_id === undefined) === (value.query === undefined)) {
@@ -542,7 +553,8 @@ export function registerTools(server: McpServer, runtime: ToolRuntime): void {
       inputSchema: recoverInvalidInput(z.object({
         metric: z.enum(["message_count", "response_time", "streaks", "initiation"]),
         scope: z.enum(["global", "contact", "conversation"]).default("global"),
-        contact: querySchema.optional(),
+        contact: querySchema.optional()
+          .describe("A name expands to that person's addresses; an exact phone number or email scopes only that address."),
         chat_id: idSchema.optional(),
         session_gap_hours: z.number().positive().max(168).default(8),
         ...dateFields,
