@@ -857,7 +857,7 @@ describe("strict client recovery (#79)", () => {
     const db = new Database(fixture.databasePath);
     db.exec("UPDATE chat SET display_name='Synthetic Twin' WHERE ROWID IN (3,4)");
     db.close();
-    const client = await connect(fixture.databasePath);
+    const client = await connectStdio(["--database", fixture.databasePath, "--contacts", "none"]);
     const tools = (await client.listTools()).tools;
     const validators = new AjvJsonSchemaValidator();
     for (const tool of tools) {
