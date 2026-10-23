@@ -259,7 +259,7 @@ jobs:
           VERSION="${{ needs.publish-npm.outputs.version }}"
           for ATTEMPT in {1..60}; do
             BODY=$(curl --fail --silent --show-error \
-              "https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.anipotts/imessage-mcp" || true)
+              "https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.anipottsbuilds/imessage-mcp" || true)
             if printf '%s' "$BODY" | VERSION="$VERSION" node -e "
               const fs = require('fs'), assert = require('assert/strict');
               let body='';

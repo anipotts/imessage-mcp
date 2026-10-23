@@ -1,18 +1,18 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.anipotts/imessage-mcp",
+  "name": "io.github.anipottsbuilds/imessage-mcp",
   "title": "iMessage History",
   "description": "Read-only MCP server for searching and reading Apple Messages history on macOS.",
   "icons": [
     {
-      "src": "https://raw.githubusercontent.com/anipotts/imessage-mcp/v3.3.1/assets/icon.svg",
+      "src": "https://raw.githubusercontent.com/anipottsbuilds/imessage-mcp/v3.3.1/assets/icon.svg",
       "mimeType": "image/svg+xml",
       "sizes": [
         "any"
       ]
     },
     {
-      "src": "https://raw.githubusercontent.com/anipotts/imessage-mcp/v3.3.1/assets/icon-512.png",
+      "src": "https://raw.githubusercontent.com/anipottsbuilds/imessage-mcp/v3.3.1/assets/icon-512.png",
       "mimeType": "image/png",
       "sizes": [
         "512x512"
@@ -20,7 +20,7 @@
     }
   ],
   "repository": {
-    "url": "https://github.com/anipotts/imessage-mcp",
+    "url": "https://github.com/anipottsbuilds/imessage-mcp",
     "source": "github"
   },
   "version": "3.3.1",

@@ -1,7 +1,7 @@
 {
   "name": "imessage-mcp",
   "version": "3.3.1",
-  "mcpName": "io.github.anipotts/imessage-mcp",
+  "mcpName": "io.github.anipottsbuilds/imessage-mcp",
   "description": "Search and read your Apple Messages history from any MCP client. Read-only, runs on your Mac, no native dependencies.",
   "author": "Ani Potts",
   "license": "MIT",
@@ -75,10 +75,10 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/anipotts/imessage-mcp.git"
+    "url": "git+https://github.com/anipottsbuilds/imessage-mcp.git"
   },
-  "homepage": "https://github.com/anipotts/imessage-mcp",
+  "homepage": "https://github.com/anipottsbuilds/imessage-mcp",
   "bugs": {
-    "url": "https://github.com/anipotts/imessage-mcp/issues"
+    "url": "https://github.com/anipottsbuilds/imessage-mcp/issues"
   }
 }
