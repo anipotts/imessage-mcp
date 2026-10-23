@@ -27,6 +27,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
+import { AjvJsonSchemaValidator } from "@modelcontextprotocol/client/validators/ajv";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import Database from "../src/sqlite.js";
 import { appleNanoseconds, createFixture, type Fixture } from "./fixture.js";
@@ -846,5 +847,30 @@ describe("mcpb bundle", () => {
       await client.close();
       openClients.splice(openClients.indexOf(client), 1);
     }
+  });
+});
+
+
+describe("strict client recovery (#79)", () => {
+  it("validates actual tool errors without hiding their reason or recovery hint", async () => {
+    const fixture = trackFixture(createFixture());
+    const db = new Database(fixture.databasePath);
+    db.exec("UPDATE chat SET display_name='Synthetic Twin' WHERE ROWID IN (3,4)");
+    db.close();
+    const client = await connectStdio(["--database", fixture.databasePath, "--contacts", "none"]);
+    const tools = (await client.listTools()).tools;
+    const validators = new AjvJsonSchemaValidator();
+    for (const tool of tools) {
+      const result = await client.callTool({ name: tool.name, arguments: { unknown_field: true } });
+      expect(result.isError, tool.name).toBe(true);
+      expect(validators.getValidator(tool.outputSchema!)(result.structuredContent), tool.name).toMatchObject({ valid: true });
+      expect(result.structuredContent).toMatchObject({ error: { reason: "INVALID_INPUT" } });
+    }
+    const result = await client.callTool({ name: "get_conversation", arguments: { query: "Synthetic Twin", limit: 5 } });
+    const tool = tools.find((entry) => entry.name === "get_conversation")!;
+    expect(validators.getValidator(tool.outputSchema!)(result.structuredContent)).toMatchObject({ valid: true });
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent).toMatchObject({ error: { reason: "AMBIGUOUS_CONTACT" } });
+    expect(JSON.stringify(result.content)).toContain("call list_conversations");
   });
 });

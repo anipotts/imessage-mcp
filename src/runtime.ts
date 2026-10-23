@@ -234,8 +234,17 @@ export class LocalToolRuntime {
     return resolution;
   }
 
+  // An address selects a scope, not a person. Contacts may contain conflicting
+  // labels or other addresses; neither should change an exact-address read.
+  private resolveContactScope(query: string): ContactResolution {
+    const cleaned = query.trim();
+    return looksLikeHandle(cleaned)
+      ? { status: "unique", contact: { name: null, handles: [cleaned], match: "exact_handle" } }
+      : this.resolveContactQuery(cleaned);
+  }
+
   private resolveContactHandles(query: string): { handles: string[]; resolution: Record<string, unknown> } {
-    const resolution = this.resolveContactQuery(query);
+    const resolution = this.resolveContactScope(query);
     if (resolution.status === "unique") return { handles: resolution.contact.handles, resolution };
     if (resolution.status === "ambiguous") {
       throw new ImessageMcpError("AMBIGUOUS_CONTACT", "contact matched more than one person; call resolve_contact with the same query to see them, then pass one of their handles as contact", {
@@ -290,7 +299,7 @@ export class LocalToolRuntime {
     }
     const query = queryValue?.trim();
     if (!query) throw new ImessageMcpError("INVALID_INPUT", "chat_id or a nonempty query is required");
-    const contactResolution = this.resolveContactQuery(query);
+    const contactResolution = this.resolveContactScope(query);
     if (contactResolution.status === "ambiguous") {
       throw new ImessageMcpError("AMBIGUOUS_CONTACT", "query matched more than one person; call resolve_contact with the same query to see them, then pass one of their handles as query, or a chat_id from list_conversations", {
         candidates: contactResolution.candidates,
@@ -318,10 +327,13 @@ export class LocalToolRuntime {
         }
       }
       if (found.length > 1) {
-        throw new ImessageMcpError("AMBIGUOUS_CONTACT", "this person has no single one-to-one chat and is in several group chats; call list_conversations with the same contact, then pass the chosen chat_id", {
+        throw new ImessageMcpError("AMBIGUOUS_CONTACT", "query matches multiple conversations; call list_conversations with the same contact, then pass the chosen chat_id", {
           match_count: found.length,
         });
       }
+    }
+    if (looksLikeHandle(query)) {
+      throw new ImessageMcpError("INVALID_INPUT", "no conversation matched this exact address; for an address-like group title call search_messages with scopes: [conversation_names], then pass the selected chat_id");
     }
     const request = this.database.request();
     try {

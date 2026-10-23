@@ -4,6 +4,14 @@ this file follows [keep a changelog](https://keepachangelog.com/en/1.1.0/), and 
 
 ## unreleased
 
+## 3.3.1
+
+### fixed
+
+- structured errors now satisfy every tool's advertised output schema, preserving the original reason and recovery hints in clients that validate errors as well as successes (#79). success and error envelopes remain unchanged.
+- exact phone and email filters select only that address even when Contacts records conflict. name queries still expand a person’s addresses, and identity resolution remains ambiguous when the records disagree.
+- incomplete conversation reads now explain the explicit `allow_partial: true` retry in both text and structured errors. strict reads remain the default; partial results preserve completeness, warnings and per-event status. structural failures still fail closed.
+
 ## 3.3.0
 
 ### changed

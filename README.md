@@ -198,6 +198,12 @@ Apple can record the same message in several conversations. Search returns that 
 
 Global and contact message counts deduplicate shared records within the requested scope. Conversation timelines and sequence metrics retain each recorded membership, so adding per-conversation counts can exceed the global count. Sync includes `chat_ids` on changes and emits `message_membership_changed` with `previous_chat_ids`; its `changed_at` is null because Apple does not timestamp these joins. Logged memberships describe the change when observed; available text, sender and receipt fields describe current source state. Upgrading the index format rebuilds its cache once and invalidates older sync cursors; start a new sync when it returns `DATABASE_CHANGED`.
 
+Contact names expand to the selected person's addresses. An exact phone number or email scopes only that address, even when Contacts has conflicting labels. `resolve_contact` still reports ambiguous identity; address scoping does not merge people or include their other addresses. For an address-like group title, search with the `conversation_names` scope and use the selected `chat_id`.
+
+Every tool's output schema accepts both its success envelope and the structured error envelope, so strict clients can expose the original reason and recovery hints.
+
+Conversation reads are strict by default. When a body or relationship cannot be recovered completely, the error explains the `allow_partial: true` retry. Partial results retain `completeness`, warnings and each event's `row_status`; inspect these before citing evidence. Narrower dates or `around_message_id` can avoid an unrelated damaged event. Structural failures still fail closed.
+
 ## Configuration
 
 Add options to `args`, for example `["-y", "imessage-mcp@latest", "--privacy", "redacted"]`.
