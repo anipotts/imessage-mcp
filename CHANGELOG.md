@@ -4,6 +4,13 @@ this file follows [keep a changelog](https://keepachangelog.com/en/1.1.0/), and 
 
 ## unreleased
 
+## 3.3.2
+
+### changed
+
+- publish Registry metadata as `io.github.anipottsbuilds/imessage-mcp` after the repository move to `anipottsbuilds`. the npm package remains `imessage-mcp`; the old Registry identity and its 3.3.1 release remain available. clients using the old Registry identity must select the new identity to migrate.
+- update package repository and icon links to the organization, and run the verified open-source Gitleaks CLI for organization-compatible secret scanning.
+
 ## 3.3.1
 
 ### fixed
